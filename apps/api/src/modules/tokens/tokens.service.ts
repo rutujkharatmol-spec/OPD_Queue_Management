@@ -103,8 +103,7 @@ export class TokensService {
       await queryRunner.manager.save(token);
       await queryRunner.commitTransaction();
 
-      // Emit real-time update
-      await this.queueService.emitQueueUpdate(departmentId, doctorId);
+
 
       return token;
     } catch (error) {
