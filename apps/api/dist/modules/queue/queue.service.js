@@ -50,7 +50,7 @@ let QueueService = class QueueService {
                     }
                     doctor = queryRunner.manager.create(doctor_entity_1.Doctor, {
                         id: doctorId,
-                        name: 'Dr. Sharma',
+                        name: 'Consulting Doctor',
                         roomNumber: '104',
                         department: dept
                     });
@@ -153,7 +153,6 @@ let QueueService = class QueueService {
         });
         return {
             department: department?.name || 'Department',
-            doctorName: queue?.doctor?.name || 'Doctor',
             roomNumber: queue?.doctor?.roomNumber || 'TBD',
             currentToken: queue?.currentToken?.tokenNumber || null,
             nextTokens: waitingTokens.map(t => t.priority === token_entity_2.TokenPriority.EMERGENCY ? `${t.tokenNumber} 🚨` : t.tokenNumber)

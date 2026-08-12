@@ -48,9 +48,9 @@ let TokensService = class TokensService {
             }
             let doctor = await queryRunner.manager.findOne(doctor_entity_1.Doctor, { where: { id: doctorId } });
             if (!doctor) {
-                doctor = await queryRunner.manager.findOne(doctor_entity_1.Doctor, { where: { name: 'Dr. Sharma' } });
+                doctor = await queryRunner.manager.findOne(doctor_entity_1.Doctor, { where: { name: 'Consulting Doctor' } });
                 if (!doctor) {
-                    doctor = queryRunner.manager.create(doctor_entity_1.Doctor, { id: doctorId, name: 'Dr. Sharma', roomNumber: '104', department });
+                    doctor = queryRunner.manager.create(doctor_entity_1.Doctor, { id: doctorId, name: 'Consulting Doctor', roomNumber: '104', department });
                     await queryRunner.manager.save(doctor);
                 }
                 else {

@@ -16,11 +16,6 @@
       "static/chunks/main-app.js",
       "static/chunks/app/tv/page.js"
     ],
-    "/registration/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/registration/page.js"
-    ],
     "/doctor/page": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
