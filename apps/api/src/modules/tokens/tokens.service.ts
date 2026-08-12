@@ -49,9 +49,9 @@ export class TokensService {
 
       let doctor = await queryRunner.manager.findOne(Doctor, { where: { id: doctorId } });
       if (!doctor) {
-        doctor = await queryRunner.manager.findOne(Doctor, { where: { name: 'Dr. Sharma' } });
+        doctor = await queryRunner.manager.findOne(Doctor, { where: { name: 'Consulting Doctor' } });
         if (!doctor) {
-          doctor = queryRunner.manager.create(Doctor, { id: doctorId, name: 'Dr. Sharma', roomNumber: '104', department });
+          doctor = queryRunner.manager.create(Doctor, { id: doctorId, name: 'Consulting Doctor', roomNumber: '104', department });
           await queryRunner.manager.save(doctor);
         } else {
           doctorId = doctor.id;

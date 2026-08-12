@@ -46,7 +46,7 @@ export class QueueService {
           }
           doctor = queryRunner.manager.create(Doctor, {
             id: doctorId,
-            name: 'Dr. Sharma',
+            name: 'Consulting Doctor',
             roomNumber: '104',
             department: dept
           });
@@ -173,7 +173,6 @@ export class QueueService {
     
     return {
       department: department?.name || 'Department',
-      doctorName: queue?.doctor?.name || 'Doctor',
       roomNumber: queue?.doctor?.roomNumber || 'TBD',
       currentToken: queue?.currentToken?.tokenNumber || null,
       nextTokens: waitingTokens.map(t => t.priority === TokenPriority.EMERGENCY ? `${t.tokenNumber} 🚨` : t.tokenNumber)

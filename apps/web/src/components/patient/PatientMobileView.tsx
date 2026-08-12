@@ -13,7 +13,6 @@ export default function PatientMobileView({ tokenNumber = 'MED-049', departmentI
   // For demonstration, fallback to mock data if store is empty
   const queueData = liveQueues[departmentId] || {
     department: 'Medicine',
-    doctorName: 'Dr. Sharma',
     roomNumber: '104',
     currentToken: 'MED-042',
     nextTokens: ['MED-043', 'MED-044', 'MED-045', 'MED-046', 'MED-047', 'MED-048', 'MED-049']
@@ -110,8 +109,8 @@ export default function PatientMobileView({ tokenNumber = 'MED-049', departmentI
               <Stethoscope size={20} />
             </div>
             <div>
-              <p className="font-bold text-slate-800 text-lg leading-tight">{queueData.doctorName}</p>
-              <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">{queueData.department} Dept</p>
+              <p className="font-bold text-slate-800 text-lg leading-tight">{queueData.department} Dept</p>
+              <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Consultation</p>
             </div>
           </div>
           

@@ -55,7 +55,6 @@ export default function TvDisplay({ departmentId }: { departmentId: string }) {
         <div className="text-right flex items-center gap-6">
           <div className="text-right">
             <p className="text-[1.8vh] font-bold text-blue-300 tracking-wider uppercase">Consulting</p>
-            <p className="text-[3vh] font-black text-white">{queueData.doctorName}</p>
           </div>
           <div className="w-16 h-16 rounded-2xl bg-blue-600 flex items-center justify-center font-black text-[3vh] shadow-[0_0_20px_rgba(37,99,235,0.5)]">
             {queueData.roomNumber}

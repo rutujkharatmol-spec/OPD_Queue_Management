@@ -91,7 +91,7 @@ export default function DoctorDashboard() {
         {/* Header */}
         <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-6 lg:p-10 gap-4">
           <div>
-            <h1 className="text-3xl font-black text-slate-900 tracking-tight">Dr. Sharma's OPD</h1>
+            <h1 className="text-3xl font-black text-slate-900 tracking-tight">Consultation OPD</h1>
             <p className="text-slate-500 font-medium mt-1 flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
               Medicine Dept • Room 104

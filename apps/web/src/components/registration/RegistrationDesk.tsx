@@ -11,7 +11,6 @@ export default function RegistrationDesk() {
     name: '',
     phone: '',
     department: 'Medicine',
-    doctor: 'Dr. Sharma',
     priority: 'Normal',
   });
 
@@ -169,7 +168,7 @@ export default function RegistrationDesk() {
                   {/* Consultation Details */}
                   <div className="bg-blue-50/50 p-6 rounded-2xl border border-blue-100/50 space-y-6">
                     <h3 className="text-xs font-bold text-blue-400 uppercase tracking-widest mb-4">Consultation Assignment</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div>
                         <label className="block text-sm font-semibold text-slate-700 mb-2">Department</label>
                         <select className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-slate-800 focus:ring-4 focus:ring-blue-500/20 outline-none shadow-sm cursor-pointer appearance-none">
@@ -178,14 +177,7 @@ export default function RegistrationDesk() {
                           <option>Cardiology</option>
                         </select>
                       </div>
-                      <div>
-                        <label className="block text-sm font-semibold text-slate-700 mb-2">Doctor</label>
-                        <select className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-slate-800 focus:ring-4 focus:ring-blue-500/20 outline-none shadow-sm cursor-pointer appearance-none">
-                          <option>Dr. Sharma (Rm 104)</option>
-                          <option>Dr. Gupta (Rm 105)</option>
-                        </select>
-                      </div>
-                      <div className="md:col-span-2 lg:col-span-1">
+                      <div className="md:col-span-1 lg:col-span-1">
                         <label className="block text-sm font-semibold text-slate-700 mb-2">Queue Priority</label>
                         <select 
                           value={patientData.priority}

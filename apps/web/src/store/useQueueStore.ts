@@ -3,7 +3,6 @@ import { io, Socket } from 'socket.io-client';
 
 export interface TokenDisplayData {
   department: string;
-  doctorName: string;
   roomNumber: string;
   currentToken: string;
   nextTokens: string[];
