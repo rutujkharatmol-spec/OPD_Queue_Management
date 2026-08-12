@@ -7,6 +7,10 @@
     "build": "pnpm --filter \"*\" run build",
     "lint": "pnpm --filter \"*\" run lint"
   },
+  "dependencies": {
+    "express": "^4.19.2",
+    "serverless-http": "^3.2.0"
+  },
   "devDependencies": {
     "typescript": "^5.0.0"
   }

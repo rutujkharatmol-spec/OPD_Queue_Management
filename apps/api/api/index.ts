@@ -1,10 +1,10 @@
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from '../src/app.module';
+import { AppModule } from '../dist/app.module';
 import { ValidationPipe } from '@nestjs/common';
 import serverlessExpress from 'serverless-http';
-import { AllExceptionsFilter } from '../src/shared/filters/all-exceptions.filter';
+import { AllExceptionsFilter } from '../dist/shared/filters/all-exceptions.filter';
 import { ExpressAdapter } from '@nestjs/platform-express';
-import * as express from 'express';
+const express = require('express');
 
 let cachedServer: any;
 
