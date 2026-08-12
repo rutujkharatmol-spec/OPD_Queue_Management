@@ -4,14 +4,13 @@ import { ValidationPipe } from '@nestjs/common';
 import serverlessExpress from 'serverless-http';
 import { AllExceptionsFilter } from '../dist/shared/filters/all-exceptions.filter';
 import { ExpressAdapter } from '@nestjs/platform-express';
-const express = require('express');
 
 let cachedServer: any;
 
 async function bootstrap() {
   if (!cachedServer) {
-    const expressApp = express();
-    const app = await NestFactory.create(AppModule, new ExpressAdapter(expressApp));
+    const adapter = new ExpressAdapter();
+    const app = await NestFactory.create(AppModule, adapter);
     
     app.enableCors();
     app.setGlobalPrefix('api/v1');
@@ -24,7 +23,7 @@ async function bootstrap() {
     app.useGlobalFilters(new AllExceptionsFilter());
 
     await app.init();
-    cachedServer = serverlessExpress(expressApp);
+    cachedServer = serverlessExpress(adapter.getInstance());
   }
   return cachedServer;
 }
