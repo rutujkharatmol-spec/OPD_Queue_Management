@@ -1,4 +1,4 @@
-import { Controller, Patch, Param, Body } from '@nestjs/common';
+import { Controller, Patch, Param, Body, Get } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { QueueService } from './queue.service';
 import { MarkTokenActionDto } from './dto/mark-token-action.dto';
@@ -24,5 +24,12 @@ export class QueueController {
     @Body() dto: MarkTokenActionDto,
   ) {
     return this.queueService.markTokenAction(tokenId, dto.action as 'SKIP' | 'ABSENT' | 'COMPLETE');
+  }
+
+  @Get('live/:departmentId')
+  @ApiOperation({ summary: 'Get the live queue status for a department' })
+  @ApiResponse({ status: 200, description: 'Returns the live queue status.' })
+  async getLiveQueue(@Param('departmentId') departmentId: string) {
+    return this.queueService.getLiveQueueByDepartment(departmentId);
   }
 }

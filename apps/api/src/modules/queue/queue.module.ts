@@ -5,12 +5,12 @@ import { Token } from '../tokens/entities/token.entity';
 import { Department } from '../departments/entities/department.entity';
 import { QueueService } from './queue.service';
 import { QueueController } from './queue.controller';
-import { QueueGateway } from './queue.gateway';
+
 
 @Module({
   imports: [TypeOrmModule.forFeature([Queue, Token, Department])],
   controllers: [QueueController],
-  providers: [QueueService, QueueGateway],
-  exports: [QueueService, QueueGateway],
+  providers: [QueueService],
+  exports: [QueueService],
 })
 export class QueueModule {}

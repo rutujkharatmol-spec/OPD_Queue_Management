@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { io, Socket } from 'socket.io-client';
+import { API_BASE_URL } from '../lib/api';
 
 export interface TokenDisplayData {
   department: string;
@@ -10,15 +10,15 @@ export interface TokenDisplayData {
 
 interface QueueStore {
   liveQueues: Record<string, TokenDisplayData>; // key: departmentId
-  activeSocket: Socket | null;
+  activeInterval: NodeJS.Timeout | null;
   updateQueueData: (departmentId: string, data: TokenDisplayData) => void;
-  initializeWebSocket: (departmentId: string) => void;
+  initializeWebSocket: (departmentId: string) => void; // Keeping the name to prevent breaking other files
   disconnectWebSocket: () => void;
 }
 
 export const useQueueStore = create<QueueStore>((set, get) => ({
   liveQueues: {},
-  activeSocket: null,
+  activeInterval: null,
   updateQueueData: (departmentId, data) => 
     set((state) => ({
       liveQueues: {
@@ -27,32 +27,36 @@ export const useQueueStore = create<QueueStore>((set, get) => ({
       }
     })),
   initializeWebSocket: (departmentId) => {
-    // Prevent multiple connections
-    const { activeSocket, disconnectWebSocket } = get();
-    if (activeSocket) {
+    // Prevent multiple intervals
+    const { activeInterval, disconnectWebSocket } = get();
+    if (activeInterval) {
       disconnectWebSocket();
     }
 
-    // 1. Connect to the NestJS Gateway
-    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-    const socket = io(API_URL);
-    
-    // 2. Join the department room
-    socket.emit('join-department', departmentId);
-    
-    // 3. Listen for queue-update events triggered by the backend
-    socket.on('queue-update', (data: TokenDisplayData) => {
-      console.log('Real-time Queue Update Received:', data);
-      get().updateQueueData(departmentId, data);
-    });
-    
-    set({ activeSocket: socket });
+    const fetchQueue = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/queue/live/${departmentId}`);
+        if (res.ok) {
+          const data = await res.json();
+          get().updateQueueData(departmentId, data);
+        }
+      } catch (err) {
+        console.error('Failed to fetch queue updates', err);
+      }
+    };
+
+    // Initial fetch
+    fetchQueue();
+
+    // Poll every 3 seconds
+    const interval = setInterval(fetchQueue, 3000);
+    set({ activeInterval: interval });
   },
   disconnectWebSocket: () => {
-    const { activeSocket } = get();
-    if (activeSocket) {
-      activeSocket.disconnect();
-      set({ activeSocket: null });
+    const { activeInterval } = get();
+    if (activeInterval) {
+      clearInterval(activeInterval);
+      set({ activeInterval: null });
     }
   }
 }));

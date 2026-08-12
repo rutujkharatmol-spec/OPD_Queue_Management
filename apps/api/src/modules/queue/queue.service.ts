@@ -4,7 +4,6 @@ import { Repository, DataSource, IsNull } from 'typeorm';
 import { Token, TokenStatus } from '../tokens/entities/token.entity';
 import { Queue, QueueStatus } from './entities/queue.entity';
 
-import { QueueGateway } from './queue.gateway';
 import { Department } from '../departments/entities/department.entity';
 import { Doctor } from '../doctors/entities/doctor.entity';
 import { TokenPriority } from '../tokens/entities/token.entity';
@@ -19,7 +18,6 @@ export class QueueService {
     @InjectRepository(Department)
     private readonly departmentRepository: Repository<Department>,
     private readonly dataSource: DataSource,
-    private readonly queueGateway: QueueGateway,
   ) {}
 
   async callNextPatient(doctorId: string): Promise<Token> {
@@ -89,11 +87,6 @@ export class QueueService {
         queue.currentToken = null;
         await queryRunner.manager.save(queue);
         await queryRunner.commitTransaction();
-        
-        // Emit WebSocket event to update displays even if empty
-        const emptyDepartmentId = queue.doctor?.department?.id || '660e8400-e29b-41d4-a716-446655440000';
-        await this.emitQueueUpdate(emptyDepartmentId, doctorId);
-        
         return null;
       }
 
@@ -106,13 +99,6 @@ export class QueueService {
       await queryRunner.manager.save(queue);
 
       await queryRunner.commitTransaction();
-      
-      // Emit WebSocket event to update displays
-      const departmentId = nextToken.department?.id || queue.doctor?.department?.id;
-      if (departmentId) {
-        await this.emitQueueUpdate(departmentId, doctorId);
-      }
-
       return nextToken;
     } catch (error) {
       await queryRunner.rollbackTransaction();
@@ -136,24 +122,21 @@ export class QueueService {
     }
 
     await this.tokenRepository.save(token);
-    
-    // Emit Update
-    const departmentId = token.department?.id || token.doctor?.department?.id;
-    if (departmentId) {
-      await this.emitQueueUpdate(departmentId, token.doctor.id);
-    }
-
     return token;
   }
 
-  public async emitQueueUpdate(departmentId: string, doctorId: string) {
-    const queueData = await this.buildQueueUpdatePayload(departmentId, doctorId);
-    this.queueGateway.broadcastQueueUpdate(departmentId, doctorId, queueData);
+  async getLiveQueueByDepartment(departmentId: string) {
+    const department = await this.departmentRepository.findOne({ where: { id: departmentId } });
+    let doctor = await this.dataSource.manager.findOne(Doctor, { where: { department: { id: departmentId } } });
+    
+    // Fallback for mock data if no doctor is explicitly tied to this new department ID yet
+    const doctorId = doctor ? doctor.id : '550e8400-e29b-41d4-a716-446655440000';
+
+    return this.buildQueueUpdatePayload(departmentId, doctorId, department);
   }
 
-  // Helper method to gather current state for broadcasting
-  private async buildQueueUpdatePayload(departmentId: string, doctorId: string) {
-    const department = await this.departmentRepository.findOne({ where: { id: departmentId } });
+  // Helper method to gather current state for polling
+  private async buildQueueUpdatePayload(departmentId: string, doctorId: string, department: Department | null) {
     const queue = await this.queueRepository.findOne({
       where: { doctor: { id: doctorId } },
       order: { createdAt: 'DESC' },
@@ -172,8 +155,8 @@ export class QueueService {
     });
     
     return {
-      department: department?.name || 'Department',
-      roomNumber: queue?.doctor?.roomNumber || 'TBD',
+      department: department?.name || 'Medicine',
+      roomNumber: queue?.doctor?.roomNumber || '104',
       currentToken: queue?.currentToken?.tokenNumber || null,
       nextTokens: waitingTokens.map(t => t.priority === TokenPriority.EMERGENCY ? `${t.tokenNumber} 🚨` : t.tokenNumber)
     };
