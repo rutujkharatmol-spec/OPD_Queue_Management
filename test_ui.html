@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OPD Queue - Full Workflow Test</title>
+  
+  <!-- React & ReactDOM -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  
+  <!-- Babel for JSX -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Tailwind Config -->
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          animation: {
+            'marquee': 'marquee 25s linear infinite',
+            'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+          },
+          keyframes: {
+            marquee: {
+              '0%': { transform: 'translateX(100%)' },
+              '100%': { transform: 'translateX(-100%)' },
+            }
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-slate-200">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    // --- REGISTRATION DESK COMPONENT ---
+    function RegistrationDesk({ onGenerateToken }) {
+      const [priority, setPriority] = useState('Normal');
+      const [name, setName] = useState('');
+
+      const handleGenerate = (e) => {
+        e.preventDefault();
+        if(!name) { alert('Please enter a patient name'); return; }
+        onGenerateToken(name, priority);
+        setName('');
+        setPriority('Normal');
+      };
+
+      return (
+        <div className="flex flex-col h-full bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+          <div className="p-4 bg-slate-900 text-white flex justify-between items-center">
+            <h2 className="text-lg font-bold text-blue-400 tracking-wider">AIIMS Registration</h2>
+            <span className="text-xs bg-slate-700 px-2 py-1 rounded">Staff View</span>
+          </div>
+          
+          <div className="p-6 flex-1 flex flex-col">
+            <h3 className="font-bold text-slate-800 mb-4">Add Patient to Queue</h3>
+            <form onSubmit={handleGenerate} className="space-y-4 flex-1">
+              
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Patient Name</label>
+                <input 
+                  type="text" 
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" 
+                  placeholder="E.g. Rahul Kumar" 
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Department & Doctor</label>
+                <select className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-slate-50" disabled>
+                  <option>Medicine - Dr. A. Sharma</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Queue Priority</label>
+                <select 
+                  value={priority}
+                  onChange={(e) => setPriority(e.target.value)}
+                  className={`w-full border rounded-lg px-3 py-2 text-sm font-semibold outline-none focus:ring-2 focus:ring-blue-500 ${priority === 'Emergency' ? 'bg-red-50 text-red-700 border-red-300' : 'bg-white border-slate-300'}`}
+                >
+                  <option value="Normal">Normal</option>
+                  <option value="Senior Citizen">Senior Citizen (60+)</option>
+                  <option value="Emergency" className="text-red-600 font-bold">Emergency 🚨</option>
+                </select>
+              </div>
+
+              <div className="pt-4">
+                <button type="submit" className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md transition-transform active:scale-95 text-sm">
+                  Generate OPD Token
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    // --- TV DISPLAY COMPONENT ---
+    function TvDisplay({ currentToken, queue }) {
+      // Extract just the token strings for the display
+      const nextTokens = queue.map(q => q.token);
+      
+      return (
+        <div className="flex h-full w-full flex-col bg-gray-950 text-white overflow-hidden rounded-2xl shadow-2xl border-4 border-gray-800">
+          <header className="flex h-16 items-center justify-between bg-blue-900 px-6 shadow-lg z-10">
+            <h1 className="text-2xl font-black uppercase tracking-wider text-white">Medicine OPD</h1>
+            <div className="text-right">
+              <p className="text-xl font-bold text-white">Dr. A. Sharma</p>
+            </div>
+          </header>
+
+          <main className="flex flex-1 items-center justify-center p-4 bg-gray-900">
+            <div className="flex w-full flex-col lg:flex-row gap-4 h-full">
+              
+              <div className="flex flex-1 flex-col items-center justify-center rounded-2xl bg-blue-600 p-6 shadow-2xl border-4 border-blue-400 relative overflow-hidden">
+                <div className="absolute inset-0 bg-blue-500 opacity-20 animate-pulse-slow"></div>
+                <h2 className="text-xl font-semibold text-blue-100 mb-2 uppercase tracking-widest z-10">Current Token</h2>
+                <div className="text-7xl font-black leading-none text-white drop-shadow-[0_0_20px_rgba(255,255,255,0.6)] z-10">
+                  {currentToken ? currentToken.token : '---'}
+                </div>
+              </div>
+
+              <div className="flex w-full lg:w-1/3 flex-col rounded-2xl bg-gray-950 p-4 shadow-xl border border-gray-800">
+                <h3 className="text-lg font-bold text-gray-400 mb-4 pb-2 border-b border-gray-800 uppercase tracking-wider">Up Next</h3>
+                <div className="flex flex-col gap-3 overflow-y-auto">
+                  {nextTokens.length > 0 ? (
+                    nextTokens.slice(0,4).map((token, index) => (
+                      <div key={index} className={`flex items-center justify-center rounded-lg py-3 text-2xl font-bold shadow-inner border ${token.includes('🚨') ? 'bg-red-900 border-red-700 text-red-100' : 'bg-gray-800 border-gray-700 text-gray-200'}`}>
+                        {token}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center text-sm text-gray-500 py-4">No patients waiting</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </main>
+
+          <footer className="h-10 bg-red-700 flex items-center overflow-hidden whitespace-nowrap z-10">
+            <div className="animate-marquee inline-block text-sm font-semibold text-white tracking-wide">
+              <span className="mx-4">🚨</span> EMERGENCY PATIENTS HAVE PRIORITY <span className="mx-4">🚨</span> PLEASE WAIT FOR YOUR TOKEN NUMBER TO BE DISPLAYED
+            </div>
+          </footer>
+        </div>
+      );
+    }
+
+    // --- DOCTOR DASHBOARD COMPONENT ---
+    function DoctorDashboard({ currentToken, queue, onCallNext }) {
+      return (
+        <div className="flex h-full w-full bg-slate-50 font-sans rounded-2xl shadow-xl overflow-hidden border border-slate-200">
+          <aside className="w-1/3 bg-white border-r border-slate-200 flex flex-col min-w-[200px]">
+            <div className="p-4 border-b border-slate-200 bg-slate-800 text-white">
+              <h2 className="text-sm font-bold">Waiting Queue</h2>
+              <p className="text-slate-300 text-xs mt-1">{queue.length} Waiting</p>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 space-y-2 bg-slate-50">
+              {queue.map((item, idx) => (
+                <div key={item.id} className={`p-2 rounded-lg border ${item.priority === 'Emergency' ? 'border-red-200 bg-red-50 text-red-700' : 'border-slate-200 bg-white text-slate-700'} shadow-sm`}>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-bold">{item.token}</span>
+                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">Wait: {item.waitTime}m</span>
+                  </div>
+                  <div className="text-xs mt-1 opacity-80">{item.name}</div>
+                </div>
+              ))}
+              {queue.length === 0 && <div className="text-center text-slate-400 py-6 text-sm font-medium">Queue is empty</div>}
+            </div>
+          </aside>
+
+          <main className="flex-1 flex flex-col p-4 bg-slate-100/50">
+            <header className="flex justify-between items-center mb-4 bg-white p-3 rounded-xl shadow-sm border border-slate-200">
+              <div>
+                <h1 className="text-lg font-bold text-slate-800">Doctor's Control</h1>
+              </div>
+            </header>
+
+            <div className="flex-1 flex flex-col items-center justify-center bg-white rounded-xl shadow-sm border border-slate-200 p-6 w-full">
+              <div className="text-center mb-6">
+                <h3 className="text-xs text-slate-400 font-bold uppercase tracking-widest mb-2">Currently Serving</h3>
+                <div className="text-5xl font-black text-blue-600 tracking-tight">
+                  {currentToken ? currentToken.token : '---'}
+                </div>
+                {currentToken && (
+                  <div className="mt-2 text-sm text-slate-600 font-semibold bg-slate-50 py-1 px-4 rounded-full border border-slate-100 inline-block">
+                    {currentToken.name} <span className="text-slate-400">({currentToken.priority})</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 w-full">
+                <button onClick={onCallNext} className="col-span-2 py-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xl font-bold transition-all active:scale-95 shadow-md">
+                  Call Next Patient
+                </button>
+                <button onClick={onCallNext} className="py-2 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold text-sm hover:bg-emerald-100 active:scale-95">Complete</button>
+                <button onClick={onCallNext} className="py-2 rounded-lg bg-orange-50 text-orange-700 border border-orange-200 font-bold text-sm hover:bg-orange-100 active:scale-95">Absent</button>
+              </div>
+            </div>
+          </main>
+        </div>
+      );
+    }
+
+
+    // --- MAIN APP CONTROLLER ---
+    function App() {
+      const [currentToken, setCurrentToken] = useState(null);
+      const [queue, setQueue] = useState([]);
+      const [tokenCounter, setTokenCounter] = useState(1);
+
+      // Add a patient to the queue
+      const handleGenerateToken = (name, priority) => {
+        const tokenNumber = `MED-${String(tokenCounter).padStart(3, '0')}`;
+        setTokenCounter(prev => prev + 1);
+
+        const newPatient = {
+          id: Date.now(),
+          token: priority === 'Emergency' ? `${tokenNumber} 🚨` : tokenNumber,
+          name: name,
+          priority: priority,
+          waitTime: 0,
+          timestamp: Date.now()
+        };
+
+        // THE MAGIC: Sorting logic exactly as the DB does it (Order By Priority DESC, timestamp ASC)
+        setQueue(prevQueue => {
+          const newQueue = [...prevQueue, newPatient];
+          
+          // Sort function: 1. Emergency 2. Senior Citizen 3. Normal. Then by timestamp.
+          newQueue.sort((a, b) => {
+            const getPriorityVal = (p) => {
+              if (p === 'Emergency') return 3;
+              if (p === 'Senior Citizen') return 2;
+              return 1;
+            };
+            
+            const pA = getPriorityVal(a.priority);
+            const pB = getPriorityVal(b.priority);
+            
+            if (pA !== pB) {
+              return pB - pA; // Higher priority first
+            }
+            return a.timestamp - b.timestamp; // Older first
+          });
+          
+          return newQueue;
+        });
+      };
+
+      const handleCallNext = () => {
+        // Play ding sound
+        try {
+          const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+          audio.volume = 0.5;
+          audio.play();
+        } catch(e) {}
+
+        if (queue.length > 0) {
+          // Because the array is ALWAYS sorted when adding, we just take index 0!
+          setCurrentToken(queue[0]);
+          setQueue(queue.slice(1));
+        } else {
+          setCurrentToken(null);
+        }
+      };
+
+      // Auto update wait times
+      useEffect(() => {
+        const interval = setInterval(() => {
+          setQueue(q => q.map(p => ({...p, waitTime: Math.floor((Date.now() - p.timestamp)/60000)})));
+        }, 60000);
+        return () => clearInterval(interval);
+      }, []);
+
+      return (
+        <div className="h-screen w-full p-4 flex flex-col">
+          <div className="mb-4 text-center">
+            <h1 className="text-2xl font-bold text-slate-800">AIIMS Kalyani - Full Queue Workflow Test</h1>
+            <p className="text-sm text-slate-500">Test generating tokens and watch how they auto-sort into the Doctor's Queue.</p>
+          </div>
+
+          <div className="flex flex-1 gap-4 overflow-hidden">
+            
+            {/* STEP 1: REGISTRATION */}
+            <div className="w-1/4 h-full flex flex-col">
+              <h2 className="text-slate-500 font-bold text-xs uppercase tracking-widest mb-2 flex items-center">
+                <span className="w-5 h-5 rounded-full bg-slate-300 text-slate-700 flex items-center justify-center mr-2">1</span>
+                Registration
+              </h2>
+              <div className="flex-1 h-full">
+                <RegistrationDesk onGenerateToken={handleGenerateToken} />
+              </div>
+            </div>
+
+            {/* STEP 2: DOCTOR DASHBOARD */}
+            <div className="w-1/3 h-full flex flex-col">
+              <h2 className="text-slate-500 font-bold text-xs uppercase tracking-widest mb-2 flex items-center">
+                <span className="w-5 h-5 rounded-full bg-blue-300 text-blue-800 flex items-center justify-center mr-2">2</span>
+                Doctor Room
+              </h2>
+              <div className="flex-1 h-full relative">
+                <DoctorDashboard 
+                  currentToken={currentToken} 
+                  queue={queue} 
+                  onCallNext={handleCallNext} 
+                />
+              </div>
+            </div>
+
+            {/* STEP 3: TV DISPLAY */}
+            <div className="flex-1 h-full flex flex-col">
+              <h2 className="text-slate-500 font-bold text-xs uppercase tracking-widest mb-2 flex items-center">
+                <span className="w-5 h-5 rounded-full bg-red-300 text-red-800 flex items-center justify-center mr-2">3</span>
+                TV Monitor
+              </h2>
+              <div className="flex-1 h-full shadow-2xl rounded-2xl overflow-hidden border-[8px] border-black bg-black">
+                <TvDisplay currentToken={currentToken} queue={queue} />
+              </div>
+            </div>
+            
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>

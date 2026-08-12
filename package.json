@@ -1,0 +1,13 @@
+{
+  "name": "akems-opd",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter \"*\" run dev",
+    "build": "pnpm --filter \"*\" run build",
+    "lint": "pnpm --filter \"*\" run lint"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
