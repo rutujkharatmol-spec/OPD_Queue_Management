@@ -43,6 +43,9 @@ export class Token extends BaseEntity {
   })
   status: TokenStatus;
 
+  @Column({ name: 'room_number', nullable: true })
+  roomNumber: string;
+
   @Column({
     type: 'enum',
     enum: TokenPriority,

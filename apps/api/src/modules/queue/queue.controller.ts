@@ -11,8 +11,12 @@ export class QueueController {
   @Patch('next/:doctorId')
   @ApiOperation({ summary: 'Call the next patient in the queue for a doctor' })
   @ApiResponse({ status: 200, description: 'Returns the called token or null if queue is empty.' })
-  async callNextPatient(@Param('doctorId') doctorId: string) {
-    return this.queueService.callNextPatient(doctorId);
+  async callNextPatient(
+    @Param('doctorId') doctorId: string,
+    @Body('roomNumber') roomNumber: string
+  ) {
+    if (!roomNumber) throw new Error('roomNumber is required');
+    return this.queueService.callNextPatient(doctorId, roomNumber);
   }
 
   @Patch('action/:tokenId')

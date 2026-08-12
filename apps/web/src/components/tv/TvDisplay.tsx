@@ -6,19 +6,22 @@ export default function TvDisplay({ departmentId }: { departmentId: string }) {
   const { liveQueues, initializeWebSocket } = useQueueStore();
   const queueData = liveQueues[departmentId];
   const [pulseScale, setPulseScale] = useState(false);
+  const [prevActiveTokens, setPrevActiveTokens] = useState<string>('');
 
   useEffect(() => {
     initializeWebSocket(departmentId);
   }, [departmentId, initializeWebSocket]);
 
-  // Flash animation whenever current token changes
+  // Flash animation whenever active tokens change
   useEffect(() => {
-    if (queueData?.currentToken) {
+    const currentTokensStr = JSON.stringify(queueData?.activeTokens || []);
+    if (queueData?.activeTokens?.length > 0 && currentTokensStr !== prevActiveTokens) {
       setPulseScale(true);
       const timer = setTimeout(() => setPulseScale(false), 500);
+      setPrevActiveTokens(currentTokensStr);
       return () => clearTimeout(timer);
     }
-  }, [queueData?.currentToken]);
+  }, [queueData?.activeTokens]);
 
   if (!queueData) {
     return (
@@ -33,7 +36,8 @@ export default function TvDisplay({ departmentId }: { departmentId: string }) {
     );
   }
 
-  const isEmergency = queueData.currentToken?.includes('🚨');
+  const activeTokens = queueData.activeTokens || [];
+  const hasEmergency = activeTokens.some((t: any) => t.token?.includes('🚨')) || queueData.nextTokens.some(t => t.includes('🚨'));
 
   return (
     <div className="flex h-screen w-full flex-col bg-slate-950 text-white overflow-hidden relative">
@@ -42,58 +46,58 @@ export default function TvDisplay({ departmentId }: { departmentId: string }) {
       <div className="absolute inset-0 z-0 opacity-40">
         <div className="absolute top-[-10%] left-[-10%] w-[50vw] h-[50vw] bg-blue-700/30 blur-[120px] rounded-full mix-blend-screen animate-pulse-slow"></div>
         <div className="absolute bottom-[-10%] right-[-10%] w-[60vw] h-[60vw] bg-purple-900/40 blur-[150px] rounded-full mix-blend-screen animate-pulse-slow" style={{ animationDelay: '2s' }}></div>
-        {isEmergency && (
+        {hasEmergency && (
           <div className="absolute inset-0 bg-red-600/10 animate-pulse mix-blend-overlay z-0"></div>
         )}
       </div>
 
       {/* Header */}
-      <header className="relative z-10 flex h-[10vh] items-center justify-between bg-black/40 backdrop-blur-xl px-12 shadow-2xl border-b border-white/5">
+      <header className="relative z-10 flex h-[10vh] items-center justify-center bg-black/40 backdrop-blur-xl px-12 shadow-2xl border-b border-white/5">
         <h1 className="text-[3.5vh] font-black uppercase tracking-widest text-white drop-shadow-md">
           {queueData.department} OPD
         </h1>
-        <div className="text-right flex items-center gap-6">
-          <div className="text-right">
-            <p className="text-[1.8vh] font-bold text-blue-300 tracking-wider uppercase">Consulting</p>
-          </div>
-          <div className="w-16 h-16 rounded-2xl bg-blue-600 flex items-center justify-center font-black text-[3vh] shadow-[0_0_20px_rgba(37,99,235,0.5)]">
-            {queueData.roomNumber}
-          </div>
-        </div>
       </header>
 
       {/* Main Content */}
-      <main className="relative z-10 flex flex-1 p-6 lg:p-12 gap-8 lg:gap-12 items-stretch justify-center h-[80vh]">
+      <main className="relative z-10 flex flex-1 p-6 lg:p-12 gap-8 lg:gap-12 items-stretch h-[80vh]">
         
-        {/* Current Token (Left/Main) */}
-        <div className={`flex flex-1 flex-col items-center justify-center rounded-[3rem] transition-all duration-500 shadow-2xl border-4 relative overflow-hidden backdrop-blur-2xl ${
-          isEmergency 
-            ? 'bg-red-950/80 border-red-500 shadow-[0_0_50px_rgba(220,38,38,0.3)]' 
-            : 'bg-blue-900/40 border-blue-500/50 shadow-[0_0_50px_rgba(37,99,235,0.2)]'
+        {/* Active Patients Grid (Left/Main) */}
+        <div className={`flex-[2] flex flex-col rounded-[3rem] p-8 shadow-2xl border relative overflow-hidden backdrop-blur-2xl ${
+          hasEmergency 
+            ? 'bg-red-950/40 border-red-500/30' 
+            : 'bg-blue-900/20 border-blue-500/20'
         }`}>
-          {isEmergency && (
-            <div className="absolute inset-0 bg-gradient-to-t from-red-600/20 to-transparent animate-pulse"></div>
-          )}
-          
-          <h2 className="text-[3vh] font-bold text-white/70 mb-[2vh] uppercase tracking-[0.5em] relative z-10">
+          <h2 className="text-[3vh] font-bold text-white/50 mb-8 uppercase tracking-[0.3em] text-center">
             Currently Serving
           </h2>
           
-          <div className={`relative z-10 transition-transform duration-300 ${pulseScale ? 'scale-110' : 'scale-100'}`}>
-            <div className={`text-[18vw] lg:text-[22vh] font-black leading-none tracking-tighter drop-shadow-[0_10px_20px_rgba(0,0,0,0.5)] ${isEmergency ? 'text-red-100' : 'text-white'}`}>
-              {queueData.currentToken || '---'}
+          {activeTokens.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-white/30 text-[3vh] font-medium">
+               No patients currently being served
             </div>
-          </div>
-          
-          {queueData.currentToken && (
-            <div className={`mt-[6vh] text-[4vh] font-medium relative z-10 px-10 py-4 rounded-full border ${isEmergency ? 'bg-red-900/50 border-red-400/50 text-red-100' : 'bg-black/30 border-white/10 text-blue-100'}`}>
-              Proceed to <span className="font-black">Room {queueData.roomNumber}</span> immediately
+          ) : (
+            <div className={`flex-1 grid gap-6 ${activeTokens.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+              {activeTokens.map((item: any, idx: number) => {
+                const isEmergency = item.token?.includes('🚨');
+                return (
+                  <div key={idx} className={`flex flex-col items-center justify-center rounded-[2rem] border transition-transform duration-300 ${pulseScale ? 'scale-105' : 'scale-100'} ${
+                    isEmergency 
+                      ? 'bg-red-900/40 border-red-500/50 shadow-[0_0_30px_rgba(220,38,38,0.3)]' 
+                      : 'bg-black/40 border-blue-500/30'
+                  }`}>
+                    <div className="text-[2.5vh] text-blue-200 font-bold tracking-wider mb-2 uppercase">Room {item.room}</div>
+                    <div className={`text-[12vh] lg:text-[14vh] font-black leading-none tracking-tighter ${isEmergency ? 'text-red-100' : 'text-white'}`}>
+                      {item.token}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
 
         {/* Up Next (Right Sidebar) */}
-        <div className="flex w-1/3 max-w-[400px] flex-col rounded-[3rem] bg-black/40 backdrop-blur-xl p-8 shadow-2xl border border-white/10">
+        <div className="flex-[1] flex flex-col rounded-[3rem] bg-black/40 backdrop-blur-xl p-8 shadow-2xl border border-white/10">
           <h3 className="text-[2.5vh] font-bold text-white/50 mb-[3vh] pb-[2vh] border-b border-white/10 uppercase tracking-widest text-center">
             Up Next
           </h3>

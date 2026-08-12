@@ -13,12 +13,12 @@ export default function PatientMobileView({ tokenNumber = 'MED-049', departmentI
   // For demonstration, fallback to mock data if store is empty
   const queueData = liveQueues[departmentId] || {
     department: 'Medicine',
-    roomNumber: '104',
-    currentToken: 'MED-042',
+    activeTokens: [{ token: 'MED-042', room: '104' }],
     nextTokens: ['MED-043', 'MED-044', 'MED-045', 'MED-046', 'MED-047', 'MED-048', 'MED-049']
   };
 
-  const isMyTurn = tokenNumber === queueData.currentToken;
+  const activePatientData = queueData.activeTokens?.find((t: any) => t.token === tokenNumber);
+  const isMyTurn = !!activePatientData;
   
   const myIndex = queueData.nextTokens.indexOf(tokenNumber);
   const patientsAhead = myIndex !== -1 ? myIndex + 1 : 0;
@@ -68,7 +68,7 @@ export default function PatientMobileView({ tokenNumber = 'MED-049', departmentI
               <p className="text-emerald-100 font-medium mb-8">Please proceed to the doctor immediately.</p>
               <div className="bg-white text-emerald-600 rounded-2xl py-6 shadow-inner border border-emerald-100">
                 <p className="text-xs uppercase font-bold text-emerald-400 mb-1">Go To</p>
-                <div className="font-black text-5xl">Room {queueData.roomNumber}</div>
+                <div className="font-black text-5xl">Room {activePatientData?.room}</div>
               </div>
             </div>
           </div>
@@ -80,7 +80,7 @@ export default function PatientMobileView({ tokenNumber = 'MED-049', departmentI
             
             <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-3 mt-2">Currently Serving</p>
             <div className="text-7xl font-black text-slate-800 tracking-tighter mb-8 drop-shadow-sm">
-              {queueData.currentToken}
+              {queueData.activeTokens?.[0]?.token || '---'}
             </div>
             
             <div className="grid grid-cols-2 gap-4 border-t border-slate-100 pt-6">
@@ -119,7 +119,7 @@ export default function PatientMobileView({ tokenNumber = 'MED-049', departmentI
               <MapPin size={20} />
             </div>
             <div>
-              <p className="font-bold text-slate-800 text-lg leading-tight">Room {queueData.roomNumber}</p>
+              <p className="font-bold text-slate-800 text-lg leading-tight">Wait in Queue Area</p>
               <p className="text-xs font-medium text-slate-500">First floor, OPD Wing C</p>
             </div>
           </div>

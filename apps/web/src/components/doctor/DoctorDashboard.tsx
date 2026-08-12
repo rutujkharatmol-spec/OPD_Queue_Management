@@ -1,9 +1,15 @@
 "use client";
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Home, Users, Settings, LogOut, CheckCircle, Clock, PauseCircle, PhoneOff, AlertTriangle } from 'lucide-react';
-import { callNextPatient } from '../../lib/api';
+import { Home, Users, LogOut, CheckCircle, Clock, PauseCircle, PhoneOff, AlertTriangle, UserPlus, Settings } from 'lucide-react';
+import { API_BASE_URL, callNextPatient } from '../../lib/api';
 import { useQueueStore } from '../../store/useQueueStore';
+
+interface Room {
+  id: string;
+  roomNumber: string;
+  isActive: boolean;
+}
 
 export default function DoctorDashboard() {
   const { liveQueues } = useQueueStore();
@@ -12,27 +18,50 @@ export default function DoctorDashboard() {
   const doctorId = "550e8400-e29b-41d4-a716-446655440000"; 
   const deptId = "660e8400-e29b-41d4-a716-446655440000";
   
-  const queueData = liveQueues[deptId] || { currentToken: '---', nextTokens: [] };
+  const queueData = liveQueues[deptId] || { department: 'Medicine', activeTokens: [], nextTokens: [] };
   
-  const [isCalling, setIsCalling] = useState(false);
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [callingRoom, setCallingRoom] = useState<string | null>(null);
 
-  const handleCallNext = async () => {
-    setIsCalling(true);
+  useEffect(() => {
+    // Fetch available rooms
+    const fetchRooms = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/settings/rooms`);
+        if (res.ok) {
+          const data = await res.json();
+          setRooms(data.filter((r: Room) => r.isActive));
+        }
+      } catch (err) {
+        console.error('Failed to fetch rooms', err);
+      }
+    };
+    fetchRooms();
+  }, []);
+
+  const handleCallNext = async (roomNumber: string) => {
+    setCallingRoom(roomNumber);
     try {
-      await callNextPatient(doctorId);
-      // We don't need to manually update state because the WebSocket will push the new queue!
+      // Temporary fetch because the original `callNextPatient` didn't take a second arg in lib/api.ts
+      // Ideally update lib/api.ts, but we'll do it inline here for safety
+      await fetch(`${API_BASE_URL}/queue/next/${doctorId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomNumber })
+      });
+      // WebSocket handles state update
     } catch (err) {
       console.error(err);
       alert('Failed to call next patient. Ensure API is running.');
     } finally {
-      setIsCalling(false);
+      setCallingRoom(null);
     }
   };
 
   return (
     <div className="flex flex-col lg:flex-row min-h-screen w-full bg-slate-100 font-sans">
       
-      {/* Sidebar - Queue List (Responsive: Stacks on top/bottom for mobile, side for desktop) */}
+      {/* Sidebar - Queue List */}
       <aside className="w-full lg:w-[400px] bg-white border-b lg:border-b-0 lg:border-r border-slate-200 shadow-sm flex flex-col z-20 order-2 lg:order-1 h-[50vh] lg:h-screen">
         <div className="p-6 border-b border-slate-100 bg-slate-900 text-white flex justify-between items-center sticky top-0 z-10">
           <div>
@@ -41,9 +70,14 @@ export default function DoctorDashboard() {
             </h2>
             <p className="text-blue-200/70 text-sm mt-1 font-medium">{queueData.nextTokens.length} Patients Waiting</p>
           </div>
-          <Link href="/" className="p-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors">
-            <Home size={20} className="text-slate-300" />
-          </Link>
+          <div className="flex gap-2">
+            <Link href="/settings" className="p-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors">
+              <Settings size={20} className="text-slate-300" />
+            </Link>
+            <Link href="/" className="p-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors">
+              <Home size={20} className="text-slate-300" />
+            </Link>
+          </div>
         </div>
         
         <div className="flex-1 overflow-y-auto p-4 bg-slate-50/50 space-y-3">
@@ -85,78 +119,90 @@ export default function DoctorDashboard() {
 
       {/* Main Content - Active Consultation */}
       <main className="flex-1 flex flex-col relative overflow-hidden order-1 lg:order-2 h-[50vh] lg:h-screen">
-        {/* Background Effects */}
         <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[100px] pointer-events-none"></div>
         
-        {/* Header */}
-        <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-6 lg:p-10 gap-4">
+        <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-6 lg:p-10 gap-4 relative z-10">
           <div>
-            <h1 className="text-3xl font-black text-slate-900 tracking-tight">Consultation OPD</h1>
+            <h1 className="text-3xl font-black text-slate-900 tracking-tight">Department Consultation</h1>
             <p className="text-slate-500 font-medium mt-1 flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              Medicine Dept • Room 104
+              {queueData.department || 'Medicine'} Dept
             </p>
-          </div>
-          <div className="flex gap-3">
-            <button className="px-5 py-2.5 rounded-xl font-bold text-slate-600 bg-white border border-slate-300 hover:bg-slate-50 transition-all shadow-sm flex items-center gap-2 active:scale-95">
-              <PauseCircle size={18} /> Pause
-            </button>
-            <button className="px-5 py-2.5 rounded-xl font-bold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 transition-all shadow-sm flex items-center gap-2 active:scale-95">
-              <LogOut size={18} /> Close OPD
-            </button>
           </div>
         </header>
 
-        {/* Control Panel */}
-        <div className="flex-1 flex items-center justify-center p-6 lg:p-10">
-          <div className="w-full max-w-3xl bg-white/80 backdrop-blur-2xl rounded-[2.5rem] shadow-2xl shadow-blue-900/5 border border-white p-8 lg:p-16 flex flex-col items-center text-center relative overflow-hidden">
+        <div className="flex-1 overflow-y-auto p-6 lg:p-10 relative z-10">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
             
-            <div className="absolute inset-0 bg-gradient-to-b from-blue-50/50 to-transparent pointer-events-none"></div>
-
-            <div className="relative z-10 w-full">
-              <div className="inline-flex items-center justify-center px-4 py-1.5 mb-8 rounded-full bg-blue-50 border border-blue-100 text-blue-600 text-xs font-bold uppercase tracking-widest">
-                Currently Serving
-              </div>
-              
-              <div className={`transition-all duration-300 ${isCalling ? 'scale-95 opacity-50 blur-sm' : 'scale-100 opacity-100 blur-0'}`}>
-                <div className="text-7xl lg:text-[9rem] font-black text-transparent bg-clip-text bg-gradient-to-br from-blue-600 to-indigo-800 tracking-tighter leading-none drop-shadow-sm mb-6">
-                  {queueData.currentToken || '---'}
-                </div>
+            {rooms.length === 0 ? (
+               <div className="col-span-full flex flex-col items-center justify-center p-12 bg-white rounded-3xl border border-dashed border-slate-300 text-slate-400">
+                 <Settings size={48} className="mb-4 opacity-50" />
+                 <p className="font-bold text-lg mb-2">No Rooms Configured</p>
+                 <p className="mb-6">Please configure rooms in the settings before calling patients.</p>
+                 <Link href="/settings" className="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold">Go to Settings</Link>
+               </div>
+            ) : (
+              rooms.map(room => {
+                const isCalling = callingRoom === room.roomNumber;
+                const activePatient = queueData.activeTokens?.find((t: any) => t.room === room.roomNumber);
                 
-                {queueData.currentToken && (
-                  <div className="inline-flex items-center gap-3 bg-slate-50 border border-slate-200 px-6 py-3 rounded-2xl">
-                    <span className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-lg">
-                      R
-                    </span>
-                    <div className="text-left">
-                      <p className="text-xl font-bold text-slate-800 leading-tight">Rahul Kumar</p>
-                      <p className="text-slate-500 text-sm font-medium">45 Years, Male</p>
+                return (
+                  <div key={room.id} className="bg-white/80 backdrop-blur-xl rounded-[2rem] shadow-xl shadow-blue-900/5 border border-white p-6 flex flex-col h-full relative overflow-hidden group">
+                    {/* Room Badge */}
+                    <div className="absolute top-0 right-0 bg-blue-50 text-blue-700 font-black px-6 py-3 rounded-bl-[2rem] border-b border-l border-white shadow-sm flex items-center gap-2">
+                       Room {room.roomNumber}
+                    </div>
+
+                    <div className="mt-8 mb-6 flex-1 flex flex-col justify-center items-center">
+                      <div className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">Currently Serving</div>
+                      
+                      <div className={`transition-all duration-300 text-center ${isCalling ? 'scale-95 opacity-50 blur-sm' : 'scale-100 opacity-100 blur-0'}`}>
+                        {activePatient ? (
+                          <>
+                            <div className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-br from-blue-600 to-indigo-800 tracking-tighter leading-none mb-4">
+                              {activePatient.token}
+                            </div>
+                            <div className="inline-flex items-center gap-2 bg-slate-50 border border-slate-100 px-4 py-2 rounded-xl">
+                              <span className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-sm">
+                                P
+                              </span>
+                              <div className="text-left">
+                                <p className="text-sm font-bold text-slate-700">Patient Details</p>
+                                <p className="text-slate-400 text-xs font-medium">Pending Sync</p>
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="text-5xl font-black text-slate-200 tracking-tighter">---</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="space-y-3 mt-auto">
+                      <button 
+                        onClick={() => handleCallNext(room.roomNumber)}
+                        disabled={isCalling || queueData.nextTokens.length === 0}
+                        className="w-full py-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold transition-all active:scale-95 shadow-md shadow-blue-600/20 disabled:opacity-50 flex items-center justify-center gap-2"
+                      >
+                        {isCalling ? <AlertTriangle size={20} className="animate-spin" /> : <UserPlus size={20} />}
+                        {isCalling ? 'Assigning...' : 'Assign Next Patient'}
+                      </button>
+                      
+                      <div className="flex gap-2">
+                        <button disabled={!activePatient} className="flex-1 py-3 rounded-xl bg-emerald-50 text-emerald-700 font-bold text-sm hover:bg-emerald-100 transition-all active:scale-95 disabled:opacity-50">
+                          Complete
+                        </button>
+                        <button disabled={!activePatient} className="flex-1 py-3 rounded-xl bg-orange-50 text-orange-700 font-bold text-sm hover:bg-orange-100 transition-all active:scale-95 disabled:opacity-50">
+                          Absent
+                        </button>
+                      </div>
                     </div>
                   </div>
-                )}
-              </div>
+                );
+              })
+            )}
 
-              {/* Action Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-12 w-full">
-                <button 
-                  onClick={handleCallNext}
-                  disabled={isCalling}
-                  className="sm:col-span-2 py-6 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-2xl lg:text-3xl font-black transition-all transform active:scale-[0.98] shadow-xl shadow-blue-600/20 flex items-center justify-center gap-3"
-                >
-                  <AlertTriangle size={28} className={isCalling ? "animate-spin" : ""} /> 
-                  {isCalling ? 'Calling...' : 'Call Next Patient'}
-                </button>
-                
-                <button className="py-4 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold text-lg hover:bg-emerald-100 transition-all active:scale-95 flex justify-center items-center gap-2">
-                  <CheckCircle size={20} /> Complete
-                </button>
-                
-                <button className="py-4 rounded-xl bg-orange-50 text-orange-700 border border-orange-200 font-bold text-lg hover:bg-orange-100 transition-all active:scale-95 flex justify-center items-center gap-2">
-                  <PhoneOff size={20} /> Absent
-                </button>
-              </div>
-            </div>
-            
           </div>
         </div>
       </main>

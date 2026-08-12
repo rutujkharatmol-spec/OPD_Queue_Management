@@ -20,7 +20,7 @@ export class QueueService {
     private readonly dataSource: DataSource,
   ) {}
 
-  async callNextPatient(doctorId: string): Promise<Token> {
+  async callNextPatient(doctorId: string, roomNumber: string): Promise<Token> {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -63,11 +63,19 @@ export class QueueService {
         throw new BadRequestException('Queue is not OPEN.');
       }
 
-      // 2. Mark current token as completed if it exists and wasn't skipped
-      if (queue.currentToken && queue.currentToken.status === TokenStatus.CALLED) {
-        queue.currentToken.status = TokenStatus.COMPLETED;
-        queue.currentToken.completedAt = new Date();
-        await queryRunner.manager.save(queue.currentToken);
+      // 2. Mark any token currently CALLED in this specific room as completed
+      const currentTokensInRoom = await queryRunner.manager.find(Token, {
+        where: {
+          doctor: { id: doctorId },
+          roomNumber: roomNumber,
+          status: TokenStatus.CALLED,
+        },
+      });
+
+      for (const t of currentTokensInRoom) {
+        t.status = TokenStatus.COMPLETED;
+        t.completedAt = new Date();
+        await queryRunner.manager.save(t);
       }
 
       // 3. Find next waiting token
@@ -93,9 +101,10 @@ export class QueueService {
       // 4. Update Token and Queue
       nextToken.status = TokenStatus.CALLED;
       nextToken.calledAt = new Date();
+      nextToken.roomNumber = roomNumber;
       await queryRunner.manager.save(nextToken);
 
-      queue.currentToken = nextToken;
+      queue.currentToken = nextToken; // Keeping this for backward compatibility or general tracking, though we now rely on activeTokens
       await queryRunner.manager.save(queue);
 
       await queryRunner.commitTransaction();
@@ -143,6 +152,19 @@ export class QueueService {
       relations: ['currentToken', 'doctor'],
     });
     
+    // Find all actively serving tokens for this doctor/department
+    const activeTokensRaw = await this.tokenRepository.find({
+      where: {
+        doctor: { id: doctorId },
+        status: TokenStatus.CALLED,
+      }
+    });
+
+    const activeTokens = activeTokensRaw.map(t => ({
+      token: t.tokenNumber,
+      room: t.roomNumber || '104'
+    }));
+
     const waitingTokens = await this.tokenRepository.find({
       where: {
         doctor: { id: doctorId },
@@ -156,8 +178,7 @@ export class QueueService {
     
     return {
       department: department?.name || 'Medicine',
-      roomNumber: queue?.doctor?.roomNumber || '104',
-      currentToken: queue?.currentToken?.tokenNumber || null,
+      activeTokens,
       nextTokens: waitingTokens.map(t => t.priority === TokenPriority.EMERGENCY ? `${t.tokenNumber} 🚨` : t.tokenNumber)
     };
   }

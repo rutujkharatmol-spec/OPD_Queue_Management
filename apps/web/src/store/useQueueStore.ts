@@ -3,8 +3,7 @@ import { API_BASE_URL } from '../lib/api';
 
 export interface TokenDisplayData {
   department: string;
-  roomNumber: string;
-  currentToken: string;
+  activeTokens: { token: string; room: string }[];
   nextTokens: string[];
 }
 
