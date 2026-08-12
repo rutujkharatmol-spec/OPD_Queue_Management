@@ -11,6 +11,7 @@ import { Doctor } from './modules/doctors/entities/doctor.entity';
 import { Patient } from './modules/patients/entities/patient.entity';
 import { User } from './modules/auth/entities/user.entity';
 import { AuditLog } from './modules/audit/entities/audit-log.entity';
+import { AppController } from './app.controller';
 
 import * as fs from 'fs';
 import * as path from 'path';
@@ -45,7 +46,7 @@ try {
     QueueModule,
     TokensModule,
   ],
-  controllers: [],
+  controllers: [AppController],
   providers: [],
 })
 export class AppModule { }
