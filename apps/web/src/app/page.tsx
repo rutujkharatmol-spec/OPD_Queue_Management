@@ -105,17 +105,17 @@ function HomeContent() {
     <div className="min-h-screen bg-slate-950 text-white overflow-hidden relative selection:bg-blue-500/30">
       
       {/* Top Navigation */}
-      <div className="absolute top-0 left-0 right-0 p-6 z-20 flex justify-between">
+      <div className="absolute top-0 left-0 right-0 p-4 sm:p-6 z-20 flex flex-col sm:flex-row justify-between items-center gap-3">
         <button 
           onClick={openManageModal}
           disabled={!selectedDeptId}
-          className="bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors border border-slate-700 shadow-lg flex items-center gap-2"
+          className="w-full sm:w-auto bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors border border-slate-700 shadow-lg flex items-center justify-center gap-2"
         >
           ⚙️ Manage Selected Dept
         </button>
         <button 
           onClick={() => setIsAddingDept(true)}
-          className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors border border-slate-700 shadow-lg"
+          className="w-full sm:w-auto bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors border border-slate-700 shadow-lg"
         >
           + ADD OPD Department
         </button>
@@ -129,7 +129,7 @@ function HomeContent() {
         <div className="absolute inset-0 bg-emerald-500 blur-[120px] rounded-full"></div>
       </div>
 
-      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 py-12 md:py-20 flex flex-col items-center justify-center min-h-screen">
+      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 pt-32 pb-12 md:py-20 flex flex-col items-center justify-center min-h-screen">
         
         {/* Header Section */}
         <div className="text-center mb-10 space-y-4">
