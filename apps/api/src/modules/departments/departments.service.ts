@@ -24,4 +24,17 @@ export class DepartmentsService {
     });
     return this.departmentRepository.save(department);
   }
+
+  async update(id: string, name: string, code: string, description?: string): Promise<Department> {
+    const department = await this.departmentRepository.findOne({ where: { id } });
+    if (!department) throw new Error('Department not found');
+    department.name = name;
+    department.code = code;
+    if (description !== undefined) department.description = description;
+    return this.departmentRepository.save(department);
+  }
+
+  async remove(id: string): Promise<void> {
+    await this.departmentRepository.delete(id);
+  }
 }

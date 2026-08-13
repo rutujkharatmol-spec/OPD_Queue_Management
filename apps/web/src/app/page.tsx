@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { getDepartments, createDepartment } from '../lib/api';
+import { getDepartments, createDepartment, updateDepartment, deleteDepartment } from '../lib/api';
 
 interface Department {
   id: string;
@@ -20,6 +20,10 @@ function HomeContent() {
   const [isAddingDept, setIsAddingDept] = useState(false);
   const [newDeptName, setNewDeptName] = useState('');
   const [newDeptCode, setNewDeptCode] = useState('');
+
+  const [isManagingDept, setIsManagingDept] = useState(false);
+  const [editDeptName, setEditDeptName] = useState('');
+  const [editDeptCode, setEditDeptCode] = useState('');
 
   useEffect(() => {
     fetchDepartments();
@@ -53,6 +57,42 @@ function HomeContent() {
     }
   };
 
+  const openManageModal = () => {
+    const dept = departments.find(d => d.id === selectedDeptId);
+    if (dept) {
+      setEditDeptName(dept.name);
+      setEditDeptCode(dept.code);
+      setIsManagingDept(true);
+    }
+  };
+
+  const handleUpdateDepartment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedDeptId) return;
+    try {
+      await updateDepartment(selectedDeptId, editDeptName, editDeptCode);
+      setIsManagingDept(false);
+      fetchDepartments();
+    } catch (err) {
+      console.error('Failed to update department', err);
+      alert('Failed to update department.');
+    }
+  };
+
+  const handleDeleteDepartment = async () => {
+    if (!selectedDeptId) return;
+    if (!confirm('Are you sure you want to delete this department?')) return;
+    try {
+      await deleteDepartment(selectedDeptId);
+      setIsManagingDept(false);
+      setSelectedDeptId('');
+      fetchDepartments();
+    } catch (err) {
+      console.error('Failed to delete department', err);
+      alert('Failed to delete department. It might have existing rooms or tokens.');
+    }
+  };
+
   const getHref = (path: string) => {
     return selectedDeptId ? `${path}?deptId=${selectedDeptId}` : path;
   };
@@ -61,7 +101,14 @@ function HomeContent() {
     <div className="min-h-screen bg-slate-950 text-white overflow-hidden relative selection:bg-blue-500/30">
       
       {/* Top Navigation */}
-      <div className="absolute top-0 left-0 right-0 p-6 z-20 flex justify-end">
+      <div className="absolute top-0 left-0 right-0 p-6 z-20 flex justify-between">
+        <button 
+          onClick={openManageModal}
+          disabled={!selectedDeptId}
+          className="bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors border border-slate-700 shadow-lg flex items-center gap-2"
+        >
+          ⚙️ Manage Selected Dept
+        </button>
         <button 
           onClick={() => setIsAddingDept(true)}
           className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors border border-slate-700 shadow-lg"
@@ -172,48 +219,103 @@ function HomeContent() {
         </div>
       </div>
 
-      {/* Add Department Dialog */}
+      {/* Add Department Modal */}
       {isAddingDept && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-3xl p-8 w-full max-w-md shadow-2xl">
-            <h2 className="text-2xl font-bold mb-6">Add New Department</h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 max-w-md w-full shadow-2xl relative">
+            <h2 className="text-2xl font-bold text-white mb-6">Create New Department</h2>
             <form onSubmit={handleAddDepartment} className="space-y-4">
               <div>
-                <label className="block text-sm font-semibold text-slate-400 mb-2">Department Name</label>
+                <label className="block text-sm font-medium text-slate-400 mb-1">Department Name</label>
                 <input 
                   type="text" 
-                  required
                   value={newDeptName}
                   onChange={e => setNewDeptName(e.target.value)}
-                  placeholder="e.g. Cardiology"
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="e.g. Orthopedics"
+                  required 
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-slate-400 mb-2">Department Code</label>
+                <label className="block text-sm font-medium text-slate-400 mb-1">Department Code (e.g. ORTHO)</label>
                 <input 
                   type="text" 
-                  required
                   value={newDeptCode}
-                  onChange={e => setNewDeptCode(e.target.value.toUpperCase())}
-                  placeholder="e.g. CARDIO"
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                  onChange={e => setNewDeptCode(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="e.g. ORTHO"
+                  required 
                 />
               </div>
-              <div className="flex gap-3 mt-8">
+              <div className="pt-4 flex gap-3">
                 <button 
                   type="button" 
                   onClick={() => setIsAddingDept(false)}
-                  className="flex-1 py-3 rounded-xl font-semibold text-slate-400 hover:bg-slate-800 transition-colors border border-slate-700"
+                  className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-semibold py-3 rounded-xl transition-colors"
                 >
                   Cancel
                 </button>
                 <button 
                   type="submit" 
-                  className="flex-1 py-3 rounded-xl font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors"
+                  className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 rounded-xl transition-colors"
                 >
-                  Save Department
+                  Create
                 </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Manage Department Modal */}
+      {isManagingDept && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 max-w-md w-full shadow-2xl relative">
+            <h2 className="text-2xl font-bold text-white mb-6">Manage Department</h2>
+            <form onSubmit={handleUpdateDepartment} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-400 mb-1">Department Name</label>
+                <input 
+                  type="text" 
+                  value={editDeptName}
+                  onChange={e => setEditDeptName(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required 
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-400 mb-1">Department Code</label>
+                <input 
+                  type="text" 
+                  value={editDeptCode}
+                  onChange={e => setEditDeptCode(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required 
+                />
+              </div>
+              <div className="pt-4 flex justify-between gap-3">
+                <button 
+                  type="button" 
+                  onClick={handleDeleteDepartment}
+                  className="bg-red-600/10 hover:bg-red-600/20 text-red-500 font-semibold py-3 px-6 rounded-xl transition-colors border border-red-600/20"
+                >
+                  Delete
+                </button>
+                <div className="flex flex-1 gap-3">
+                  <button 
+                    type="button" 
+                    onClick={() => setIsManagingDept(false)}
+                    className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-semibold py-3 rounded-xl transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit" 
+                    className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 rounded-xl transition-colors"
+                  >
+                    Save
+                  </button>
+                </div>
               </div>
             </form>
           </div>

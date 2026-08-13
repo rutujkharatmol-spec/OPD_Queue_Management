@@ -69,6 +69,24 @@ export async function createDepartment(name: string, code: string, description?:
   return response.json();
 }
 
+export async function updateDepartment(id: string, name: string, code: string, description?: string) {
+  const response = await fetch(`${API_BASE_URL}/departments/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, code, description }),
+  });
+  if (!response.ok) throw new Error('Failed to update department');
+  return response.json();
+}
+
+export async function deleteDepartment(id: string) {
+  const response = await fetch(`${API_BASE_URL}/departments/${id}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) throw new Error('Failed to delete department');
+  return response.json();
+}
+
 export async function getRooms(departmentId?: string) {
   const url = departmentId ? `${API_BASE_URL}/settings/rooms?departmentId=${departmentId}` : `${API_BASE_URL}/settings/rooms`;
   const response = await fetch(url);
