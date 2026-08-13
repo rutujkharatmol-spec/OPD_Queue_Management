@@ -27,7 +27,7 @@ export class QueueController {
     @Param('tokenId') tokenId: string,
     @Body() dto: MarkTokenActionDto,
   ) {
-    return this.queueService.markTokenAction(tokenId, dto.action as 'SKIP' | 'ABSENT' | 'COMPLETE');
+    return this.queueService.markTokenAction(tokenId, dto.action as 'SKIP' | 'ABSENT' | 'NOT_AVAILABLE' | 'COMPLETE');
   }
 
   @Get('live/:departmentId')

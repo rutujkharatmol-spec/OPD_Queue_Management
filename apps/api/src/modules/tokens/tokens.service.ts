@@ -183,6 +183,7 @@ export class TokensService {
       status: token.status,
       priority: token.priority,
       departmentName: token.department?.name || 'Department',
+      roomNumber: token.roomNumber || token.doctor?.roomNumber,
       currentlyServing: currentlyServing.map(t => t.tokenNumber),
       patientsAhead: token.status === TokenStatus.WAITING ? patientsAhead : 0,
       estimatedWaitTimeMins: token.status === TokenStatus.WAITING ? estimatedWaitTimeMins : 0,

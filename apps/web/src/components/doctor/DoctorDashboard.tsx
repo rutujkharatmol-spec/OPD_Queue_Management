@@ -40,6 +40,11 @@ export default function DoctorDashboard() {
       }
     };
     fetchRooms();
+
+    // Cleanup on unmount
+    return () => {
+      useQueueStore.getState().disconnectWebSocket();
+    };
   }, []);
 
   const handleCallNext = async (roomNumber: string) => {
@@ -201,18 +206,25 @@ export default function DoctorDashboard() {
                         {isCalling ? 'Assigning...' : 'Assign Next Patient'}
                       </button>
                       
-                      <div className="flex gap-2">
+                      <div className="grid grid-cols-3 gap-2">
                         <button 
                           onClick={() => handleTokenAction(activePatient.id, 'COMPLETE')}
                           disabled={!activePatient} 
-                          className="flex-1 py-3 rounded-xl bg-emerald-50 text-emerald-700 font-bold text-sm hover:bg-emerald-100 transition-all active:scale-95 disabled:opacity-50"
+                          className="py-3 rounded-xl bg-emerald-50 text-emerald-700 font-bold text-sm hover:bg-emerald-100 transition-all active:scale-95 disabled:opacity-50"
                         >
                           Complete
                         </button>
                         <button 
+                          onClick={() => handleTokenAction(activePatient.id, 'NOT_AVAILABLE')}
+                          disabled={!activePatient} 
+                          className="py-3 px-1 rounded-xl bg-orange-50 text-orange-700 font-bold text-xs leading-tight hover:bg-orange-100 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center text-center"
+                        >
+                          Not<br/>Available
+                        </button>
+                        <button 
                           onClick={() => handleTokenAction(activePatient.id, 'ABSENT')}
                           disabled={!activePatient} 
-                          className="flex-1 py-3 rounded-xl bg-orange-50 text-orange-700 font-bold text-sm hover:bg-orange-100 transition-all active:scale-95 disabled:opacity-50"
+                          className="py-3 rounded-xl bg-red-50 text-red-700 font-bold text-sm hover:bg-red-100 transition-all active:scale-95 disabled:opacity-50"
                         >
                           Absent
                         </button>

@@ -117,12 +117,40 @@ export class QueueService {
     }
   }
 
-  async markTokenAction(tokenId: string, action: 'SKIP' | 'ABSENT' | 'COMPLETE'): Promise<Token> {
-    const token = await this.tokenRepository.findOne({ where: { id: tokenId } });
+  async markTokenAction(tokenId: string, action: 'SKIP' | 'ABSENT' | 'NOT_AVAILABLE' | 'COMPLETE'): Promise<Token> {
+    const token = await this.tokenRepository.findOne({ 
+      where: { id: tokenId },
+      relations: ['doctor'] 
+    });
+    
     if (!token) throw new NotFoundException('Token not found');
 
     if (action === 'SKIP') {
       token.status = TokenStatus.SKIPPED;
+    } else if (action === 'NOT_AVAILABLE') {
+      // Penalty: +3 first time, +6 second time (and beyond)
+      const penalty = token.absentCount === 0 ? 3 : 6;
+      
+      const waitingList = await this.tokenRepository.find({
+        where: { 
+          doctor: { id: token.doctor.id }, 
+          status: TokenStatus.WAITING, 
+          priority: token.priority 
+        },
+        order: { issuedAt: 'ASC' }
+      });
+
+      if (waitingList.length <= penalty) {
+        token.issuedAt = new Date();
+      } else {
+        // Push back by 'penalty' positions within same priority
+        token.issuedAt = new Date(waitingList[penalty - 1].issuedAt.getTime() + 1);
+      }
+
+      token.absentCount += 1;
+      token.status = TokenStatus.WAITING; // Send back to waiting
+      token.calledAt = null as any;
+      token.roomNumber = null as any;
     } else if (action === 'ABSENT') {
       token.status = TokenStatus.ABSENT;
     } else if (action === 'COMPLETE') {

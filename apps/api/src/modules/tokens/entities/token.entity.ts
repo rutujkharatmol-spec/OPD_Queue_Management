@@ -61,4 +61,7 @@ export class Token extends BaseEntity {
 
   @Column({ name: 'completed_at', type: 'timestamp', nullable: true })
   completedAt: Date;
+
+  @Column({ name: 'absent_count', type: 'int', default: 0 })
+  absentCount: number;
 }

@@ -4,6 +4,7 @@ import { ApiProperty } from '@nestjs/swagger';
 export enum TokenAction {
   SKIP = 'SKIP',
   ABSENT = 'ABSENT',
+  NOT_AVAILABLE = 'NOT_AVAILABLE',
   COMPLETE = 'COMPLETE',
 }
 

@@ -40,7 +40,10 @@ export const useQueueStore = create<QueueStore>((set, get) => ({
           get().updateQueueData(departmentId, data);
         }
       } catch (err) {
-        console.error('Failed to fetch queue updates', err);
+        // Only log if it's not a generic network error to prevent console spam when server is restarting
+        if (err instanceof Error && err.name !== 'TypeError') {
+          console.error(`Failed to fetch queue updates from ${API_BASE_URL}/queue/live/${departmentId}`, err);
+        }
       }
     };
 

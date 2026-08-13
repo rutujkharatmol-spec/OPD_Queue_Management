@@ -138,7 +138,7 @@ export default function PatientTracker() {
                 <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-6 text-center text-emerald-800">
                   <User className="mx-auto mb-2 opacity-50" size={32} />
                   <h3 className="font-bold text-lg mb-1">It's your turn!</h3>
-                  <p className="text-sm">Please proceed to your assigned consulting room immediately.</p>
+                  <p className="text-sm">Please proceed to <strong>Room {statusData.roomNumber || 'assigned'}</strong> immediately.</p>
                 </div>
               )}
             </div>
