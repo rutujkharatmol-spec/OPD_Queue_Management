@@ -154,6 +154,8 @@ export default function RegistrationDesk() {
                         <input 
                           type="tel" 
                           required
+                          value={patientData.phone}
+                          onChange={e => setPatientData({...patientData, phone: e.target.value})}
                           className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-slate-800 focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all shadow-sm" 
                           placeholder="10-digit number" 
                         />
@@ -163,6 +165,8 @@ export default function RegistrationDesk() {
                         <div className="flex gap-2">
                           <input 
                             type="text" 
+                            value={patientData.uhid}
+                            onChange={e => setPatientData({...patientData, uhid: e.target.value})}
                             className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-3 text-slate-800 focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all shadow-sm" 
                             placeholder="Enter existing UHID" 
                           />

@@ -69,7 +69,7 @@ export class TokensService {
           id: patientId, 
           uhid: uhid, 
           firstName: patientData?.firstName || 'Unknown', 
-          lastName: patientData?.lastName || 'Patient', 
+          lastName: patientData?.lastName ?? '', 
           phone: patientData?.phone || '0000000000' 
         });
         await queryRunner.manager.save(patient);
