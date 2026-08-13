@@ -68,7 +68,7 @@ export default function DoctorDashboard() {
     }
   };
 
-  const handleTokenAction = async (tokenId: string, action: 'COMPLETE' | 'ABSENT') => {
+  const handleTokenAction = async (tokenId: string, action: 'COMPLETE' | 'ABSENT' | 'NOT_AVAILABLE') => {
     try {
       await markTokenAction(tokenId, action);
     } catch (err) {
