@@ -33,9 +33,13 @@ export default function RegistrationDesk() {
       const dummyDeptId = "660e8400-e29b-41d4-a716-446655440000";
       const dummyDoctorId = "550e8400-e29b-41d4-a716-446655440000";
 
+      const nameParts = patientData.name.trim().split(' ');
+      const firstName = nameParts[0] || 'Unknown';
+      const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+
       const token = await generateToken(randomPatientId, dummyDeptId, dummyDoctorId, priorityEnum, {
-        firstName: patientData.firstName,
-        lastName: patientData.lastName,
+        firstName: firstName,
+        lastName: lastName,
         phone: patientData.phone
       });
       setGeneratedToken(token.tokenNumber);

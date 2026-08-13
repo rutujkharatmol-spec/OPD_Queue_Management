@@ -193,7 +193,7 @@ export class QueueService {
       id: t.id,
       token: t.tokenNumber,
       room: t.roomNumber || '104',
-      patientName: t.patient ? `${t.patient.firstName} ${t.patient.lastName}` : 'Unknown Patient',
+      patientName: t.patient ? `${t.patient.firstName} ${t.patient.lastName}`.trim() : 'Unknown Patient',
       uhid: t.patient?.uhid || '---'
     }));
 
