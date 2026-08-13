@@ -54,7 +54,7 @@ export default function DoctorDashboard() {
     try {
       // Temporary fetch because the original `callNextPatient` didn't take a second arg in lib/api.ts
       // Ideally update lib/api.ts, but we'll do it inline here for safety
-      await fetch(`${API_BASE_URL}/queue/next/${doctorId}`, {
+      await fetch(`${API_BASE_URL}/queue/next/${deptId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ roomNumber })

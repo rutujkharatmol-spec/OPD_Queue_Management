@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Home, Settings as SettingsIcon, Plus, Trash2, Edit2, Check, X } from 'lucide-react';
 import { API_BASE_URL } from '../../lib/api';
+import { useSearchParams } from 'next/navigation';
 
 interface Room {
   id: string;
@@ -11,20 +12,43 @@ interface Room {
 }
 
 export default function SettingsPage() {
+  const searchParams = useSearchParams();
+  const deptId = searchParams.get('deptId') || '';
+
   const [rooms, setRooms] = useState<Room[]>([]);
   const [newRoomNumber, setNewRoomNumber] = useState('');
   const [editingRoomId, setEditingRoomId] = useState<string | null>(null);
   const [editRoomNumber, setEditRoomNumber] = useState('');
   const [loading, setLoading] = useState(true);
+  const [deptName, setDeptName] = useState('');
 
   useEffect(() => {
     fetchRooms();
-  }, []);
+    if (deptId) {
+      fetchDeptName();
+    }
+  }, [deptId]);
+
+  const fetchDeptName = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/departments`);
+      if (res.ok) {
+        const depts = await res.json();
+        const dept = depts.find((d: any) => d.id === deptId);
+        if (dept) setDeptName(dept.name);
+      }
+    } catch (err) {
+      console.error('Failed to fetch department name', err);
+    }
+  };
 
   const fetchRooms = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE_URL}/settings/rooms`);
+      const url = deptId
+        ? `${API_BASE_URL}/settings/rooms?departmentId=${deptId}`
+        : `${API_BASE_URL}/settings/rooms`;
+      const res = await fetch(url);
       if (res.ok) {
         setRooms(await res.json());
       }
@@ -43,7 +67,10 @@ export default function SettingsPage() {
       const res = await fetch(`${API_BASE_URL}/settings/rooms`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ roomNumber: newRoomNumber.trim() })
+        body: JSON.stringify({ 
+          roomNumber: newRoomNumber.trim(),
+          departmentId: deptId || undefined
+        })
       });
       if (res.ok) {
         setNewRoomNumber('');
@@ -98,12 +125,16 @@ export default function SettingsPage() {
             <SettingsIcon size={24} />
           </div>
           <div>
-            <h1 className="text-2xl font-black text-slate-900">System Settings</h1>
-            <p className="text-slate-500 font-medium text-sm">Configure OPD parameters</p>
+            <h1 className="text-2xl font-black text-slate-900">
+              {deptName ? `${deptName} — Settings` : 'System Settings'}
+            </h1>
+            <p className="text-slate-500 font-medium text-sm">
+              {deptName ? `Configure rooms for ${deptName} department` : 'Configure OPD parameters'}
+            </p>
           </div>
         </div>
-        <Link href="/" className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors flex items-center gap-2">
-          <Home size={18} /> Back to Home
+        <Link href={deptId ? `/doctor?deptId=${deptId}` : '/'} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors flex items-center gap-2">
+          <Home size={18} /> Back
         </Link>
       </header>
 
@@ -112,8 +143,14 @@ export default function SettingsPage() {
         {/* Rooms Configuration */}
         <section className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
           <div className="p-6 lg:p-8 border-b border-slate-100 bg-slate-50/50">
-            <h2 className="text-xl font-bold text-slate-800">Consultation Rooms</h2>
-            <p className="text-slate-500 text-sm mt-1">Manage the rooms available for doctors to assign patients.</p>
+            <h2 className="text-xl font-bold text-slate-800">
+              {deptName ? `${deptName} Consultation Rooms` : 'Consultation Rooms'}
+            </h2>
+            <p className="text-slate-500 text-sm mt-1">
+              {deptName
+                ? `Manage rooms for ${deptName} department only. Other departments have their own rooms.`
+                : 'Manage the rooms available for doctors to assign patients.'}
+            </p>
           </div>
 
           <div className="p-6 lg:p-8">
@@ -138,7 +175,7 @@ export default function SettingsPage() {
               <div className="text-center py-10 text-slate-400 font-medium animate-pulse">Loading rooms...</div>
             ) : rooms.length === 0 ? (
               <div className="text-center py-10 text-slate-400 font-medium bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                No rooms configured yet. Add one above.
+                No rooms configured yet{deptName ? ` for ${deptName}` : ''}. Add one above.
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
