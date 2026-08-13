@@ -3,7 +3,7 @@ import { API_BASE_URL } from '../lib/api';
 
 export interface TokenDisplayData {
   department: string;
-  activeTokens: { id: string; token: string; room: string }[];
+  activeTokens: { id: string; token: string; room: string; patientName: string; uhid: string; }[];
   nextTokens: string[];
 }
 

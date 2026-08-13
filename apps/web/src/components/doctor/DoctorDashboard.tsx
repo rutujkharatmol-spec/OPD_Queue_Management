@@ -186,8 +186,8 @@ export default function DoctorDashboard() {
                                 P
                               </span>
                               <div className="text-left">
-                                <p className="text-sm font-bold text-slate-700">Patient Details</p>
-                                <p className="text-slate-400 text-xs font-medium">Pending Sync</p>
+                                <p className="text-sm font-bold text-slate-700">{activePatient.patientName}</p>
+                                <p className="text-slate-400 text-xs font-medium">{activePatient.uhid}</p>
                               </div>
                             </div>
                           </>

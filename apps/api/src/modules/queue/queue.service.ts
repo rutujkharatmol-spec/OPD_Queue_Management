@@ -185,13 +185,16 @@ export class QueueService {
       where: {
         doctor: { id: doctorId },
         status: TokenStatus.CALLED,
-      }
+      },
+      relations: ['patient']
     });
 
     const activeTokens = activeTokensRaw.map(t => ({
       id: t.id,
       token: t.tokenNumber,
-      room: t.roomNumber || '104'
+      room: t.roomNumber || '104',
+      patientName: t.patient ? `${t.patient.firstName} ${t.patient.lastName}` : 'Unknown Patient',
+      uhid: t.patient?.uhid || '---'
     }));
 
     const waitingTokens = await this.tokenRepository.find({
