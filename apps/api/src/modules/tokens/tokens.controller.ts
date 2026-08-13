@@ -18,6 +18,11 @@ export class TokensController {
       dto.departmentId,
       dto.doctorId,
       dto.priority,
+      {
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        phone: dto.phone
+      }
     );
   }
 

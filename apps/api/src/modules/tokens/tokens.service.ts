@@ -27,6 +27,7 @@ export class TokensService {
     departmentId: string,
     doctorId: string,
     priority: TokenPriority = TokenPriority.NORMAL,
+    patientData?: { firstName?: string; lastName?: string; phone?: string }
   ): Promise<Token> {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -60,19 +61,18 @@ export class TokensService {
 
       let patient = await queryRunner.manager.findOne(Patient, { where: { id: patientId } });
       if (!patient) {
-        patient = await queryRunner.manager.findOne(Patient, { where: { uhid: 'UHID-DEMO-123' } });
-        if (!patient) {
-          patient = queryRunner.manager.create(Patient, { 
-            id: patientId, 
-            uhid: 'UHID-DEMO-123', 
-            firstName: 'Rahul', 
-            lastName: 'Kumar', 
-            phone: '9876543210' 
-          });
-          await queryRunner.manager.save(patient);
-        } else {
-          patientId = patient.id;
-        }
+        // Use the generated UUID to create a fresh patient record!
+        // Generate a random UHID based on timestamp
+        const uhid = `UHID-${Date.now().toString().slice(-6)}`;
+        
+        patient = queryRunner.manager.create(Patient, { 
+          id: patientId, 
+          uhid: uhid, 
+          firstName: patientData?.firstName || 'Unknown', 
+          lastName: patientData?.lastName || 'Patient', 
+          phone: patientData?.phone || '0000000000' 
+        });
+        await queryRunner.manager.save(patient);
       }
 
       // 2. Generate Daily Sequence Number

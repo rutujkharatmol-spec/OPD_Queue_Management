@@ -19,4 +19,19 @@ export class GenerateTokenDto {
   @IsOptional()
   @IsEnum(TokenPriority)
   priority?: TokenPriority;
+
+  @ApiPropertyOptional({ description: 'First name of the patient (for new registration)' })
+  @IsOptional()
+  @IsString()
+  firstName?: string;
+
+  @ApiPropertyOptional({ description: 'Last name of the patient (for new registration)' })
+  @IsOptional()
+  @IsString()
+  lastName?: string;
+
+  @ApiPropertyOptional({ description: 'Phone number of the patient (for new registration)' })
+  @IsOptional()
+  @IsString()
+  phone?: string;
 }

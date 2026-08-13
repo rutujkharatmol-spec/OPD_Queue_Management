@@ -28,12 +28,16 @@ export default function RegistrationDesk() {
       if (patientData.priority.includes('Emergency')) priorityEnum = 'EMERGENCY';
       else if (patientData.priority.includes('Senior')) priorityEnum = 'SENIOR_CITIZEN';
 
-      // For testing, hardcoding valid v4 UUIDs since we don't have a real auth/user select yet
-      const dummyPatientId = "770e8400-e29b-41d4-a716-446655440000"; // Valid v4 UUID
+      // For testing, hardcoding valid v4 UUIDs for dept/doctor since we don't have a real auth/user select yet
+      const randomPatientId = crypto.randomUUID();
       const dummyDeptId = "660e8400-e29b-41d4-a716-446655440000";
       const dummyDoctorId = "550e8400-e29b-41d4-a716-446655440000";
 
-      const token = await generateToken(dummyPatientId, dummyDeptId, dummyDoctorId, priorityEnum);
+      const token = await generateToken(randomPatientId, dummyDeptId, dummyDoctorId, priorityEnum, {
+        firstName: patientData.firstName,
+        lastName: patientData.lastName,
+        phone: patientData.phone
+      });
       setGeneratedToken(token.tokenNumber);
     } catch (err) {
       console.error(err);
