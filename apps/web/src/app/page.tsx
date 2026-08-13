@@ -29,7 +29,7 @@ function HomeContent() {
     fetchDepartments();
   }, []);
 
-  const fetchDepartments = async () => {
+  const fetchDepartments = async (retriesLeft = 5) => {
     try {
       const data = await getDepartments();
       setDepartments(data);
@@ -39,6 +39,10 @@ function HomeContent() {
         setSelectedDeptId(urlDeptId);
       }
     } catch (err) {
+      if (retriesLeft > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        return fetchDepartments(retriesLeft - 1);
+      }
       console.error('Failed to fetch departments', err);
     }
   };
@@ -163,7 +167,7 @@ function HomeContent() {
         <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 w-full max-w-5xl transition-opacity duration-300 ${!selectedDeptId ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
           
           {/* Card 1: Registration */}
-          <Link href={getHref('/registration')} className="group relative rounded-3xl p-[1px] bg-gradient-to-b from-slate-800 to-slate-900 hover:from-blue-500 hover:to-purple-600 transition-all duration-500">
+          <Link href={getHref('/registration')} className="group relative rounded-3xl p-[1px] bg-gradient-to-b from-slate-800 to-slate-900 hover:from-blue-500 hover:to-purple-600 transition-all duration-500 hover:-translate-y-4">
             <div className="absolute inset-0 bg-gradient-to-b from-blue-500 to-purple-600 opacity-0 group-hover:opacity-20 blur-xl transition-opacity duration-500 rounded-3xl"></div>
             <div className="relative h-full bg-slate-900/90 backdrop-blur-xl rounded-3xl p-8 flex flex-col justify-between overflow-hidden">
               <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl group-hover:bg-blue-500/20 transition-all"></div>
@@ -181,7 +185,7 @@ function HomeContent() {
           </Link>
 
           {/* Card 2: Doctor Dashboard */}
-          <Link href={getHref('/doctor')} className="group relative rounded-3xl p-[1px] bg-gradient-to-b from-slate-800 to-slate-900 hover:from-emerald-400 hover:to-teal-600 transition-all duration-500 lg:-translate-y-4">
+          <Link href={getHref('/doctor')} className="group relative rounded-3xl p-[1px] bg-gradient-to-b from-slate-800 to-slate-900 hover:from-emerald-400 hover:to-teal-600 transition-all duration-500 hover:-translate-y-4">
             <div className="absolute inset-0 bg-gradient-to-b from-emerald-400 to-teal-600 opacity-0 group-hover:opacity-20 blur-xl transition-opacity duration-500 rounded-3xl"></div>
             <div className="relative h-full bg-slate-900/90 backdrop-blur-xl rounded-3xl p-8 flex flex-col justify-between overflow-hidden">
               <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-3xl group-hover:bg-emerald-500/20 transition-all"></div>
@@ -199,7 +203,7 @@ function HomeContent() {
           </Link>
 
           {/* Card 3: TV Display */}
-          <Link href={getHref('/tv')} className="group relative rounded-3xl p-[1px] bg-gradient-to-b from-slate-800 to-slate-900 hover:from-rose-500 hover:to-orange-500 transition-all duration-500">
+          <Link href={getHref('/tv')} className="group relative rounded-3xl p-[1px] bg-gradient-to-b from-slate-800 to-slate-900 hover:from-rose-500 hover:to-orange-500 transition-all duration-500 hover:-translate-y-4">
             <div className="absolute inset-0 bg-gradient-to-b from-rose-500 to-orange-500 opacity-0 group-hover:opacity-20 blur-xl transition-opacity duration-500 rounded-3xl"></div>
             <div className="relative h-full bg-slate-900/90 backdrop-blur-xl rounded-3xl p-8 flex flex-col justify-between overflow-hidden">
               <div className="absolute top-0 right-0 w-32 h-32 bg-rose-500/10 rounded-full blur-3xl group-hover:bg-rose-500/20 transition-all"></div>

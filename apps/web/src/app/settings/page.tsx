@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Home, Settings as SettingsIcon, Plus, Trash2, Edit2, Check, X } from 'lucide-react';
+import { Settings as SettingsIcon, Plus, Trash2, Edit2, Check, X, ArrowLeft } from 'lucide-react';
 import { API_BASE_URL } from '../../lib/api';
 import { useSearchParams } from 'next/navigation';
 
@@ -13,7 +13,7 @@ interface Room {
 
 export default function SettingsPage() {
   const searchParams = useSearchParams();
-  const deptId = searchParams.get('deptId') || '';
+  const deptId = searchParams.get('deptId') || '660e8400-e29b-41d4-a716-446655440000';
 
   const [rooms, setRooms] = useState<Room[]>([]);
   const [newRoomNumber, setNewRoomNumber] = useState('');
@@ -118,7 +118,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans p-6 lg:p-10">
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-900 p-6 lg:p-10">
       <header className="flex justify-between items-center mb-10 max-w-5xl mx-auto bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
         <div className="flex items-center gap-4">
           <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center">
@@ -133,8 +133,8 @@ export default function SettingsPage() {
             </p>
           </div>
         </div>
-        <Link href={deptId ? `/doctor?deptId=${deptId}` : '/'} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors flex items-center gap-2">
-          <Home size={18} /> Back
+        <Link href={`/doctor?deptId=${deptId}`} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors flex items-center gap-2">
+          <ArrowLeft size={18} /> Back to Doctor Room
         </Link>
       </header>
 
@@ -160,7 +160,7 @@ export default function SettingsPage() {
                 value={newRoomNumber}
                 onChange={(e) => setNewRoomNumber(e.target.value)}
                 placeholder="Enter new room number (e.g. 101)"
-                className="flex-1 px-5 py-3 bg-slate-50 border border-slate-200 rounded-xl font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                className="flex-1 px-5 py-3 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
               />
               <button
                 type="submit"
@@ -188,7 +188,7 @@ export default function SettingsPage() {
                           type="text"
                           value={editRoomNumber}
                           onChange={(e) => setEditRoomNumber(e.target.value)}
-                          className="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg font-bold text-slate-800 focus:outline-none focus:border-blue-500"
+                          className="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg font-bold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-blue-500"
                           autoFocus
                         />
                         <button onClick={() => saveEdit(room.id)} className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg">
