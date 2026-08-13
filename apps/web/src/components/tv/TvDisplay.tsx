@@ -2,17 +2,21 @@
 import React, { useEffect, useState } from 'react';
 import { useQueueStore } from '../../store/useQueueStore';
 import { Moon, Sun } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
 
-export default function TvDisplay({ departmentId }: { departmentId: string }) {
+export default function TvDisplay() {
+  const searchParams = useSearchParams();
+  const deptId = searchParams.get('deptId') || '660e8400-e29b-41d4-a716-446655440000';
+
   const { liveQueues, initializeWebSocket } = useQueueStore();
-  const queueData = liveQueues[departmentId];
+  const queueData = liveQueues[deptId] || { department: 'Department', activeTokens: [], nextTokens: [] };
   const [pulseScale, setPulseScale] = useState(false);
   const [prevActiveTokens, setPrevActiveTokens] = useState<string>('');
   const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
-    initializeWebSocket(departmentId);
-  }, [departmentId, initializeWebSocket]);
+    initializeWebSocket(deptId);
+  }, [deptId, initializeWebSocket]);
 
   // Flash animation whenever active tokens change
   useEffect(() => {

@@ -11,14 +11,17 @@ interface Room {
   isActive: boolean;
 }
 
+import { useSearchParams } from 'next/navigation';
+import { getRooms } from '../../lib/api';
+
 export default function DoctorDashboard() {
-  const { liveQueues } = useQueueStore();
+  const searchParams = useSearchParams();
+  const deptId = searchParams.get('deptId') || '660e8400-e29b-41d4-a716-446655440000';
   
   // Hardcoded for demo, normally from auth context
   const doctorId = "550e8400-e29b-41d4-a716-446655440000"; 
-  const deptId = "660e8400-e29b-41d4-a716-446655440000";
   
-  const queueData = liveQueues[deptId] || { department: 'Medicine', activeTokens: [], nextTokens: [] };
+  const queueData = useQueueStore((state) => state.liveQueues[deptId]) || { department: 'Medicine', activeTokens: [], nextTokens: [] };
   
   const [rooms, setRooms] = useState<Room[]>([]);
   const [callingRoom, setCallingRoom] = useState<string | null>(null);
@@ -30,11 +33,8 @@ export default function DoctorDashboard() {
     // Fetch available rooms
     const fetchRooms = async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/settings/rooms`);
-        if (res.ok) {
-          const data = await res.json();
-          setRooms(data.filter((r: Room) => r.isActive));
-        }
+        const data = await getRooms(deptId);
+        setRooms(data.filter((r: Room) => r.isActive));
       } catch (err) {
         if (err instanceof Error && err.name !== 'TypeError') {
           console.error('Failed to fetch rooms', err);

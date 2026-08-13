@@ -10,12 +10,17 @@ export class SettingsService {
     private readonly roomRepository: Repository<Room>,
   ) {}
 
-  async findAllRooms(): Promise<Room[]> {
-    return this.roomRepository.find({ order: { roomNumber: 'ASC' } });
+  async findAllRooms(departmentId?: string): Promise<Room[]> {
+    const where = departmentId ? { department: { id: departmentId } } : {};
+    return this.roomRepository.find({ where, order: { roomNumber: 'ASC' } });
   }
 
-  async createRoom(roomNumber: string, isActive: boolean = true): Promise<Room> {
-    const room = this.roomRepository.create({ roomNumber, isActive });
+  async createRoom(roomNumber: string, isActive: boolean = true, departmentId?: string): Promise<Room> {
+    const room = this.roomRepository.create({ 
+      roomNumber, 
+      isActive,
+      department: departmentId ? { id: departmentId } : undefined
+    });
     return this.roomRepository.save(room);
   }
 

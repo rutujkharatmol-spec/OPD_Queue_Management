@@ -51,3 +51,36 @@ export async function getTokenStatus(tokenNumber: string) {
   if (!response.ok) throw new Error('Failed to fetch token status');
   return response.json();
 }
+
+export async function getDepartments() {
+  const response = await fetch(`${API_BASE_URL}/departments`);
+  if (!response.ok) throw new Error('Failed to fetch departments');
+  return response.json();
+}
+
+export async function createDepartment(name: string, code: string, description?: string) {
+  const response = await fetch(`${API_BASE_URL}/departments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, code, description }),
+  });
+  if (!response.ok) throw new Error('Failed to create department');
+  return response.json();
+}
+
+export async function getRooms(departmentId?: string) {
+  const url = departmentId ? `${API_BASE_URL}/settings/rooms?departmentId=${departmentId}` : `${API_BASE_URL}/settings/rooms`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error('Failed to fetch rooms');
+  return response.json();
+}
+
+export async function createRoom(roomNumber: string, isActive: boolean = true, departmentId?: string) {
+  const response = await fetch(`${API_BASE_URL}/settings/rooms`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ roomNumber, isActive, departmentId }),
+  });
+  if (!response.ok) throw new Error('Failed to create room');
+  return response.json();
+}

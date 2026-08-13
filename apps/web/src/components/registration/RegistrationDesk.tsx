@@ -2,9 +2,13 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { Menu, X, PlusCircle, Search, Printer, CheckCircle2 } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
 import { generateToken } from '../../lib/api';
 
 export default function RegistrationDesk() {
+  const searchParams = useSearchParams();
+  const deptId = searchParams.get('deptId') || '660e8400-e29b-41d4-a716-446655440000'; // fallback to old dummy id
+
   const [isSidebarOpen, setSidebarOpen] = useState(false);
   const [patientData, setPatientData] = useState({
     uhid: '',
@@ -30,14 +34,13 @@ export default function RegistrationDesk() {
 
       // For testing, hardcoding valid v4 UUIDs for dept/doctor since we don't have a real auth/user select yet
       const randomPatientId = crypto.randomUUID();
-      const dummyDeptId = "660e8400-e29b-41d4-a716-446655440000";
       const dummyDoctorId = "550e8400-e29b-41d4-a716-446655440000";
 
       const nameParts = patientData.name.trim().split(' ');
       const firstName = nameParts[0] || 'Unknown';
       const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
 
-      const token = await generateToken(randomPatientId, dummyDeptId, dummyDoctorId, priorityEnum, {
+      const token = await generateToken(randomPatientId, deptId, dummyDoctorId, priorityEnum, {
         firstName: firstName,
         lastName: lastName,
         phone: patientData.phone,

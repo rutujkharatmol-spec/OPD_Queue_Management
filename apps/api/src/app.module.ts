@@ -4,6 +4,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { QueueModule } from './modules/queue/queue.module';
 import { TokensModule } from './modules/tokens/tokens.module';
 import { SettingsModule } from './modules/settings/settings.module';
+import { DepartmentsModule } from './modules/departments/departments.module';
 
 import { Queue } from './modules/queue/entities/queue.entity';
 import { Token } from './modules/tokens/entities/token.entity';
@@ -48,6 +49,7 @@ try {
     QueueModule,
     TokensModule,
     SettingsModule,
+    DepartmentsModule,
   ],
   controllers: [AppController],
   providers: [],

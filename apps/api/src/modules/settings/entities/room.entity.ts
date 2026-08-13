@@ -1,5 +1,6 @@
-import { Column, Entity } from 'typeorm';
+import { Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
 import { BaseEntity } from '../../shared/entities/base.entity';
+import { Department } from '../../departments/entities/department.entity';
 
 @Entity('rooms')
 export class Room extends BaseEntity {
@@ -8,4 +9,8 @@ export class Room extends BaseEntity {
 
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
+
+  @ManyToOne(() => Department)
+  @JoinColumn({ name: 'department_id' })
+  department: Department;
 }
