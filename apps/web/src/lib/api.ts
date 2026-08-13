@@ -21,7 +21,7 @@ export async function callNextPatient(doctorId: string) {
   return text ? JSON.parse(text) : null;
 }
 
-export async function markTokenAction(tokenId: string, action: 'SKIP' | 'ABSENT' | 'COMPLETE') {
+export async function markTokenAction(tokenId: string, action: 'SKIP' | 'ABSENT' | 'NOT_AVAILABLE' | 'COMPLETE') {
   const response = await fetch(`${API_BASE_URL}/queue/action/${tokenId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
