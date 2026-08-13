@@ -22,10 +22,11 @@ export async function generateToken(
   return response.json();
 }
 
-export async function callNextPatient(doctorId: string) {
-  const response = await fetch(`${API_BASE_URL}/queue/next/${doctorId}`, {
+export async function callNextPatient(departmentId: string, roomNumber: string) {
+  const response = await fetch(`${API_BASE_URL}/queue/next/${departmentId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ roomNumber }),
   });
   if (!response.ok) throw new Error('Failed to call next patient');
   // Returns empty if queue is empty, handle carefully

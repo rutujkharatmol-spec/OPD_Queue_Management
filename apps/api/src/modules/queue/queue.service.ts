@@ -20,12 +20,29 @@ export class QueueService {
     private readonly dataSource: DataSource,
   ) {}
 
-  async callNextPatient(doctorId: string, roomNumber: string): Promise<Token> {
+  async callNextPatient(departmentId: string, roomNumber: string): Promise<Token> {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
+      // Find the doctor for this department
+      let doctor = await queryRunner.manager.findOne(Doctor, { where: { department: { id: departmentId } }, relations: ['department'] });
+      
+      if (!doctor) {
+        let dept = await queryRunner.manager.findOne(Department, { where: { id: departmentId } });
+        if (!dept) throw new NotFoundException('Department not found');
+        
+        doctor = queryRunner.manager.create(Doctor, {
+          name: `Doctor for ${dept.name}`,
+          roomNumber: roomNumber,
+          department: dept
+        });
+        await queryRunner.manager.save(doctor);
+      }
+      
+      const doctorId = doctor.id;
+
       // Get today's queue for this doctor
       let queue = await queryRunner.manager.findOne(Queue, {
         where: { doctor: { id: doctorId } },
@@ -34,23 +51,6 @@ export class QueueService {
       });
 
       if (!queue) {
-        // Ensure doctor exists to prevent Postgres foreign key errors on a fresh DB
-        let doctor = await queryRunner.manager.findOne(Doctor, { where: { id: doctorId }, relations: ['department'] });
-        if (!doctor) {
-          let dept = await queryRunner.manager.findOne(Department, { where: { name: 'Medicine' } });
-          if (!dept) {
-            dept = queryRunner.manager.create(Department, { name: 'Medicine', code: 'MED' });
-            await queryRunner.manager.save(dept);
-          }
-          doctor = queryRunner.manager.create(Doctor, {
-            id: doctorId,
-            name: 'Consulting Doctor',
-            roomNumber: '104',
-            department: dept
-          });
-          await queryRunner.manager.save(doctor);
-        }
-
         queue = queryRunner.manager.create(Queue, {
           doctor: { id: doctorId },
           queueDate: new Date(),
@@ -166,10 +166,16 @@ export class QueueService {
     const department = await this.departmentRepository.findOne({ where: { id: departmentId } });
     let doctor = await this.dataSource.manager.findOne(Doctor, { where: { department: { id: departmentId } } });
     
-    // Fallback for mock data if no doctor is explicitly tied to this new department ID yet
-    const doctorId = doctor ? doctor.id : '550e8400-e29b-41d4-a716-446655440000';
+    if (!doctor) {
+      // If no doctor exists for this department yet, the queue is effectively empty.
+      return {
+        department: department?.name || 'Department',
+        activeTokens: [],
+        nextTokens: []
+      };
+    }
 
-    return this.buildQueueUpdatePayload(departmentId, doctorId, department);
+    return this.buildQueueUpdatePayload(departmentId, doctor.id, department);
   }
 
   // Helper method to gather current state for polling

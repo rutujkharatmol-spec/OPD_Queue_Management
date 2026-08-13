@@ -8,15 +8,15 @@ import { MarkTokenActionDto } from './dto/mark-token-action.dto';
 export class QueueController {
   constructor(private readonly queueService: QueueService) {}
 
-  @Patch('next/:doctorId')
-  @ApiOperation({ summary: 'Call the next patient in the queue for a doctor' })
+  @Patch('next/:departmentId')
+  @ApiOperation({ summary: 'Call the next patient in the queue for a department' })
   @ApiResponse({ status: 200, description: 'Returns the called token or null if queue is empty.' })
   async callNextPatient(
-    @Param('doctorId') doctorId: string,
+    @Param('departmentId') departmentId: string,
     @Body('roomNumber') roomNumber: string
   ) {
     if (!roomNumber) throw new Error('roomNumber is required');
-    return this.queueService.callNextPatient(doctorId, roomNumber);
+    return this.queueService.callNextPatient(departmentId, roomNumber);
   }
 
   @Patch('action/:tokenId')
