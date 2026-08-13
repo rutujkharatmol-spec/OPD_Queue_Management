@@ -9,8 +9,8 @@ function NavbarContent() {
   const searchParams = useSearchParams();
   const deptId = searchParams.get('deptId');
 
-  // Hide Navbar completely on the patient page as requested
-  if (pathname.startsWith('/patient')) {
+  // Hide Navbar completely on the patient page and home screen as requested
+  if (pathname === '/' || pathname.startsWith('/patient')) {
     return null;
   }
 
