@@ -27,7 +27,7 @@ export class TokensService {
     departmentId: string,
     doctorId: string,
     priority: TokenPriority = TokenPriority.NORMAL,
-    patientData?: { firstName?: string; lastName?: string; phone?: string }
+    patientData?: { firstName?: string; lastName?: string; phone?: string; uhid?: string }
   ): Promise<Token> {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -62,8 +62,8 @@ export class TokensService {
       let patient = await queryRunner.manager.findOne(Patient, { where: { id: patientId } });
       if (!patient) {
         // Use the generated UUID to create a fresh patient record!
-        // Generate a random UHID based on timestamp
-        const uhid = `UHID-${Date.now().toString().slice(-6)}`;
+        // Use provided UHID or generate a random one based on timestamp
+        const uhid = patientData?.uhid || `UHID-${Date.now().toString().slice(-6)}`;
         
         patient = queryRunner.manager.create(Patient, { 
           id: patientId, 

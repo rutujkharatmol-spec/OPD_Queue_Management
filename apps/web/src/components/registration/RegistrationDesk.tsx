@@ -40,7 +40,8 @@ export default function RegistrationDesk() {
       const token = await generateToken(randomPatientId, dummyDeptId, dummyDoctorId, priorityEnum, {
         firstName: firstName,
         lastName: lastName,
-        phone: patientData.phone
+        phone: patientData.phone,
+        uhid: patientData.uhid
       });
       setGeneratedToken(token.tokenNumber);
     } catch (err) {

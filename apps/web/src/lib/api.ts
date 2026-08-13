@@ -5,7 +5,7 @@ export async function generateToken(
   departmentId: string, 
   doctorId: string, 
   priority: string,
-  patientData?: { firstName: string; lastName: string; phone: string; }
+  patientData?: { firstName: string; lastName: string; phone: string; uhid: string; }
 ) {
   const response = await fetch(`${API_BASE_URL}/tokens`, {
     method: 'POST',

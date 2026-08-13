@@ -21,7 +21,8 @@ export class TokensController {
       {
         firstName: dto.firstName,
         lastName: dto.lastName,
-        phone: dto.phone
+        phone: dto.phone,
+        uhid: dto.uhid
       }
     );
   }

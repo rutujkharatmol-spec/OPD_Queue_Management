@@ -34,4 +34,9 @@ export class GenerateTokenDto {
   @IsOptional()
   @IsString()
   phone?: string;
+
+  @ApiPropertyOptional({ description: 'UHID of the patient' })
+  @IsOptional()
+  @IsString()
+  uhid?: string;
 }
