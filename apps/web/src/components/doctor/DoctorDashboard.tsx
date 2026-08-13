@@ -36,7 +36,9 @@ export default function DoctorDashboard() {
           setRooms(data.filter((r: Room) => r.isActive));
         }
       } catch (err) {
-        console.error('Failed to fetch rooms', err);
+        if (err instanceof Error && err.name !== 'TypeError') {
+          console.error('Failed to fetch rooms', err);
+        }
       }
     };
     fetchRooms();
