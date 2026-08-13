@@ -83,7 +83,7 @@ export default function RegistrationDesk() {
         </div>
         
         <nav className="flex-1 p-4 space-y-3 overflow-y-auto">
-          <Link href="/" className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:bg-slate-900 hover:text-white transition-all group">
+          <Link href={`/?deptId=${deptId}`} className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:bg-slate-900 hover:text-white transition-all group">
             <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center group-hover:bg-slate-700 transition-colors">🏠</div>
             <span className="font-semibold text-sm">Dashboard Home</span>
           </Link>

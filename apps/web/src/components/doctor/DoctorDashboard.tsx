@@ -90,10 +90,10 @@ export default function DoctorDashboard() {
             <p className="text-blue-200/70 text-sm mt-1 font-medium">{queueData.nextTokens.length} Patients Waiting</p>
           </div>
           <div className="flex gap-2">
-            <Link href="/settings" className="p-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors">
+            <Link href={`/settings?deptId=${deptId}`} className="p-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors">
               <Settings size={20} className="text-slate-300" />
             </Link>
-            <Link href="/" className="p-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors">
+            <Link href={`/?deptId=${deptId}`} className="p-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors">
               <Home size={20} className="text-slate-300" />
             </Link>
           </div>
@@ -158,7 +158,7 @@ export default function DoctorDashboard() {
                  <Settings size={48} className="mb-4 opacity-50" />
                  <p className="font-bold text-lg mb-2">No Rooms Configured</p>
                  <p className="mb-6">Please configure rooms in the settings before calling patients.</p>
-                 <Link href="/settings" className="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold">Go to Settings</Link>
+                 <Link href={`/settings?deptId=${deptId}`} className="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold">Go to Settings</Link>
                </div>
             ) : (
               rooms.map(room => {

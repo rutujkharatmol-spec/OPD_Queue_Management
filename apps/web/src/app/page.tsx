@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { getDepartments, createDepartment } from '../lib/api';
 
 interface Department {
@@ -9,9 +10,13 @@ interface Department {
   code: string;
 }
 
-export default function Home() {
+function HomeContent() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const urlDeptId = searchParams.get('deptId');
+
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [selectedDeptId, setSelectedDeptId] = useState<string>('');
+  const [selectedDeptId, setSelectedDeptId] = useState<string>(urlDeptId || '');
   const [isAddingDept, setIsAddingDept] = useState(false);
   const [newDeptName, setNewDeptName] = useState('');
   const [newDeptCode, setNewDeptCode] = useState('');
@@ -24,8 +29,10 @@ export default function Home() {
     try {
       const data = await getDepartments();
       setDepartments(data);
-      if (data.length > 0 && !selectedDeptId) {
+      if (data.length > 0 && !selectedDeptId && !urlDeptId) {
         setSelectedDeptId(data[0].id);
+      } else if (urlDeptId) {
+        setSelectedDeptId(urlDeptId);
       }
     } catch (err) {
       console.error('Failed to fetch departments', err);
@@ -214,5 +221,14 @@ export default function Home() {
       )}
 
     </div>
+  );
+}
+
+import { Suspense } from 'react';
+export default function Home() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-slate-950 flex items-center justify-center text-white">Loading...</div>}>
+      <HomeContent />
+    </Suspense>
   );
 }
