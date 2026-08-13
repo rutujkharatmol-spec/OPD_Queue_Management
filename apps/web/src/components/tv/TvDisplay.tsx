@@ -76,17 +76,23 @@ export default function TvDisplay({ departmentId }: { departmentId: string }) {
                No patients currently being served
             </div>
           ) : (
-            <div className={`flex-1 grid gap-6 ${activeTokens.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+            <div className={`flex-1 grid gap-4 lg:gap-6 ${
+              activeTokens.length === 1 ? 'grid-cols-1' 
+              : activeTokens.length > 4 ? 'grid-cols-2 lg:grid-cols-3' 
+              : 'grid-cols-2'
+            }`}>
               {activeTokens.map((item: any, idx: number) => {
                 const isEmergency = item.token?.includes('🚨');
+                const tokenFontSize = activeTokens.length > 4 ? 'text-[6vh] lg:text-[7vh]' : activeTokens.length > 2 ? 'text-[8vh] lg:text-[10vh]' : 'text-[12vh] lg:text-[14vh]';
+                
                 return (
-                  <div key={idx} className={`flex flex-col items-center justify-center rounded-[2rem] border transition-transform duration-300 ${pulseScale ? 'scale-105' : 'scale-100'} ${
+                  <div key={idx} className={`flex flex-col items-center justify-center rounded-[2rem] border transition-transform duration-300 p-4 ${pulseScale ? 'scale-105' : 'scale-100'} ${
                     isEmergency 
                       ? 'bg-red-900/40 border-red-500/50 shadow-[0_0_30px_rgba(220,38,38,0.3)]' 
                       : 'bg-black/40 border-blue-500/30'
                   }`}>
                     <div className="text-[2.5vh] text-blue-200 font-bold tracking-wider mb-2 uppercase">Room {item.room}</div>
-                    <div className={`text-[12vh] lg:text-[14vh] font-black leading-none tracking-tighter ${isEmergency ? 'text-red-100' : 'text-white'}`}>
+                    <div className={`${tokenFontSize} font-black leading-none tracking-tighter w-full text-center whitespace-nowrap overflow-hidden text-ellipsis ${isEmergency ? 'text-red-100' : 'text-white'}`}>
                       {item.token}
                     </div>
                   </div>

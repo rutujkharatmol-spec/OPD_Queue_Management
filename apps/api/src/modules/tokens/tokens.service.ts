@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Token, TokenPriority, TokenStatus } from './entities/token.entity';
@@ -127,5 +127,65 @@ export class TokensService {
       },
       relations: ['patient'],
     });
+  }
+  async getTokenStatus(tokenNumber: string) {
+    const token = await this.tokenRepository.findOne({
+      where: { tokenNumber },
+      relations: ['doctor', 'department'],
+    });
+
+    if (!token) {
+      throw new NotFoundException('Token not found');
+    }
+
+    const doctorId = token.doctor.id;
+
+    // Get currently serving token(s) for this doctor
+    const currentlyServing = await this.tokenRepository.find({
+      where: { doctor: { id: doctorId }, status: TokenStatus.CALLED },
+      select: ['tokenNumber', 'roomNumber'],
+    });
+
+    let patientsAhead = 0;
+    let estimatedWaitTimeMins = 0;
+
+    if (token.status === TokenStatus.WAITING) {
+      // Find all waiting tokens for this doctor
+      const waitingQueue = await this.tokenRepository.find({
+        where: { doctor: { id: doctorId }, status: TokenStatus.WAITING },
+      });
+
+      // Count how many are ahead of THIS token
+      // Ahead = priority > token.priority OR (priority == token.priority AND issuedAt < token.issuedAt)
+      
+      // We map priorities to numbers for easier comparison
+      const priorityWeight = {
+        [TokenPriority.EMERGENCY]: 3,
+        [TokenPriority.SENIOR]: 2,
+        [TokenPriority.NORMAL]: 1,
+      };
+
+      const myWeight = priorityWeight[token.priority];
+
+      patientsAhead = waitingQueue.filter(t => {
+        const tWeight = priorityWeight[t.priority];
+        if (tWeight > myWeight) return true;
+        if (tWeight === myWeight && t.issuedAt.getTime() < token.issuedAt.getTime()) return true;
+        return false;
+      }).length;
+
+      // 5 minutes per patient ahead + 5 minutes if there is someone currently serving
+      estimatedWaitTimeMins = patientsAhead * 5 + (currentlyServing.length > 0 ? 5 : 0);
+    }
+
+    return {
+      tokenNumber: token.tokenNumber,
+      status: token.status,
+      priority: token.priority,
+      departmentName: token.department?.name || 'Department',
+      currentlyServing: currentlyServing.map(t => t.tokenNumber),
+      patientsAhead: token.status === TokenStatus.WAITING ? patientsAhead : 0,
+      estimatedWaitTimeMins: token.status === TokenStatus.WAITING ? estimatedWaitTimeMins : 0,
+    };
   }
 }

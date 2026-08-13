@@ -161,6 +161,7 @@ export class QueueService {
     });
 
     const activeTokens = activeTokensRaw.map(t => ({
+      id: t.id,
       token: t.tokenNumber,
       room: t.roomNumber || '104'
     }));

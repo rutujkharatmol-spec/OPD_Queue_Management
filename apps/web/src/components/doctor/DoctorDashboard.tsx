@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Home, Users, LogOut, CheckCircle, Clock, PauseCircle, PhoneOff, AlertTriangle, UserPlus, Settings } from 'lucide-react';
-import { API_BASE_URL, callNextPatient } from '../../lib/api';
+import { API_BASE_URL, callNextPatient, markTokenAction } from '../../lib/api';
 import { useQueueStore } from '../../store/useQueueStore';
 
 interface Room {
@@ -24,6 +24,9 @@ export default function DoctorDashboard() {
   const [callingRoom, setCallingRoom] = useState<string | null>(null);
 
   useEffect(() => {
+    // Start polling the queue state
+    useQueueStore.getState().initializeWebSocket(deptId);
+
     // Fetch available rooms
     const fetchRooms = async () => {
       try {
@@ -55,6 +58,15 @@ export default function DoctorDashboard() {
       alert('Failed to call next patient. Ensure API is running.');
     } finally {
       setCallingRoom(null);
+    }
+  };
+
+  const handleTokenAction = async (tokenId: string, action: 'COMPLETE' | 'ABSENT') => {
+    try {
+      await markTokenAction(tokenId, action);
+    } catch (err) {
+      console.error(err);
+      alert(`Failed to mark token as ${action}`);
     }
   };
 
@@ -190,10 +202,18 @@ export default function DoctorDashboard() {
                       </button>
                       
                       <div className="flex gap-2">
-                        <button disabled={!activePatient} className="flex-1 py-3 rounded-xl bg-emerald-50 text-emerald-700 font-bold text-sm hover:bg-emerald-100 transition-all active:scale-95 disabled:opacity-50">
+                        <button 
+                          onClick={() => handleTokenAction(activePatient.id, 'COMPLETE')}
+                          disabled={!activePatient} 
+                          className="flex-1 py-3 rounded-xl bg-emerald-50 text-emerald-700 font-bold text-sm hover:bg-emerald-100 transition-all active:scale-95 disabled:opacity-50"
+                        >
                           Complete
                         </button>
-                        <button disabled={!activePatient} className="flex-1 py-3 rounded-xl bg-orange-50 text-orange-700 font-bold text-sm hover:bg-orange-100 transition-all active:scale-95 disabled:opacity-50">
+                        <button 
+                          onClick={() => handleTokenAction(activePatient.id, 'ABSENT')}
+                          disabled={!activePatient} 
+                          className="flex-1 py-3 rounded-xl bg-orange-50 text-orange-700 font-bold text-sm hover:bg-orange-100 transition-all active:scale-95 disabled:opacity-50"
+                        >
                           Absent
                         </button>
                       </div>

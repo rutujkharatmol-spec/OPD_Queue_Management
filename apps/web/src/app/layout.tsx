@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import { Navbar } from '../components/Navbar'
 
 export const metadata: Metadata = {
   title: 'OPD Queue Management',
@@ -13,7 +14,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body className="bg-slate-950 min-h-screen text-white">
+        <Navbar />
+        {children}
+      </body>
     </html>
   )
 }
