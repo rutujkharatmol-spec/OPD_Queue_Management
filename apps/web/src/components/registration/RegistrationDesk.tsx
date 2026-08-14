@@ -1,25 +1,41 @@
 "use client";
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Menu, X, PlusCircle, Search, Printer, CheckCircle2 } from 'lucide-react';
+import { Menu, X, PlusCircle, Search, Printer, CheckCircle2, Building2, ArrowRightLeft } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
-import { generateToken } from '../../lib/api';
+import { generateToken, getDepartments } from '../../lib/api';
 
 export default function RegistrationDesk() {
   const searchParams = useSearchParams();
   const deptId = searchParams.get('deptId') || '660e8400-e29b-41d4-a716-446655440000'; // fallback to old dummy id
 
+  const [deptName, setDeptName] = useState<string>('');
   const [isSidebarOpen, setSidebarOpen] = useState(false);
   const [patientData, setPatientData] = useState({
     uhid: '',
     name: '',
     phone: '',
-    department: 'Medicine',
-    priority: 'Normal',
   });
 
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+
+  useEffect(() => {
+    async function fetchDeptName() {
+      try {
+        const depts = await getDepartments();
+        const found = depts.find((d: any) => d.id === deptId);
+        if (found) {
+          setDeptName(found.name);
+        }
+      } catch (err) {
+        console.error('Failed to fetch departments', err);
+      }
+    }
+    if (deptId) {
+      fetchDeptName();
+    }
+  }, [deptId]);
 
   const handleGenerateToken = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,10 +43,7 @@ export default function RegistrationDesk() {
     setGeneratedToken(null);
     
     try {
-      // Priority parsing
-      let priorityEnum = 'NORMAL';
-      if (patientData.priority.includes('Emergency')) priorityEnum = 'EMERGENCY';
-      else if (patientData.priority.includes('Senior')) priorityEnum = 'SENIOR_CITIZEN';
+      const priorityEnum = 'NORMAL';
 
       // For testing, hardcoding valid v4 UUIDs for dept/doctor since we don't have a real auth/user select yet
       const randomPatientId = crypto.randomUUID();
@@ -76,6 +89,10 @@ export default function RegistrationDesk() {
           <div>
             <h1 className="text-xl font-black tracking-widest text-blue-400 bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-indigo-400">AIIMS KALYANI</h1>
             <p className="text-xs text-slate-500 font-medium tracking-wide mt-1 uppercase">OPD Registration</p>
+            <div className="mt-2.5 inline-flex items-center gap-1.5 bg-blue-950/80 border border-blue-800/60 px-2.5 py-1 rounded-lg">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span className="text-[11px] font-bold text-blue-300 uppercase tracking-wide">{deptName || 'Medicine'} OPD</span>
+            </div>
           </div>
           <button className="lg:hidden text-slate-400 hover:text-white" onClick={() => setSidebarOpen(false)}>
             <X size={24} />
@@ -120,7 +137,13 @@ export default function RegistrationDesk() {
           <button onClick={() => setSidebarOpen(true)} className="p-2 rounded-lg bg-slate-100 text-slate-600">
             <Menu size={24} />
           </button>
-          <h2 className="font-bold text-slate-800">Generate Token</h2>
+          <div className="text-center">
+            <h2 className="font-bold text-slate-800 leading-tight">OPD Registration</h2>
+            <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full text-xs font-black border border-blue-200">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              {deptName || 'Medicine'} OPD
+            </span>
+          </div>
           <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold">AK</div>
         </header>
 
@@ -133,13 +156,56 @@ export default function RegistrationDesk() {
               <div className="absolute top-0 right-0 w-64 h-64 bg-blue-400/10 rounded-full blur-3xl pointer-events-none"></div>
               
               <div className="relative z-10">
-                <h2 className="text-3xl font-black text-slate-800 mb-2">New OPD Patient</h2>
-                <p className="text-slate-500 mb-8">Enter patient details to generate a priority queue token.</p>
+                
+                {/* PROMINENT HIGH-VISIBILITY DEPARTMENT BANNER */}
+                <div className="mb-8 p-5 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 text-white shadow-xl shadow-blue-600/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border border-blue-400/40 relative overflow-hidden">
+                  <div className="absolute -right-8 -bottom-8 w-32 h-32 bg-white/10 rounded-full blur-2xl pointer-events-none"></div>
+                  
+                  <div className="flex items-center gap-4 relative z-10">
+                    <div className="w-14 h-14 rounded-2xl bg-white/15 backdrop-blur-md flex items-center justify-center border border-white/25 shadow-inner shrink-0">
+                      <Building2 size={28} className="text-white" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-blue-100 bg-blue-900/60 px-2.5 py-0.5 rounded-full border border-blue-400/40">
+                          Active OPD Department
+                        </span>
+                        <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                      </div>
+                      <h3 className="text-2xl sm:text-3xl font-black text-white tracking-tight drop-shadow-sm">
+                        {deptName ? `${deptName} Department` : 'Medicine Department'}
+                      </h3>
+                      <p className="text-blue-100/90 text-xs font-medium mt-0.5">
+                        ⚠️ Please ensure patient requires consultation in this department before issuing token.
+                      </p>
+                    </div>
+                  </div>
+
+                  <Link 
+                    href="/" 
+                    className="self-stretch sm:self-auto px-4 py-2.5 bg-white/20 hover:bg-white/30 active:scale-95 text-white font-bold text-xs rounded-xl backdrop-blur-md border border-white/30 transition-all shadow-md flex items-center justify-center gap-2 shrink-0"
+                    title="Change department"
+                  >
+                    <ArrowRightLeft size={14} />
+                    <span>Change Dept</span>
+                  </Link>
+                </div>
+
+                <div className="mb-6">
+                  <h2 className="text-2xl font-black text-slate-800 tracking-tight">New Patient Entry</h2>
+                  <p className="text-slate-500 text-sm mt-1">Enter patient details below to generate an OPD queue token.</p>
+                </div>
                 
                 <form onSubmit={handleGenerateToken} className="space-y-8">
                   {/* Demographics */}
                   <div className="bg-slate-50/50 p-6 rounded-2xl border border-slate-100 space-y-6">
-                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Patient Demographics</h3>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+                      <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Patient Demographics</h3>
+                      <span className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-700 bg-blue-100/80 px-2.5 py-1 rounded-lg border border-blue-200 w-fit">
+                        <Building2 size={13} className="text-blue-600" />
+                        Target: <strong className="font-black">{deptName ? `${deptName} OPD` : 'Medicine OPD'}</strong>
+                      </span>
+                    </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div className="col-span-1 md:col-span-2">
                         <label className="block text-sm font-semibold text-slate-700 mb-2">Full Name</label>
@@ -177,33 +243,6 @@ export default function RegistrationDesk() {
                             Fetch
                           </button>
                         </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Consultation Details */}
-                  <div className="bg-blue-50/50 p-6 rounded-2xl border border-blue-100/50 space-y-6">
-                    <h3 className="text-xs font-bold text-blue-400 uppercase tracking-widest mb-4">Consultation Assignment</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div>
-                        <label className="block text-sm font-semibold text-slate-700 mb-2">Department</label>
-                        <select className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-slate-800 focus:ring-4 focus:ring-blue-500/20 outline-none shadow-sm cursor-pointer appearance-none">
-                          <option>Medicine</option>
-                          <option>Orthopaedics</option>
-                          <option>Cardiology</option>
-                        </select>
-                      </div>
-                      <div className="md:col-span-1 lg:col-span-1">
-                        <label className="block text-sm font-semibold text-slate-700 mb-2">Queue Priority</label>
-                        <select 
-                          value={patientData.priority}
-                          onChange={(e) => setPatientData({...patientData, priority: e.target.value})}
-                          className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold text-slate-800 focus:ring-4 focus:ring-blue-500/20 outline-none shadow-sm cursor-pointer appearance-none"
-                        >
-                          <option>🟢 Normal</option>
-                          <option>🟡 Senior Citizen</option>
-                          <option className="text-red-600 bg-red-50">🔴 Emergency</option>
-                        </select>
                       </div>
                     </div>
                   </div>
@@ -260,9 +299,11 @@ export default function RegistrationDesk() {
                           <span className="text-slate-500 font-medium">Patient:</span>
                           <span className="font-bold text-slate-800">{patientData.name || 'Rahul Kumar'}</span>
                         </div>
-                        <div className="flex justify-between text-sm">
+                        <div className="flex justify-between items-center text-sm py-0.5">
                           <span className="text-slate-500 font-medium">Dept:</span>
-                          <span className="font-bold text-slate-800">Medicine (Rm 104)</span>
+                          <span className="font-black text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-md border border-blue-200 text-xs">
+                            {deptName ? `${deptName} Dept` : 'Medicine Dept'}
+                          </span>
                         </div>
                         <div className="flex justify-between text-sm">
                           <span className="text-slate-500 font-medium">Priority:</span>
