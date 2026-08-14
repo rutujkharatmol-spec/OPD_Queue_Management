@@ -1,12 +1,13 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, IsNull } from 'typeorm';
+import { Repository, DataSource, IsNull, Between } from 'typeorm';
 import { Token, TokenStatus } from '../tokens/entities/token.entity';
 import { Queue, QueueStatus } from './entities/queue.entity';
 
 import { Department } from '../departments/entities/department.entity';
 import { Doctor } from '../doctors/entities/doctor.entity';
 import { TokenPriority } from '../tokens/entities/token.entity';
+import { Room } from '../settings/entities/room.entity';
 
 @Injectable()
 export class QueueService {
@@ -162,6 +163,32 @@ export class QueueService {
     return token;
   }
 
+  /**
+   * Recall / re-announce a patient in a specific room.
+   * Updates calledAt timestamp so the TV display detects a change and re-announces.
+   */
+  async recallPatient(departmentId: string, roomNumber: string): Promise<Token | null> {
+    const doctor = await this.dataSource.manager.findOne(Doctor, { where: { department: { id: departmentId } } });
+    if (!doctor) return null;
+
+    const activeToken = await this.tokenRepository.findOne({
+      where: {
+        doctor: { id: doctor.id },
+        roomNumber: roomNumber,
+        status: TokenStatus.CALLED,
+      },
+      relations: ['patient'],
+    });
+
+    if (!activeToken) return null;
+
+    // Bump calledAt to trigger re-announcement detection on client
+    activeToken.calledAt = new Date();
+    await this.tokenRepository.save(activeToken);
+
+    return activeToken;
+  }
+
   async getLiveQueueByDepartment(departmentId: string) {
     const department = await this.departmentRepository.findOne({ where: { id: departmentId } });
     let doctor = await this.dataSource.manager.findOne(Doctor, { where: { department: { id: departmentId } } });
@@ -176,6 +203,97 @@ export class QueueService {
     }
 
     return this.buildQueueUpdatePayload(departmentId, doctor.id, department);
+  }
+
+  /**
+   * Get daily analytics for a department.
+   */
+  async getDepartmentAnalytics(departmentId: string) {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date();
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const department = await this.departmentRepository.findOne({ where: { id: departmentId } });
+    const doctor = await this.dataSource.manager.findOne(Doctor, { where: { department: { id: departmentId } } });
+    
+    if (!doctor) {
+      return {
+        departmentName: department?.name || 'Department',
+        date: new Date().toISOString().split('T')[0],
+        totalTokens: 0,
+        waiting: 0,
+        called: 0,
+        completed: 0,
+        absent: 0,
+        skipped: 0,
+        emergencyCount: 0,
+        seniorCount: 0,
+        normalCount: 0,
+        avgConsultationMins: 0,
+        hourlyBreakdown: [],
+      };
+    }
+
+    const todayTokens = await this.tokenRepository.find({
+      where: {
+        doctor: { id: doctor.id },
+        issuedAt: Between(startOfDay, endOfDay),
+      },
+    });
+
+    const waiting = todayTokens.filter(t => t.status === TokenStatus.WAITING).length;
+    const called = todayTokens.filter(t => t.status === TokenStatus.CALLED).length;
+    const completed = todayTokens.filter(t => t.status === TokenStatus.COMPLETED).length;
+    const absent = todayTokens.filter(t => t.status === TokenStatus.ABSENT).length;
+    const skipped = todayTokens.filter(t => t.status === TokenStatus.SKIPPED).length;
+
+    const emergencyCount = todayTokens.filter(t => t.priority === TokenPriority.EMERGENCY).length;
+    const seniorCount = todayTokens.filter(t => t.priority === TokenPriority.SENIOR).length;
+    const normalCount = todayTokens.filter(t => t.priority === TokenPriority.NORMAL).length;
+
+    // Average consultation time (calledAt to completedAt for completed tokens)
+    const completedWithTimes = todayTokens.filter(t => t.status === TokenStatus.COMPLETED && t.calledAt && t.completedAt);
+    let avgConsultationMins = 0;
+    if (completedWithTimes.length > 0) {
+      const totalMins = completedWithTimes.reduce((sum, t) => {
+        const diff = (t.completedAt.getTime() - t.calledAt.getTime()) / 60000;
+        return sum + diff;
+      }, 0);
+      avgConsultationMins = Math.round(totalMins / completedWithTimes.length);
+    }
+
+    // Hourly breakdown (tokens registered per hour)
+    const hourlyBreakdown: { hour: string; count: number }[] = [];
+    for (let h = 6; h <= 20; h++) {
+      const hourStart = new Date(startOfDay);
+      hourStart.setHours(h, 0, 0, 0);
+      const hourEnd = new Date(startOfDay);
+      hourEnd.setHours(h, 59, 59, 999);
+      const count = todayTokens.filter(t => t.issuedAt >= hourStart && t.issuedAt <= hourEnd).length;
+      if (count > 0 || h >= 8 && h <= 17) {
+        hourlyBreakdown.push({
+          hour: `${String(h).padStart(2, '0')}:00`,
+          count,
+        });
+      }
+    }
+
+    return {
+      departmentName: department?.name || 'Department',
+      date: new Date().toISOString().split('T')[0],
+      totalTokens: todayTokens.length,
+      waiting,
+      called,
+      completed,
+      absent,
+      skipped,
+      emergencyCount,
+      seniorCount,
+      normalCount,
+      avgConsultationMins,
+      hourlyBreakdown,
+    };
   }
 
   // Helper method to gather current state for polling
@@ -195,10 +313,23 @@ export class QueueService {
       relations: ['patient']
     });
 
+    // Get rooms with doctor names for this department
+    const rooms = await this.dataSource.manager.find(Room, {
+      where: { department: { id: departmentId } },
+    });
+    const roomDoctorMap: Record<string, string> = {};
+    for (const r of rooms) {
+      if (r.doctorName) {
+        roomDoctorMap[r.roomNumber] = r.doctorName;
+      }
+    }
+
     const activeTokens = activeTokensRaw.map(t => ({
       id: t.id,
       token: t.tokenNumber,
       room: t.roomNumber || '104',
+      calledAt: t.calledAt?.toISOString() || null,
+      doctorName: roomDoctorMap[t.roomNumber] || null,
       patientName: t.patient ? `${t.patient.firstName} ${t.patient.lastName}`.trim() : 'Unknown Patient',
       uhid: t.patient?.uhid || '---'
     }));
@@ -221,3 +352,4 @@ export class QueueService {
     };
   }
 }
+

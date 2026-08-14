@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Param } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { TokensService } from './tokens.service';
 import { GenerateTokenDto } from './dto/generate-token.dto';
@@ -27,6 +27,17 @@ export class TokensController {
     );
   }
 
+  @Get('search')
+  @ApiOperation({ summary: 'Search today\'s tokens by patient name, phone, UHID, or token number' })
+  @ApiResponse({ status: 200, description: 'Returns matching tokens.' })
+  async searchTokens(
+    @Query('q') query: string,
+    @Query('departmentId') departmentId?: string,
+  ) {
+    if (!query || query.trim().length === 0) return [];
+    return this.tokensService.searchTokens(query.trim(), departmentId);
+  }
+
   @Get('doctor/:doctorId')
   @ApiOperation({ summary: 'Get the waiting queue for a specific doctor' })
   async getDoctorQueue(@Param('doctorId') doctorId: string) {
@@ -41,3 +52,4 @@ export class TokensController {
     return this.tokensService.getTokenStatus(tokenNumber);
   }
 }
+

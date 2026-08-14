@@ -1,8 +1,86 @@
 "use client";
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useQueueStore } from '../../store/useQueueStore';
-import { Moon, Sun } from 'lucide-react';
+import { Moon, Sun, Volume2, VolumeX, Globe, BellRing } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
+
+function playHospitalChime() {
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+
+    // High Tone: 659.25 Hz (E5)
+    const osc1 = ctx.createOscillator();
+    const gain1 = ctx.createGain();
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(659.25, ctx.currentTime);
+    gain1.gain.setValueAtTime(0.25, ctx.currentTime);
+    gain1.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);
+    osc1.connect(gain1);
+    gain1.connect(ctx.destination);
+    osc1.start(ctx.currentTime);
+    osc1.stop(ctx.currentTime + 0.8);
+
+    // Low Tone: 523.25 Hz (C5) at +0.25s
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(523.25, ctx.currentTime + 0.25);
+    gain2.gain.setValueAtTime(0.25, ctx.currentTime + 0.25);
+    gain2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.2);
+    osc2.connect(gain2);
+    gain2.connect(ctx.destination);
+    osc2.start(ctx.currentTime + 0.25);
+    osc2.stop(ctx.currentTime + 1.2);
+  } catch (e) {
+    console.error('Audio chime error', e);
+  }
+}
+
+function announcePatient(token: string, room: string, lang: 'en' | 'hi' | 'bn' | 'dual' = 'en') {
+  if (typeof window === 'undefined' || !window.speechSynthesis) return;
+
+  const cleanToken = token.replace('🚨', '').trim();
+
+  // Play chime first
+  playHospitalChime();
+
+  // Voice announcement after chime
+  setTimeout(() => {
+    try {
+      window.speechSynthesis.cancel();
+
+      if (lang === 'hi') {
+        const u = new SpeechSynthesisUtterance(`टोकन नंबर ${cleanToken}, कृपया रूम नंबर ${room} में जाएँ`);
+        u.lang = 'hi-IN';
+        u.rate = 0.9;
+        window.speechSynthesis.speak(u);
+      } else if (lang === 'bn') {
+        const u = new SpeechSynthesisUtterance(`টোকেন নম্বর ${cleanToken}, দয়া করে রুম নম্বর ${room}-এ যান`);
+        u.lang = 'bn-IN';
+        u.rate = 0.9;
+        window.speechSynthesis.speak(u);
+      } else if (lang === 'dual') {
+        const u1 = new SpeechSynthesisUtterance(`Token ${cleanToken}, please proceed to Room ${room}`);
+        u1.lang = 'en-IN';
+        u1.rate = 0.95;
+        const u2 = new SpeechSynthesisUtterance(`टोकन ${cleanToken}, रूम नंबर ${room}`);
+        u2.lang = 'hi-IN';
+        u2.rate = 0.95;
+        window.speechSynthesis.speak(u1);
+        window.speechSynthesis.speak(u2);
+      } else {
+        const u = new SpeechSynthesisUtterance(`Token ${cleanToken}, please proceed to Room ${room}`);
+        u.lang = 'en-IN';
+        u.rate = 0.95;
+        window.speechSynthesis.speak(u);
+      }
+    } catch (e) {
+      console.error('TTS error', e);
+    }
+  }, 700);
+}
 
 export default function TvDisplay() {
   const searchParams = useSearchParams();
@@ -11,38 +89,63 @@ export default function TvDisplay() {
   const { liveQueues, initializeWebSocket } = useQueueStore();
   const queueData = liveQueues[deptId] || { department: 'Department', activeTokens: [], nextTokens: [] };
   const [pulseScale, setPulseScale] = useState(false);
-  const [prevActiveTokens, setPrevActiveTokens] = useState<string>('');
   const [isDark, setIsDark] = useState(false);
+
+  // Audio State
+  const [isAudioEnabled, setIsAudioEnabled] = useState(false);
+  const [audioLang, setAudioLang] = useState<'en' | 'hi' | 'bn' | 'dual'>('dual');
+  const [lastAnnouncedSnapshot, setLastAnnouncedSnapshot] = useState<string>('');
+  const isInitialMount = useRef(true);
 
   useEffect(() => {
     initializeWebSocket(deptId);
   }, [deptId, initializeWebSocket]);
 
-  // Flash animation whenever active tokens change
+  // Monitor active token changes or recall events
   useEffect(() => {
-    const currentTokensStr = JSON.stringify(queueData?.activeTokens || []);
-    if (queueData?.activeTokens?.length > 0 && currentTokensStr !== prevActiveTokens) {
+    if (!queueData?.activeTokens) return;
+
+    // Snapshot includes token numbers + calledAt timestamps to detect both new calls & recalls
+    const currentSnapshot = queueData.activeTokens
+      .map(t => `${t.token}:${t.room}:${t.calledAt || ''}`)
+      .join('|');
+
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      setLastAnnouncedSnapshot(currentSnapshot);
+      return;
+    }
+
+    if (currentSnapshot && currentSnapshot !== lastAnnouncedSnapshot) {
       setPulseScale(true);
-      const timer = setTimeout(() => setPulseScale(false), 500);
-      setPrevActiveTokens(currentTokensStr);
+      const timer = setTimeout(() => setPulseScale(false), 600);
+
+      // Find which token changed or was newly called/recalled
+      const prevTokens = lastAnnouncedSnapshot ? lastAnnouncedSnapshot.split('|') : [];
+      const currentTokens = currentSnapshot.split('|');
+
+      // The newly added or updated item
+      const updatedItemStr = currentTokens.find(t => !prevTokens.includes(t)) || currentTokens[currentTokens.length - 1];
+      if (updatedItemStr && isAudioEnabled) {
+        const [tok, rm] = updatedItemStr.split(':');
+        if (tok && rm) {
+          announcePatient(tok, rm, audioLang);
+        }
+      }
+
+      setLastAnnouncedSnapshot(currentSnapshot);
       return () => clearTimeout(timer);
     }
-  }, [queueData?.activeTokens]);
+  }, [queueData?.activeTokens, isAudioEnabled, audioLang, lastAnnouncedSnapshot]);
 
-  if (!queueData) {
-    return (
-      <div className={isDark ? "dark" : ""}>
-        <div className="flex h-screen w-full items-center justify-center bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white relative overflow-hidden transition-colors duration-500">
-          <div className="absolute inset-0 bg-gradient-to-br from-slate-100 to-white dark:from-slate-900 dark:to-black"></div>
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[40vw] h-[40vw] bg-blue-400/20 dark:bg-blue-600/20 blur-[100px] rounded-full animate-pulse-slow"></div>
-          <div className="relative z-10 flex flex-col items-center">
-            <div className="w-20 h-20 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-8"></div>
-            <h1 className="text-[3vw] font-bold tracking-widest text-slate-500 dark:text-slate-300 uppercase">Connecting to Queue...</h1>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const toggleAudio = () => {
+    const next = !isAudioEnabled;
+    setIsAudioEnabled(next);
+    if (next) {
+      // Play a short chime to unlock AudioContext on user interaction
+      playHospitalChime();
+    }
+  };
 
   const activeTokens = queueData.activeTokens || [];
   const hasEmergency = activeTokens.some((t: any) => t.token?.includes('🚨')) || queueData.nextTokens.some(t => t.includes('🚨'));
@@ -51,14 +154,42 @@ export default function TvDisplay() {
     <div className={isDark ? "dark" : ""}>
       <div className="flex h-screen w-full flex-col bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white overflow-hidden relative font-sans transition-colors duration-500">
         
-        {/* Theme Toggle Button */}
-        <button 
-          onClick={() => setIsDark(!isDark)}
-          className="absolute top-6 left-6 z-50 p-4 bg-white/50 dark:bg-black/40 backdrop-blur-md rounded-full shadow-lg border border-slate-200 dark:border-white/10 hover:bg-white dark:hover:bg-black/60 transition-all text-slate-600 dark:text-slate-300"
-          title="Toggle Theme"
-        >
-          {isDark ? <Sun size={24} /> : <Moon size={24} />}
-        </button>
+        {/* Floating Top Controls (Audio & Theme) */}
+        <div className="absolute top-5 left-6 z-50 flex items-center gap-3">
+          <button 
+            onClick={toggleAudio}
+            className={`px-4 py-2.5 backdrop-blur-md rounded-2xl shadow-lg border font-bold text-xs flex items-center gap-2 transition-all cursor-pointer ${
+              isAudioEnabled 
+                ? 'bg-emerald-500 text-white border-emerald-400 shadow-emerald-500/20' 
+                : 'bg-white/70 dark:bg-black/40 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-white/10'
+            }`}
+            title={isAudioEnabled ? "Audio Announcements Enabled" : "Click to Enable Audio Announcements"}
+          >
+            {isAudioEnabled ? <Volume2 size={18} className="animate-pulse" /> : <VolumeX size={18} />}
+            <span>{isAudioEnabled ? 'Audio: ON' : 'Audio: OFF'}</span>
+          </button>
+
+          {isAudioEnabled && (
+            <select
+              value={audioLang}
+              onChange={(e) => setAudioLang(e.target.value as any)}
+              className="px-3 py-2 bg-white/70 dark:bg-black/40 backdrop-blur-md rounded-2xl shadow-lg border border-slate-200 dark:border-white/10 text-xs font-bold text-slate-700 dark:text-slate-200 outline-none cursor-pointer"
+            >
+              <option value="dual">Dual (Eng + Hindi)</option>
+              <option value="en">English Only</option>
+              <option value="hi">Hindi (हिंदी)</option>
+              <option value="bn">Bengali (বাংলা)</option>
+            </select>
+          )}
+
+          <button 
+            onClick={() => setIsDark(!isDark)}
+            className="p-2.5 bg-white/70 dark:bg-black/40 backdrop-blur-md rounded-2xl shadow-lg border border-slate-200 dark:border-white/10 hover:bg-white dark:hover:bg-black/60 transition-all text-slate-600 dark:text-slate-300"
+            title="Toggle Theme"
+          >
+            {isDark ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
+        </div>
 
         {/* Animated Mesh Background */}
         <div className="absolute inset-0 z-0 opacity-60 dark:opacity-40 pointer-events-none transition-opacity duration-500">
@@ -71,13 +202,16 @@ export default function TvDisplay() {
 
         {/* Header */}
         <header className="relative z-10 flex h-[10vh] items-center justify-center bg-white/80 dark:bg-black/40 backdrop-blur-xl px-12 shadow-sm dark:shadow-2xl border-b border-slate-200 dark:border-white/5 transition-colors duration-500">
-          <h1 className="text-[3.5vh] font-black uppercase tracking-widest text-slate-800 dark:text-white dark:drop-shadow-md transition-colors duration-500">
-            {queueData.department} OPD
-          </h1>
+          <div className="flex items-center gap-3">
+            <span className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></span>
+            <h1 className="text-[3.5vh] font-black uppercase tracking-widest text-slate-800 dark:text-white dark:drop-shadow-md transition-colors duration-500">
+              {queueData.department} OPD
+            </h1>
+          </div>
         </header>
 
         {/* Main Content */}
-        <main className="relative z-10 flex flex-1 p-6 lg:p-12 gap-8 lg:gap-12 items-stretch h-[80vh]">
+        <main className="relative z-10 flex flex-1 p-6 lg:p-10 gap-6 lg:gap-10 items-stretch h-[80vh]">
           
           {/* Active Patients Grid (Left/Main) */}
           <div className={`flex-[2] flex flex-col rounded-[3rem] p-8 shadow-xl dark:shadow-2xl border relative overflow-hidden backdrop-blur-2xl transition-colors duration-500 ${
@@ -85,7 +219,7 @@ export default function TvDisplay() {
               ? 'bg-white/90 dark:bg-red-950/40 border-red-200 dark:border-red-500/30 ring-4 ring-red-100 dark:ring-0' 
               : 'bg-white dark:bg-blue-900/20 border-slate-100 dark:border-blue-500/20'
           }`}>
-            <h2 className="text-[3vh] font-bold text-slate-400 dark:text-white/50 mb-8 uppercase tracking-[0.3em] text-center transition-colors duration-500">
+            <h2 className="text-[2.8vh] font-bold text-slate-400 dark:text-white/50 mb-6 uppercase tracking-[0.3em] text-center transition-colors duration-500">
               Currently Serving
             </h2>
             
@@ -101,17 +235,27 @@ export default function TvDisplay() {
               }`}>
                 {activeTokens.map((item: any, idx: number) => {
                   const isEmergency = item.token?.includes('🚨');
-                  const tokenFontSize = activeTokens.length > 4 ? 'text-[8vh] lg:text-[10vh]' : activeTokens.length > 2 ? 'text-[10vh] lg:text-[12vh]' : 'text-[14vh] lg:text-[16vh]';
+                  const tokenFontSize = activeTokens.length > 4 ? 'text-[7vh] lg:text-[9vh]' : activeTokens.length > 2 ? 'text-[9vh] lg:text-[11vh]' : 'text-[13vh] lg:text-[15vh]';
                   
                   const [prefix, number] = item.token?.includes('-') ? item.token.split('-') : [null, item.token];
 
                   return (
-                    <div key={idx} className={`flex flex-col items-center justify-center rounded-[2rem] border transition-all duration-300 p-4 ${pulseScale ? 'scale-105' : 'scale-100'} ${
+                    <div key={idx} className={`flex flex-col items-center justify-center rounded-[2rem] border transition-all duration-300 p-4 relative ${pulseScale ? 'scale-105' : 'scale-100'} ${
                       isEmergency 
                         ? 'bg-red-50 dark:bg-red-900/40 border-red-200 dark:border-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.2)] dark:shadow-[0_0_30px_rgba(220,38,38,0.3)]' 
                         : 'bg-slate-50 dark:bg-black/40 border-slate-200 dark:border-blue-500/30 shadow-sm dark:shadow-none'
                     }`}>
-                      <div className={`text-[3vh] lg:text-[3.5vh] font-bold tracking-wider mb-2 uppercase transition-colors duration-500 ${isEmergency ? 'text-red-500 dark:text-red-300' : 'text-slate-500 dark:text-blue-200'}`}>Room {item.room}</div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className={`text-[2.8vh] lg:text-[3.2vh] font-black tracking-wider uppercase transition-colors duration-500 ${isEmergency ? 'text-red-500 dark:text-red-300' : 'text-slate-600 dark:text-blue-200'}`}>
+                          Room {item.room}
+                        </span>
+                        {item.doctorName && (
+                          <span className="text-xs font-bold text-slate-400 dark:text-slate-300 bg-white dark:bg-slate-800 px-2 py-0.5 rounded-md border border-slate-200 dark:border-slate-700">
+                            {item.doctorName}
+                          </span>
+                        )}
+                      </div>
+
                       <div className={`${tokenFontSize} font-black leading-none tracking-tighter w-full text-center whitespace-nowrap overflow-hidden text-ellipsis transition-colors duration-500 ${isEmergency ? 'text-red-600 dark:text-red-100' : 'text-slate-900 dark:text-white'}`}>
                         {prefix ? (
                           <>
@@ -122,6 +266,12 @@ export default function TvDisplay() {
                           item.token
                         )}
                       </div>
+
+                      {item.patientName && item.patientName !== 'Unknown Patient' && (
+                        <div className="mt-2 text-xs font-semibold text-slate-400 dark:text-slate-400 truncate max-w-[80%]">
+                          {item.patientName}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -149,7 +299,7 @@ export default function TvDisplay() {
                         : 'bg-slate-50 dark:bg-white/5 border-slate-200 dark:border-white/10 text-slate-800 dark:text-white'
                       }`}
                     >
-                      <span className="text-[6vh] lg:text-[7vh] font-black tracking-widest text-center w-full whitespace-nowrap overflow-hidden text-ellipsis">
+                      <span className="text-[5.5vh] lg:text-[6.5vh] font-black tracking-widest text-center w-full whitespace-nowrap overflow-hidden text-ellipsis">
                         {prefix ? (
                           <>
                             <span className={`text-[0.5em] font-bold align-middle mr-1 transition-colors duration-500 ${isEmergency ? 'text-red-400 dark:text-red-300' : 'text-slate-400 dark:text-white/50'}`}>{prefix}-</span>
@@ -185,3 +335,4 @@ export default function TvDisplay() {
     </div>
   );
 }
+

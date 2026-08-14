@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, Between, ILike } from 'typeorm';
 import { Token, TokenPriority, TokenStatus } from './entities/token.entity';
 import { Patient } from '../patients/entities/patient.entity';
 import { Doctor } from '../doctors/entities/doctor.entity';
@@ -75,7 +75,7 @@ export class TokensService {
         await queryRunner.manager.save(patient);
       }
 
-      // 2. Generate Daily Sequence Number
+      // 2. Generate Daily Sequence Number — resets to 001 each day
       const startOfDay = new Date();
       startOfDay.setHours(0, 0, 0, 0);
       const endOfDay = new Date();
@@ -84,6 +84,7 @@ export class TokensService {
       const todayTokensCount = await queryRunner.manager.count(Token, {
         where: {
           department: { id: departmentId },
+          issuedAt: Between(startOfDay, endOfDay),
         },
       });
       
@@ -102,8 +103,6 @@ export class TokensService {
 
       await queryRunner.manager.save(token);
       await queryRunner.commitTransaction();
-
-
 
       return token;
     } catch (error) {
@@ -128,6 +127,7 @@ export class TokensService {
       relations: ['patient'],
     });
   }
+
   async getTokenStatus(tokenNumber: string) {
     const token = await this.tokenRepository.findOne({
       where: { tokenNumber },
@@ -188,5 +188,47 @@ export class TokensService {
       patientsAhead: token.status === TokenStatus.WAITING ? patientsAhead : 0,
       estimatedWaitTimeMins: token.status === TokenStatus.WAITING ? estimatedWaitTimeMins : 0,
     };
+  }
+
+  /**
+   * Search for today's tokens by patient name, phone, or UHID.
+   */
+  async searchTokens(query: string, departmentId?: string) {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date();
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const qb = this.tokenRepository.createQueryBuilder('token')
+      .leftJoinAndSelect('token.patient', 'patient')
+      .leftJoinAndSelect('token.department', 'department')
+      .where('token.issuedAt BETWEEN :start AND :end', { start: startOfDay, end: endOfDay });
+
+    if (departmentId) {
+      qb.andWhere('token.department_id = :departmentId', { departmentId });
+    }
+
+    qb.andWhere(
+      '(patient.phone ILIKE :q OR patient.uhid ILIKE :q OR patient.first_name ILIKE :q OR patient.last_name ILIKE :q OR token.token_number ILIKE :q)',
+      { q: `%${query}%` }
+    );
+
+    qb.orderBy('token.issuedAt', 'DESC');
+    qb.take(20);
+
+    const tokens = await qb.getMany();
+
+    return tokens.map(t => ({
+      id: t.id,
+      tokenNumber: t.tokenNumber,
+      status: t.status,
+      priority: t.priority,
+      roomNumber: t.roomNumber,
+      issuedAt: t.issuedAt,
+      departmentName: t.department?.name || 'Department',
+      patientName: t.patient ? `${t.patient.firstName} ${t.patient.lastName}`.trim() : 'Unknown',
+      phone: t.patient?.phone || '',
+      uhid: t.patient?.uhid || '',
+    }));
   }
 }

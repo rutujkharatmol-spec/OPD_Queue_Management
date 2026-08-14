@@ -1,30 +1,27 @@
 "use client";
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Home, Users, LogOut, CheckCircle, Clock, PauseCircle, PhoneOff, AlertTriangle, UserPlus, Settings } from 'lucide-react';
-import { API_BASE_URL, callNextPatient, markTokenAction } from '../../lib/api';
+import { Home, Users, CheckCircle, Clock, BellRing, AlertTriangle, UserPlus, Settings, BarChart3 } from 'lucide-react';
+import { callNextPatient, recallPatient, markTokenAction, getRooms } from '../../lib/api';
 import { useQueueStore } from '../../store/useQueueStore';
+import { useSearchParams } from 'next/navigation';
 
 interface Room {
   id: string;
   roomNumber: string;
   isActive: boolean;
+  doctorName?: string;
 }
-
-import { useSearchParams } from 'next/navigation';
-import { getRooms } from '../../lib/api';
 
 export default function DoctorDashboard() {
   const searchParams = useSearchParams();
   const deptId = searchParams.get('deptId') || '660e8400-e29b-41d4-a716-446655440000';
   
-  // Hardcoded for demo, normally from auth context
-  const doctorId = "550e8400-e29b-41d4-a716-446655440000"; 
-  
   const queueData = useQueueStore((state) => state.liveQueues[deptId]) || { department: 'Medicine', activeTokens: [], nextTokens: [] };
   
   const [rooms, setRooms] = useState<Room[]>([]);
   const [callingRoom, setCallingRoom] = useState<string | null>(null);
+  const [recallingRoom, setRecallingRoom] = useState<string | null>(null);
 
   useEffect(() => {
     // Start polling the queue state
@@ -47,24 +44,29 @@ export default function DoctorDashboard() {
     return () => {
       useQueueStore.getState().disconnectWebSocket();
     };
-  }, []);
+  }, [deptId]);
 
   const handleCallNext = async (roomNumber: string) => {
     setCallingRoom(roomNumber);
     try {
-      // Temporary fetch because the original `callNextPatient` didn't take a second arg in lib/api.ts
-      // Ideally update lib/api.ts, but we'll do it inline here for safety
-      await fetch(`${API_BASE_URL}/queue/next/${deptId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ roomNumber })
-      });
-      // WebSocket handles state update
+      await callNextPatient(deptId, roomNumber);
     } catch (err) {
       console.error(err);
       alert('Failed to call next patient. Ensure API is running.');
     } finally {
       setCallingRoom(null);
+    }
+  };
+
+  const handleRecall = async (roomNumber: string) => {
+    setRecallingRoom(roomNumber);
+    try {
+      await recallPatient(deptId, roomNumber);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to recall patient.');
+    } finally {
+      setTimeout(() => setRecallingRoom(null), 1000);
     }
   };
 
@@ -90,11 +92,26 @@ export default function DoctorDashboard() {
             <p className="text-blue-200/70 text-sm mt-1 font-medium">{queueData.nextTokens.length} Patients Waiting</p>
           </div>
           <div className="flex gap-2">
-            <Link href={`/settings?deptId=${deptId}`} className="p-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors">
-              <Settings size={20} className="text-slate-300" />
+            <Link 
+              href={`/analytics?deptId=${deptId}`} 
+              className="p-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors text-slate-300 hover:text-white"
+              title="OPD Analytics"
+            >
+              <BarChart3 size={20} />
             </Link>
-            <Link href={`/?deptId=${deptId}`} className="p-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors">
-              <Home size={20} className="text-slate-300" />
+            <Link 
+              href={`/settings?deptId=${deptId}`} 
+              className="p-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors text-slate-300 hover:text-white"
+              title="Settings"
+            >
+              <Settings size={20} />
+            </Link>
+            <Link 
+              href={`/?deptId=${deptId}`} 
+              className="p-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors text-slate-300 hover:text-white"
+              title="Home"
+            >
+              <Home size={20} />
             </Link>
           </div>
         </div>
@@ -148,6 +165,12 @@ export default function DoctorDashboard() {
               {queueData.department || 'Medicine'} Dept
             </p>
           </div>
+          <Link
+            href={`/analytics?deptId=${deptId}`}
+            className="px-5 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-xl transition-colors flex items-center gap-2 text-sm border border-blue-200"
+          >
+            <BarChart3 size={16} /> View Today's Analytics
+          </Link>
         </header>
 
         <div className="flex-1 overflow-y-auto p-6 lg:p-10 relative z-10">
@@ -163,13 +186,17 @@ export default function DoctorDashboard() {
             ) : (
               rooms.map(room => {
                 const isCalling = callingRoom === room.roomNumber;
+                const isRecalling = recallingRoom === room.roomNumber;
                 const activePatient = queueData.activeTokens?.find((t: any) => t.room === room.roomNumber);
                 
                 return (
                   <div key={room.id} className="bg-white/80 backdrop-blur-xl rounded-[2rem] shadow-xl shadow-blue-900/5 border border-white p-6 flex flex-col h-full relative overflow-hidden group">
-                    {/* Room Badge */}
-                    <div className="absolute top-0 right-0 bg-blue-50 text-blue-700 font-black px-6 py-3 rounded-bl-[2rem] border-b border-l border-white shadow-sm flex items-center gap-2">
-                       Room {room.roomNumber}
+                    {/* Room & Doctor Badge */}
+                    <div className="absolute top-0 right-0 bg-blue-50 text-blue-700 font-black px-5 py-2.5 rounded-bl-[2rem] border-b border-l border-white shadow-sm flex flex-col items-end">
+                      <span className="text-sm">Room {room.roomNumber}</span>
+                      {room.doctorName && (
+                        <span className="text-[11px] font-semibold text-slate-500">{room.doctorName}</span>
+                      )}
                     </div>
 
                     <div className="mt-8 mb-6 flex-1 flex flex-col justify-center items-center">
@@ -199,14 +226,32 @@ export default function DoctorDashboard() {
 
                     {/* Actions */}
                     <div className="space-y-3 mt-auto">
-                      <button 
-                        onClick={() => handleCallNext(room.roomNumber)}
-                        disabled={isCalling || queueData.nextTokens.length === 0}
-                        className="w-full py-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold transition-all active:scale-95 shadow-md shadow-blue-600/20 disabled:opacity-50 flex items-center justify-center gap-2"
-                      >
-                        {isCalling ? <AlertTriangle size={20} className="animate-spin" /> : <UserPlus size={20} />}
-                        {isCalling ? 'Assigning...' : 'Assign Next Patient'}
-                      </button>
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={() => handleCallNext(room.roomNumber)}
+                          disabled={isCalling || queueData.nextTokens.length === 0}
+                          className="flex-1 py-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold transition-all active:scale-95 shadow-md shadow-blue-600/20 disabled:opacity-50 flex items-center justify-center gap-2"
+                        >
+                          {isCalling ? <AlertTriangle size={20} className="animate-spin" /> : <UserPlus size={20} />}
+                          {isCalling ? 'Assigning...' : 'Assign Next Patient'}
+                        </button>
+
+                        {activePatient && (
+                          <button
+                            onClick={() => handleRecall(room.roomNumber)}
+                            disabled={isRecalling}
+                            className={`px-4 py-4 rounded-xl border font-bold text-xs flex items-center gap-1.5 transition-all active:scale-95 ${
+                              isRecalling
+                                ? 'bg-amber-500 text-white border-amber-600'
+                                : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200'
+                            }`}
+                            title="Re-announce and flash token on TV screen"
+                          >
+                            <BellRing size={18} className={isRecalling ? 'animate-bounce' : ''} />
+                            <span>{isRecalling ? 'Ringing...' : 'Recall'}</span>
+                          </button>
+                        )}
+                      </div>
                       
                       <div className="grid grid-cols-3 gap-2">
                         <button 
@@ -243,3 +288,4 @@ export default function DoctorDashboard() {
     </div>
   );
 }
+

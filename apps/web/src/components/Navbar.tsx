@@ -23,6 +23,8 @@ function NavbarContent() {
     { href: '/registration', label: 'Registration' },
     { href: '/doctor', label: 'Doctor Room' },
     { href: '/tv', label: 'TV Monitor' },
+    { href: '/analytics', label: 'Analytics' },
+    { href: '/settings', label: 'Settings' },
   ];
 
   return (
