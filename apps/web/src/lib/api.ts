@@ -21,7 +21,11 @@ export async function generateToken(
       ...(patientData || {})
     }),
   });
-  if (!response.ok) throw new Error('Failed to generate token');
+  if (!response.ok) {
+    const text = await response.text();
+    console.error(`generateToken failed: ${response.status} ${response.statusText} - ${text}`);
+    throw new Error('Failed to generate token');
+  }
   return response.json();
 }
 
