@@ -3,7 +3,7 @@ import { SettingsService } from './settings.service';
 
 @Controller('settings')
 export class SettingsController {
-  constructor(private readonly settingsService: SettingsService) {}
+  constructor(private readonly settingsService: SettingsService) { }
 
   @Get('rooms')
   async getRooms(@Query('departmentId') departmentId?: string) {
@@ -11,16 +11,16 @@ export class SettingsController {
   }
 
   @Post('rooms')
-  async createRoom(@Body() body: { roomNumber: string; isActive?: boolean; departmentId?: string; doctorName?: string }) {
-    return this.settingsService.createRoom(body.roomNumber, body.isActive, body.departmentId, body.doctorName);
+  async createRoom(@Body() body: { roomNumber: string; isActive?: boolean; departmentId?: string }) {
+    return this.settingsService.createRoom(body.roomNumber, body.isActive, body.departmentId);
   }
 
   @Put('rooms/:id')
   async updateRoom(
     @Param('id') id: string,
-    @Body() body: { roomNumber?: string; isActive?: boolean; doctorName?: string },
+    @Body() body: { roomNumber?: string; isActive?: boolean },
   ) {
-    return this.settingsService.updateRoom(id, body.roomNumber, body.isActive, body.doctorName);
+    return this.settingsService.updateRoom(id, body.roomNumber, body.isActive);
   }
 
   @Delete('rooms/:id')
@@ -29,4 +29,3 @@ export class SettingsController {
     return { success: true };
   }
 }
-

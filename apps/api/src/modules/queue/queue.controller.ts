@@ -1,4 +1,4 @@
-import { Controller, Patch, Param, Body, Get, BadRequestException } from '@nestjs/common';
+import { Controller, Patch, Param, Body, Get } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { QueueService } from './queue.service';
 import { MarkTokenActionDto } from './dto/mark-token-action.dto';
@@ -6,7 +6,7 @@ import { MarkTokenActionDto } from './dto/mark-token-action.dto';
 @ApiTags('Queue')
 @Controller('queue')
 export class QueueController {
-  constructor(private readonly queueService: QueueService) {}
+  constructor(private readonly queueService: QueueService) { }
 
   @Patch('next/:departmentId')
   @ApiOperation({ summary: 'Call the next patient in the queue for a department' })
@@ -15,23 +15,12 @@ export class QueueController {
     @Param('departmentId') departmentId: string,
     @Body('roomNumber') roomNumber: string
   ) {
-    if (!roomNumber) throw new BadRequestException('roomNumber is required');
+    if (!roomNumber) throw new Error('roomNumber is required');
     return this.queueService.callNextPatient(departmentId, roomNumber);
   }
 
-  @Patch('recall/:departmentId')
-  @ApiOperation({ summary: 'Recall / re-announce the active patient in a room' })
-  @ApiResponse({ status: 200, description: 'Returns the recalled token or null.' })
-  async recallPatient(
-    @Param('departmentId') departmentId: string,
-    @Body('roomNumber') roomNumber: string
-  ) {
-    if (!roomNumber) throw new BadRequestException('roomNumber is required');
-    return this.queueService.recallPatient(departmentId, roomNumber);
-  }
-
   @Patch('action/:tokenId')
-  @ApiOperation({ summary: 'Mark a token action (SKIP, ABSENT, NOT_AVAILABLE, COMPLETE)' })
+  @ApiOperation({ summary: 'Mark a token action (SKIP, ABSENT, COMPLETE)' })
   @ApiResponse({ status: 200, description: 'The token action has been recorded.' })
   @ApiResponse({ status: 404, description: 'Token not found.' })
   async markTokenAction(
@@ -47,12 +36,4 @@ export class QueueController {
   async getLiveQueue(@Param('departmentId') departmentId: string) {
     return this.queueService.getLiveQueueByDepartment(departmentId);
   }
-
-  @Get('analytics/:departmentId')
-  @ApiOperation({ summary: 'Get daily analytics for a department' })
-  @ApiResponse({ status: 200, description: 'Returns department analytics for today.' })
-  async getAnalytics(@Param('departmentId') departmentId: string) {
-    return this.queueService.getDepartmentAnalytics(departmentId);
-  }
 }
-

@@ -4,19 +4,19 @@ export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL
   : '/api/v1';
 
 export async function generateToken(
-  patientId: string, 
-  departmentId: string, 
-  doctorId: string, 
+  patientId: string,
+  departmentId: string,
+  doctorId: string,
   priority: string,
   patientData?: { firstName: string; lastName: string; phone: string; uhid: string; }
 ) {
   const response = await fetch(`${API_BASE_URL}/tokens`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ 
-      patientId, 
-      departmentId, 
-      doctorId, 
+    body: JSON.stringify({
+      patientId,
+      departmentId,
+      doctorId,
       priority,
       ...(patientData || {})
     }),
@@ -90,32 +90,6 @@ export async function deleteDepartment(id: string) {
   return response.json();
 }
 
-export async function recallPatient(departmentId: string, roomNumber: string) {
-  const response = await fetch(`${API_BASE_URL}/queue/recall/${departmentId}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ roomNumber }),
-  });
-  if (!response.ok) throw new Error('Failed to recall patient');
-  const text = await response.text();
-  return text ? JSON.parse(text) : null;
-}
-
-export async function searchTokens(query: string, departmentId?: string) {
-  const url = departmentId
-    ? `${API_BASE_URL}/tokens/search?q=${encodeURIComponent(query)}&departmentId=${departmentId}`
-    : `${API_BASE_URL}/tokens/search?q=${encodeURIComponent(query)}`;
-  const response = await fetch(url);
-  if (!response.ok) throw new Error('Failed to search tokens');
-  return response.json();
-}
-
-export async function getDepartmentAnalytics(departmentId: string) {
-  const response = await fetch(`${API_BASE_URL}/queue/analytics/${departmentId}`);
-  if (!response.ok) throw new Error('Failed to fetch department analytics');
-  return response.json();
-}
-
 export async function getRooms(departmentId?: string) {
   const url = departmentId ? `${API_BASE_URL}/settings/rooms?departmentId=${departmentId}` : `${API_BASE_URL}/settings/rooms`;
   const response = await fetch(url);
@@ -123,31 +97,12 @@ export async function getRooms(departmentId?: string) {
   return response.json();
 }
 
-export async function createRoom(roomNumber: string, isActive: boolean = true, departmentId?: string, doctorName?: string) {
+export async function createRoom(roomNumber: string, isActive: boolean = true, departmentId?: string) {
   const response = await fetch(`${API_BASE_URL}/settings/rooms`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ roomNumber, isActive, departmentId, doctorName }),
+    body: JSON.stringify({ roomNumber, isActive, departmentId }),
   });
   if (!response.ok) throw new Error('Failed to create room');
   return response.json();
 }
-
-export async function updateRoom(id: string, roomNumber: string, isActive: boolean = true, doctorName?: string) {
-  const response = await fetch(`${API_BASE_URL}/settings/rooms/${id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ roomNumber, isActive, doctorName }),
-  });
-  if (!response.ok) throw new Error('Failed to update room');
-  return response.json();
-}
-
-export async function deleteRoom(id: string) {
-  const response = await fetch(`${API_BASE_URL}/settings/rooms/${id}`, {
-    method: 'DELETE',
-  });
-  if (!response.ok) throw new Error('Failed to delete room');
-  return response.json();
-}
-

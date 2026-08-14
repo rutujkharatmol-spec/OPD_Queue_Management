@@ -23,8 +23,6 @@ function NavbarContent() {
     { href: '/registration', label: 'Registration' },
     { href: '/doctor', label: 'Doctor Room' },
     { href: '/tv', label: 'TV Monitor' },
-    { href: '/analytics', label: 'Analytics' },
-    { href: '/settings', label: 'Settings' },
   ];
 
   return (
@@ -44,11 +42,10 @@ function NavbarContent() {
                   <Link
                     key={link.href}
                     href={getHref(link.href)}
-                    className={`whitespace-nowrap px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                      isActive
+                    className={`whitespace-nowrap px-3 py-2 rounded-md text-sm font-medium transition-colors ${isActive
                         ? 'bg-slate-800 text-white'
                         : 'text-slate-300 hover:bg-slate-800/50 hover:text-white'
-                    }`}
+                      }`}
                   >
                     {link.label}
                   </Link>

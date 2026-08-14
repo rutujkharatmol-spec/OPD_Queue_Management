@@ -10,11 +10,7 @@ export class Room extends BaseEntity {
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
 
-  @Column({ name: 'doctor_name', nullable: true })
-  doctorName: string;
-
   @ManyToOne(() => Department)
   @JoinColumn({ name: 'department_id' })
   department: Department;
 }
-
