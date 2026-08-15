@@ -52,17 +52,9 @@ export default function DoctorDashboard() {
   const handleCallNext = async (roomNumber: string) => {
     setCallingRoom(roomNumber);
     try {
-      // Temporary fetch because the original `callNextPatient` didn't take a second arg in lib/api.ts
-      // Ideally update lib/api.ts, but we'll do it inline here for safety
-      await fetch(`${API_BASE_URL}/queue/next/${deptId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ roomNumber })
-      });
-      // WebSocket handles state update
+      await callNextPatient(deptId, roomNumber);
     } catch (err) {
       console.error(err);
-      alert('Failed to call next patient. Ensure API is running.');
     } finally {
       setCallingRoom(null);
     }

@@ -1,3 +1,5 @@
+import { fetchWithOfflineSync } from './offlineSync';
+
 // Use same-origin proxy in dev (see next.config.ts rewrites) to avoid CORS and startup race issues.
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL
   ? `${process.env.NEXT_PUBLIC_API_URL}/api/v1`
@@ -10,7 +12,7 @@ export async function generateToken(
   priority: string,
   patientData?: { firstName: string; lastName: string; phone: string; uhid: string; }
 ) {
-  const response = await fetch(`${API_BASE_URL}/tokens`, {
+  const response = await fetchWithOfflineSync(`${API_BASE_URL}/tokens`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -30,7 +32,7 @@ export async function generateToken(
 }
 
 export async function callNextPatient(departmentId: string, roomNumber: string) {
-  const response = await fetch(`${API_BASE_URL}/queue/next/${departmentId}`, {
+  const response = await fetchWithOfflineSync(`${API_BASE_URL}/queue/next/${departmentId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ roomNumber }),
@@ -42,7 +44,7 @@ export async function callNextPatient(departmentId: string, roomNumber: string) 
 }
 
 export async function markTokenAction(tokenId: string, action: 'SKIP' | 'ABSENT' | 'NOT_AVAILABLE' | 'COMPLETE') {
-  const response = await fetch(`${API_BASE_URL}/queue/action/${tokenId}`, {
+  const response = await fetchWithOfflineSync(`${API_BASE_URL}/queue/action/${tokenId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action }),
@@ -52,7 +54,7 @@ export async function markTokenAction(tokenId: string, action: 'SKIP' | 'ABSENT'
 }
 
 export async function getTokenStatus(tokenNumber: string) {
-  const response = await fetch(`${API_BASE_URL}/tokens/status/${tokenNumber}`, {
+  const response = await fetchWithOfflineSync(`${API_BASE_URL}/tokens/status/${tokenNumber}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json' },
   });
@@ -61,13 +63,14 @@ export async function getTokenStatus(tokenNumber: string) {
 }
 
 export async function getDepartments() {
-  const response = await fetch(`${API_BASE_URL}/departments`);
+  const response = await fetchWithOfflineSync(`${API_BASE_URL}/departments`);
   if (!response.ok) throw new Error('Failed to fetch departments');
-  return response.json();
+  const data = await response.json();
+  return Array.isArray(data) ? data : [];
 }
 
 export async function createDepartment(name: string, code: string, description?: string) {
-  const response = await fetch(`${API_BASE_URL}/departments`, {
+  const response = await fetchWithOfflineSync(`${API_BASE_URL}/departments`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, code, description }),
@@ -77,7 +80,7 @@ export async function createDepartment(name: string, code: string, description?:
 }
 
 export async function updateDepartment(id: string, name: string, code: string, description?: string) {
-  const response = await fetch(`${API_BASE_URL}/departments/${id}`, {
+  const response = await fetchWithOfflineSync(`${API_BASE_URL}/departments/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, code, description }),
@@ -87,7 +90,7 @@ export async function updateDepartment(id: string, name: string, code: string, d
 }
 
 export async function deleteDepartment(id: string) {
-  const response = await fetch(`${API_BASE_URL}/departments/${id}`, {
+  const response = await fetchWithOfflineSync(`${API_BASE_URL}/departments/${id}`, {
     method: 'DELETE',
   });
   if (!response.ok) throw new Error('Failed to delete department');
@@ -96,13 +99,16 @@ export async function deleteDepartment(id: string) {
 
 export async function getRooms(departmentId?: string) {
   const url = departmentId ? `${API_BASE_URL}/settings/rooms?departmentId=${departmentId}` : `${API_BASE_URL}/settings/rooms`;
-  const response = await fetch(url);
-  if (!response.ok) throw new Error('Failed to fetch rooms');
-  return response.json();
+  const response = await fetchWithOfflineSync(url);
+  if (!response.ok) {
+    return [];
+  }
+  const data = await response.json();
+  return Array.isArray(data) ? data : [];
 }
 
 export async function createRoom(roomNumber: string, isActive: boolean = true, departmentId?: string) {
-  const response = await fetch(`${API_BASE_URL}/settings/rooms`, {
+  const response = await fetchWithOfflineSync(`${API_BASE_URL}/settings/rooms`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ roomNumber, isActive, departmentId }),

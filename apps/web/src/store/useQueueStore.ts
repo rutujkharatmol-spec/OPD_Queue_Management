@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { API_BASE_URL } from '../lib/api';
+import { fetchWithOfflineSync } from '../lib/offlineSync';
 
 export interface TokenDisplayData {
   department: string;
@@ -34,10 +35,12 @@ export const useQueueStore = create<QueueStore>((set, get) => ({
 
     const fetchQueue = async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/queue/live/${departmentId}`);
+        const res = await fetchWithOfflineSync(`${API_BASE_URL}/queue/live/${departmentId}`);
         if (res.ok) {
           const data = await res.json();
-          get().updateQueueData(departmentId, data);
+          if (data && (data.activeTokens || data.nextTokens)) {
+            get().updateQueueData(departmentId, data);
+          }
         }
       } catch (err) {
         // Only log if it's not a generic network error to prevent console spam when server is restarting

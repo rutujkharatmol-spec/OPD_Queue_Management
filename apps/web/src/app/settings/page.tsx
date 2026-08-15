@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Settings as SettingsIcon, Plus, Trash2, Edit2, Check, X, ArrowLeft } from 'lucide-react';
 import { API_BASE_URL } from '../../lib/api';
+import { fetchWithOfflineSync } from '../../lib/offlineSync';
 import { useSearchParams } from 'next/navigation';
 
 interface Room {
@@ -31,11 +32,13 @@ export default function SettingsPage() {
 
   const fetchDeptName = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/departments`);
+      const res = await fetchWithOfflineSync(`${API_BASE_URL}/departments`);
       if (res.ok) {
         const depts = await res.json();
-        const dept = depts.find((d: any) => d.id === deptId);
-        if (dept) setDeptName(dept.name);
+        if (Array.isArray(depts)) {
+          const dept = depts.find((d: any) => d.id === deptId);
+          if (dept) setDeptName(dept.name);
+        }
       }
     } catch (err) {
       console.error('Failed to fetch department name', err);
@@ -48,9 +51,10 @@ export default function SettingsPage() {
       const url = deptId
         ? `${API_BASE_URL}/settings/rooms?departmentId=${deptId}`
         : `${API_BASE_URL}/settings/rooms`;
-      const res = await fetch(url);
+      const res = await fetchWithOfflineSync(url);
       if (res.ok) {
-        setRooms(await res.json());
+        const data = await res.json();
+        setRooms(Array.isArray(data) ? data : []);
       }
     } catch (err) {
       console.error('Failed to fetch rooms', err);
@@ -64,7 +68,7 @@ export default function SettingsPage() {
     if (!newRoomNumber.trim()) return;
 
     try {
-      const res = await fetch(`${API_BASE_URL}/settings/rooms`, {
+      const res = await fetchWithOfflineSync(`${API_BASE_URL}/settings/rooms`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -84,7 +88,7 @@ export default function SettingsPage() {
   const handleDeleteRoom = async (id: string) => {
     if (!confirm('Are you sure you want to delete this room?')) return;
     try {
-      const res = await fetch(`${API_BASE_URL}/settings/rooms/${id}`, {
+      const res = await fetchWithOfflineSync(`${API_BASE_URL}/settings/rooms/${id}`, {
         method: 'DELETE'
       });
       if (res.ok) {
@@ -103,7 +107,7 @@ export default function SettingsPage() {
   const saveEdit = async (id: string) => {
     if (!editRoomNumber.trim()) return;
     try {
-      const res = await fetch(`${API_BASE_URL}/settings/rooms/${id}`, {
+      const res = await fetchWithOfflineSync(`${API_BASE_URL}/settings/rooms/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ roomNumber: editRoomNumber.trim() })
