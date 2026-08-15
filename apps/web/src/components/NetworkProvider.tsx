@@ -87,7 +87,15 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     window.addEventListener('offline-queue-updated', handleQueueChange);
     window.addEventListener('storage', handleQueueChange);
 
+    // Periodically retry syncing if there are pending queued requests
+    const syncInterval = setInterval(() => {
+      if (navigator.onLine && getOfflineQueue().length > 0) {
+        handleSync();
+      }
+    }, 12000);
+
     return () => {
+      clearInterval(syncInterval);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('offline-queue-updated', handleQueueChange);
