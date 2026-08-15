@@ -1,9 +1,11 @@
 import { fetchWithOfflineSync } from './offlineSync';
 
-// Use same-origin proxy in dev (see next.config.ts rewrites) to avoid CORS and startup race issues.
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL
-  ? `${process.env.NEXT_PUBLIC_API_URL}/api/v1`
-  : '/api/v1';
+// In production this points straight at the deployed API origin. Without it, dev
+// falls back to the same-origin proxy in next.config.ts to avoid CORS and startup races.
+// Trailing slashes are stripped so `https://host/` doesn't produce `https://host//api/v1`.
+const apiOrigin = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '');
+
+export const API_BASE_URL = apiOrigin ? `${apiOrigin}/api/v1` : '/api/v1';
 
 export async function generateToken(
   departmentId: string,

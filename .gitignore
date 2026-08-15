@@ -2,6 +2,10 @@ node_modules
 dist
 .next
 .env
+.env.local
+!.env.example
+*.sqlite
+**/src/generated/
 AGENTS.md
 CLAUDE.md
 *.tsbuildinfo

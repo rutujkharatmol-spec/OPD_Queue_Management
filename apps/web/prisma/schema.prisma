@@ -1,0 +1,262 @@
+// OPD Queue Management — single schema for both deployments.
+//
+// The same models run against the hospital's local Postgres (source of truth on the
+// OPD server) and against Neon (read mirror for patient phones and reporting). Table
+// and column names are mapped to the snake_case names the previous TypeORM schema
+// created, so an existing database can be adopted rather than rebuilt.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  STAFF
+  DOCTOR
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum TokenStatus {
+  WAITING
+  CALLED
+  IN_PROGRESS
+  COMPLETED
+  SKIPPED
+  ABSENT
+}
+
+enum TokenPriority {
+  NORMAL
+  SENIOR
+  EMERGENCY
+}
+
+enum QueueStatus {
+  OPEN
+  PAUSED
+  CLOSED
+}
+
+model Department {
+  id          String    @id @default(uuid()) @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamp(6)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamp(6)
+
+  name        String
+  code        String    @unique
+  description String?
+  isActive    Boolean   @default(true) @map("is_active")
+
+  doctors     Doctor[]
+  rooms       Room[]
+  tokens      Token[]
+  counters    TokenCounter[]
+
+  @@map("departments")
+}
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamp(6)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamp(6)
+
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  role         UserRole  @default(STAFF)
+  isActive     Boolean   @default(true) @map("is_active")
+
+  doctor       Doctor?
+  auditLogs    AuditLog[]
+
+  @@map("users")
+}
+
+model Patient {
+  id        String    @id @default(uuid()) @db.Uuid
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamp(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamp(6)
+
+  uhid      String    @unique
+  firstName String?   @default("Patient") @map("first_name")
+  lastName  String?   @default("") @map("last_name")
+  phone     String?   @default("")
+  dob       DateTime? @db.Date
+  gender    Gender    @default(OTHER)
+  createdBy String?   @map("created_by")
+
+  tokens    Token[]
+
+  // Registration looks patients up by phone when no UHID is given.
+  @@index([phone])
+  @@map("patients")
+}
+
+model Doctor {
+  id             String    @id @default(uuid()) @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamp(6)
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamp(6)
+
+  name           String
+  specialization String?
+  roomNumber     String?   @map("room_number")
+  isAvailable    Boolean   @default(true) @map("is_available")
+
+  userId         String?   @unique @map("user_id") @db.Uuid
+  user           User?     @relation(fields: [userId], references: [id])
+
+  departmentId   String?   @map("department_id") @db.Uuid
+  department     Department? @relation(fields: [departmentId], references: [id])
+
+  tokens         Token[]
+  queues         Queue[]
+
+  @@index([departmentId])
+  @@map("doctors")
+}
+
+model Room {
+  id           String    @id @default(uuid()) @db.Uuid
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamp(6)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamp(6)
+
+  roomNumber   String    @map("room_number")
+  isActive     Boolean   @default(true) @map("is_active")
+  doctorName   String?   @map("doctor_name")
+
+  departmentId String?   @map("department_id") @db.Uuid
+  department   Department? @relation(fields: [departmentId], references: [id])
+
+  @@index([departmentId])
+  @@map("rooms")
+}
+
+model Token {
+  id          String        @id @default(uuid()) @db.Uuid
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt   DateTime      @updatedAt @map("updated_at") @db.Timestamp(6)
+  deletedAt   DateTime?     @map("deleted_at") @db.Timestamp(6)
+
+  tokenNumber String        @map("token_number")
+
+  /// The clinic day this token belongs to. Stored rather than derived from issuedAt
+  /// so the per-day uniqueness below can be enforced by the database, and so "today's
+  /// queue" is an index lookup instead of a timestamp range scan.
+  serviceDate DateTime      @map("service_date") @db.Date
+
+  status      TokenStatus   @default(WAITING)
+  priority    TokenPriority @default(NORMAL)
+  roomNumber  String?       @map("room_number")
+
+  issuedAt    DateTime      @default(now()) @map("issued_at") @db.Timestamp(6)
+  calledAt    DateTime?     @map("called_at") @db.Timestamp(6)
+  recalledAt  DateTime?     @map("recalled_at") @db.Timestamp(6)
+  completedAt DateTime?     @map("completed_at") @db.Timestamp(6)
+  absentCount Int           @default(0) @map("absent_count")
+
+  departmentId String       @map("department_id") @db.Uuid
+  department   Department   @relation(fields: [departmentId], references: [id])
+
+  patientId    String?      @map("patient_id") @db.Uuid
+  patient      Patient?     @relation(fields: [patientId], references: [id])
+
+  doctorId     String?      @map("doctor_id") @db.Uuid
+  doctor       Doctor?      @relation(fields: [doctorId], references: [id])
+
+  currentOfQueue Queue?
+
+  /// The database-level guarantee that two registration desks cannot hand out the
+  /// same number. TokenCounter makes collisions impossible; this makes them
+  /// unstorable if that logic is ever bypassed.
+  @@unique([departmentId, serviceDate, tokenNumber])
+  // Drives the live queue board: today's waiting tokens for one department.
+  @@index([departmentId, serviceDate, status])
+  @@index([tokenNumber])
+  @@map("tokens")
+}
+
+/// Hands out the next token number for a department on a given day.
+///
+/// Replaces the previous count-then-add-one, which raced: under READ COMMITTED two
+/// concurrent registrations both counted N and both issued N+1. A single
+/// INSERT ... ON CONFLICT DO UPDATE ... RETURNING increments and reads atomically,
+/// so concurrent callers are serialised by the database on this one row.
+model TokenCounter {
+  departmentId String     @map("department_id") @db.Uuid
+  serviceDate  DateTime   @map("service_date") @db.Date
+  lastNumber   Int        @default(0) @map("last_number")
+
+  department   Department @relation(fields: [departmentId], references: [id])
+
+  @@id([departmentId, serviceDate])
+  @@map("token_counters")
+}
+
+model Queue {
+  id             String      @id @default(uuid()) @db.Uuid
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt      DateTime    @updatedAt @map("updated_at") @db.Timestamp(6)
+  deletedAt      DateTime?   @map("deleted_at") @db.Timestamp(6)
+
+  queueDate      DateTime    @map("queue_date") @db.Date
+  status         QueueStatus @default(OPEN)
+
+  doctorId       String?     @map("doctor_id") @db.Uuid
+  doctor         Doctor?     @relation(fields: [doctorId], references: [id])
+
+  currentTokenId String?     @unique @map("current_token_id") @db.Uuid
+  currentToken   Token?      @relation(fields: [currentTokenId], references: [id])
+
+  @@map("queues")
+}
+
+model AuditLog {
+  id         String    @id @default(uuid()) @db.Uuid
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamp(6)
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamp(6)
+
+  action     String
+  entityType String    @map("entity_type")
+  entityId   String    @map("entity_id")
+  oldData    Json?     @map("old_data")
+  newData    Json?     @map("new_data")
+  ipAddress  String?   @map("ip_address")
+
+  userId     String?   @map("user_id") @db.Uuid
+  user       User?     @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+}
+
+/// Local-only bookkeeping for the push to the cloud mirror. Never mirrored itself.
+///
+/// lastSyncedAt is text, not a timestamp, on purpose: the cursor must keep Postgres'
+/// microsecond precision, and a JavaScript Date only holds milliseconds. Storing it
+/// as a Date truncates .803464 to .803000, leaving the cursor behind the row it just
+/// synced so every row re-syncs on every tick, forever.
+model SyncState {
+  tableName     String    @id @map("table_name")
+  lastSyncedAt  String?   @map("last_synced_at")
+  lastSyncedId  String?   @map("last_synced_id") @db.Uuid
+  lastRunAt     DateTime? @map("last_run_at") @db.Timestamp(6)
+  lastError     String?   @map("last_error")
+  lastBatchSize Int       @default(0) @map("last_batch_size")
+
+  @@map("sync_state")
+}
