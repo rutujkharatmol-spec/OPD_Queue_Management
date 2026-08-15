@@ -1,24 +1,45 @@
 "use client";
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Menu, X, PlusCircle, Search, Printer, CheckCircle2, Building2, ArrowRightLeft } from 'lucide-react';
+import {
+  Menu, X, PlusCircle, Search, Printer, CheckCircle2,
+  Building2, ArrowRightLeft, AlertCircle, HeartPulse, User, Phone, FileText, QrCode
+} from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
-import { generateToken, getDepartments } from '../../lib/api';
+import { QRCodeSVG } from 'qrcode.react';
+import { generateToken, getDepartments, searchTokens } from '../../lib/api';
 
 export default function RegistrationDesk() {
   const searchParams = useSearchParams();
-  const deptId = searchParams.get('deptId') || '660e8400-e29b-41d4-a716-446655440000'; // fallback to old dummy id
+  const deptId = searchParams.get('deptId') || '660e8400-e29b-41d4-a716-446655440000';
 
   const [deptName, setDeptName] = useState<string>('');
   const [isSidebarOpen, setSidebarOpen] = useState(false);
+
+  // Form State
   const [patientData, setPatientData] = useState({
     uhid: '',
     name: '',
     phone: '',
   });
+  const [priority, setPriority] = useState<'NORMAL' | 'SENIOR' | 'EMERGENCY'>('NORMAL');
 
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
+  const [generatedTokenData, setGeneratedTokenData] = useState<any>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [appOrigin, setAppOrigin] = useState('');
+
+  // Find Patient Modal State
+  const [isSearchModalOpen, setSearchModalOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setAppOrigin(window.location.origin);
+    }
+  }, []);
 
   useEffect(() => {
     async function fetchDeptName() {
@@ -43,9 +64,6 @@ export default function RegistrationDesk() {
     setGeneratedToken(null);
 
     try {
-      const priorityEnum = 'NORMAL';
-
-      // For testing, hardcoding valid v4 UUIDs for dept/doctor since we don't have a real auth/user select yet
       const randomPatientId = crypto.randomUUID();
       const dummyDoctorId = "550e8400-e29b-41d4-a716-446655440000";
 
@@ -53,13 +71,23 @@ export default function RegistrationDesk() {
       const firstName = nameParts[0] || 'Unknown';
       const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
 
-      const token = await generateToken(randomPatientId, deptId, dummyDoctorId, priorityEnum, {
+      const token = await generateToken(randomPatientId, deptId, dummyDoctorId, priority, {
         firstName: firstName,
         lastName: lastName,
         phone: patientData.phone,
         uhid: patientData.uhid
       });
+
       setGeneratedToken(token.tokenNumber);
+      setGeneratedTokenData({
+        tokenNumber: token.tokenNumber,
+        name: patientData.name,
+        phone: patientData.phone,
+        uhid: patientData.uhid || token.patient?.uhid,
+        priority: priority,
+        deptName: deptName || 'Medicine',
+        issuedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      });
     } catch (err) {
       console.error(err);
       alert('Failed to generate token. Ensure API is running.');
@@ -68,12 +96,44 @@ export default function RegistrationDesk() {
     }
   };
 
+  const handleSearch = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!searchQuery.trim()) return;
+
+    setIsSearching(true);
+    try {
+      const results = await searchTokens(searchQuery.trim(), deptId);
+      setSearchResults(results);
+    } catch (err) {
+      console.error('Search failed:', err);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleSelectSearchedToken = (t: any) => {
+    const pName = t.patient ? `${t.patient.firstName} ${t.patient.lastName}`.trim() : 'Patient';
+    setGeneratedToken(t.tokenNumber);
+    setGeneratedTokenData({
+      tokenNumber: t.tokenNumber,
+      name: pName,
+      phone: t.patient?.phone || '---',
+      uhid: t.patient?.uhid || '---',
+      priority: t.priority || 'NORMAL',
+      deptName: t.department?.name || deptName || 'Medicine',
+      issuedAt: t.issuedAt ? new Date(t.issuedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Today'
+    });
+    setSearchModalOpen(false);
+  };
+
   const handlePrintToken = () => {
     window.print();
   };
 
+  const qrUrl = generatedToken ? `${appOrigin}/patient?token=${generatedToken}` : '';
+
   return (
-    <div className="flex h-screen w-full bg-slate-50 font-sans overflow-hidden print:overflow-visible print:bg-white print:h-auto">
+    <div className="flex h-screen w-full bg-slate-100 font-sans overflow-hidden print:overflow-visible print:bg-white print:h-auto">
 
       {/* Mobile Sidebar Overlay */}
       {isSidebarOpen && (
@@ -88,7 +148,7 @@ export default function RegistrationDesk() {
         <div className="p-6 border-b border-slate-800 flex justify-between items-center">
           <div>
             <h1 className="text-xl font-black tracking-widest text-blue-400 bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-indigo-400">AIIMS KALYANI</h1>
-            <p className="text-xs text-slate-500 font-medium tracking-wide mt-1 uppercase">OPD Registration</p>
+            <p className="text-xs text-slate-400 font-medium tracking-wide mt-1 uppercase">OPD Registration</p>
             <div className="mt-2.5 inline-flex items-center gap-1.5 bg-blue-950/80 border border-blue-800/60 px-2.5 py-1 rounded-lg">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
               <span className="text-[11px] font-bold text-blue-300 uppercase tracking-wide">{deptName || 'Medicine'} OPD</span>
@@ -111,10 +171,18 @@ export default function RegistrationDesk() {
             <span className="text-sm">Generate Token</span>
           </button>
 
-          <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:bg-slate-900 hover:text-white transition-all">
+          <button
+            onClick={() => setSearchModalOpen(true)}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:bg-slate-900 hover:text-white transition-all"
+          >
             <Search size={20} />
-            <span className="font-semibold text-sm">Find Patient</span>
+            <span className="font-semibold text-sm">Find Patient / Reprint</span>
           </button>
+
+          <Link href={`/analytics?deptId=${deptId}`} className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:bg-slate-900 hover:text-white transition-all group">
+            <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center group-hover:bg-slate-700 transition-colors">📊</div>
+            <span className="font-semibold text-sm">OPD Analytics</span>
+          </Link>
         </nav>
 
         <div className="p-5 border-t border-slate-800 bg-slate-900/50 backdrop-blur-md">
@@ -124,7 +192,7 @@ export default function RegistrationDesk() {
             </div>
             <div>
               <p className="text-sm font-bold text-white">Amit Kumar</p>
-              <p className="text-xs text-slate-500">Registration Desk</p>
+              <p className="text-xs text-slate-400">Registration Desk</p>
             </div>
           </div>
         </div>
@@ -148,101 +216,143 @@ export default function RegistrationDesk() {
         </header>
 
         {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto p-4 lg:p-10 print:overflow-visible print:p-0">
+        <div className="flex-1 overflow-y-auto p-4 lg:p-8 print:overflow-visible print:p-0">
           <div className="max-w-6xl mx-auto flex flex-col xl:flex-row gap-8 print:block print:max-w-none print:w-full">
 
             {/* Form Section */}
-            <div className="flex-1 bg-white/70 backdrop-blur-xl rounded-3xl shadow-xl border border-white p-6 lg:p-10 relative overflow-hidden print:hidden">
-              <div className="absolute top-0 right-0 w-64 h-64 bg-blue-400/10 rounded-full blur-3xl pointer-events-none"></div>
-
+            <div className="flex-1 bg-white rounded-3xl shadow-sm border border-slate-200 p-6 lg:p-8 relative overflow-hidden print:hidden">
               <div className="relative z-10">
 
-                {/* PROMINENT HIGH-VISIBILITY DEPARTMENT BANNER */}
-                <div className="mb-8 p-5 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 text-white shadow-xl shadow-blue-600/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border border-blue-400/40 relative overflow-hidden">
-                  <div className="absolute -right-8 -bottom-8 w-32 h-32 bg-white/10 rounded-full blur-2xl pointer-events-none"></div>
-
-                  <div className="flex items-center gap-4 relative z-10">
-                    <div className="w-14 h-14 rounded-2xl bg-white/15 backdrop-blur-md flex items-center justify-center border border-white/25 shadow-inner shrink-0">
-                      <Building2 size={28} className="text-white" />
+                {/* Department Banner */}
+                <div className="mb-6 p-5 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 text-white shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center border border-white/30">
+                      <Building2 size={26} className="text-white" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2 mb-0.5">
                         <span className="text-[10px] font-black uppercase tracking-widest text-blue-100 bg-blue-900/60 px-2.5 py-0.5 rounded-full border border-blue-400/40">
-                          Active OPD Department
+                          Active Department
                         </span>
                         <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
                       </div>
-                      <h3 className="text-2xl sm:text-3xl font-black text-white tracking-tight drop-shadow-sm">
-                        {deptName ? `${deptName} Department` : 'Medicine Department'}
+                      <h3 className="text-xl sm:text-2xl font-black text-white">
+                        {deptName ? `${deptName} OPD` : 'Medicine OPD'}
                       </h3>
-                      <p className="text-blue-100/90 text-xs font-medium mt-0.5">
-                        ⚠️ Please ensure patient requires consultation in this department before issuing token.
-                      </p>
                     </div>
                   </div>
 
                   <Link
                     href="/"
-                    className="self-stretch sm:self-auto px-4 py-2.5 bg-white/20 hover:bg-white/30 active:scale-95 text-white font-bold text-xs rounded-xl backdrop-blur-md border border-white/30 transition-all shadow-md flex items-center justify-center gap-2 shrink-0"
-                    title="Change department"
+                    className="px-4 py-2 bg-white/20 hover:bg-white/30 text-white font-bold text-xs rounded-xl transition-all flex items-center gap-2"
                   >
                     <ArrowRightLeft size={14} />
                     <span>Change Dept</span>
                   </Link>
                 </div>
 
-                <div className="mb-6">
-                  <h2 className="text-2xl font-black text-slate-800 tracking-tight">New Patient Entry</h2>
-                  <p className="text-slate-500 text-sm mt-1">Enter patient details below to generate an OPD queue token.</p>
+                <div className="mb-6 flex justify-between items-center">
+                  <div>
+                    <h2 className="text-2xl font-black text-slate-800 tracking-tight">New Patient Entry</h2>
+                    <p className="text-slate-500 text-sm mt-0.5">Generate daily sequential OPD queue token.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSearchModalOpen(true)}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl flex items-center gap-2 border border-slate-200"
+                  >
+                    <Search size={14} /> Find / Reprint Slip
+                  </button>
                 </div>
 
-                <form onSubmit={handleGenerateToken} className="space-y-8">
-                  {/* Demographics */}
-                  <div className="bg-slate-50/50 p-6 rounded-2xl border border-slate-100 space-y-6">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
-                      <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Patient Demographics</h3>
-                      <span className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-700 bg-blue-100/80 px-2.5 py-1 rounded-lg border border-blue-200 w-fit">
-                        <Building2 size={13} className="text-blue-600" />
-                        Target: <strong className="font-black">{deptName ? `${deptName} OPD` : 'Medicine OPD'}</strong>
-                      </span>
+                <form onSubmit={handleGenerateToken} className="space-y-6">
+
+                  {/* Priority Selector */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                      Priority Level (Triage)
+                    </label>
+                    <div className="grid grid-cols-3 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setPriority('NORMAL')}
+                        className={`p-3.5 rounded-2xl border text-sm font-bold flex flex-col items-center gap-1 transition-all ${priority === 'NORMAL'
+                          ? 'bg-blue-50 border-blue-500 text-blue-700 ring-2 ring-blue-500/20 shadow-sm'
+                          : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                          }`}
+                      >
+                        <span className="text-lg">🟢</span>
+                        <span>Normal</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setPriority('SENIOR')}
+                        className={`p-3.5 rounded-2xl border text-sm font-bold flex flex-col items-center gap-1 transition-all ${priority === 'SENIOR'
+                          ? 'bg-amber-50 border-amber-500 text-amber-800 ring-2 ring-amber-500/20 shadow-sm'
+                          : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                          }`}
+                      >
+                        <span className="text-lg">🟡</span>
+                        <span>Senior Citizen</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setPriority('EMERGENCY')}
+                        className={`p-3.5 rounded-2xl border text-sm font-bold flex flex-col items-center gap-1 transition-all ${priority === 'EMERGENCY'
+                          ? 'bg-red-50 border-red-500 text-red-700 ring-2 ring-red-500/20 shadow-sm animate-pulse'
+                          : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                          }`}
+                      >
+                        <span className="text-lg">🚨</span>
+                        <span>Emergency</span>
+                      </button>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="col-span-1 md:col-span-2">
-                        <label className="block text-sm font-semibold text-slate-700 mb-2">Full Name</label>
-                        <input
-                          type="text"
-                          required
-                          value={patientData.name}
-                          onChange={e => setPatientData({ ...patientData, name: e.target.value })}
-                          className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-slate-800 focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all shadow-sm"
-                          placeholder="E.g. Rahul Kumar"
-                        />
-                      </div>
+                  </div>
+
+                  {/* Demographics Inputs */}
+                  <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 space-y-4">
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
+                        <User size={16} className="text-slate-400" /> Patient Full Name *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={patientData.name}
+                        onChange={e => setPatientData({ ...patientData, name: e.target.value })}
+                        className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-800 focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
+                        placeholder="E.g. Rahul Kumar"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm font-semibold text-slate-700 mb-2">Mobile Number</label>
+                        <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
+                          <Phone size={16} className="text-slate-400" /> Mobile Number *
+                        </label>
                         <input
                           type="tel"
                           required
                           value={patientData.phone}
                           onChange={e => setPatientData({ ...patientData, phone: e.target.value })}
-                          className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-slate-800 focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all shadow-sm"
-                          placeholder="10-digit number"
+                          className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-800 focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
+                          placeholder="10-digit mobile"
                         />
                       </div>
+
                       <div>
-                        <label className="block text-sm font-semibold text-slate-700 mb-2">UHID (Optional)</label>
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            value={patientData.uhid}
-                            onChange={e => setPatientData({ ...patientData, uhid: e.target.value })}
-                            className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-3 text-slate-800 focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all shadow-sm"
-                            placeholder="Enter existing UHID"
-                          />
-                          <button type="button" className="px-5 bg-slate-800 text-white font-semibold rounded-xl hover:bg-slate-700 transition-colors shadow-md">
-                            Fetch
-                          </button>
-                        </div>
+                        <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
+                          <FileText size={16} className="text-slate-400" /> UHID (Optional)
+                        </label>
+                        <input
+                          type="text"
+                          value={patientData.uhid}
+                          onChange={e => setPatientData({ ...patientData, uhid: e.target.value })}
+                          className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-800 focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
+                          placeholder="UHID-XXXXXX"
+                        />
                       </div>
                     </div>
                   </div>
@@ -250,9 +360,9 @@ export default function RegistrationDesk() {
                   <button
                     type="submit"
                     disabled={isGenerating}
-                    className={`w-full py-5 rounded-2xl font-black text-xl flex items-center justify-center gap-3 transition-all transform active:scale-[0.98] shadow-xl ${isGenerating
-                        ? 'bg-blue-400 cursor-not-allowed text-white/70'
-                        : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-blue-500/30 hover:shadow-blue-500/50'
+                    className={`w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-3 transition-all transform active:scale-[0.98] shadow-lg ${isGenerating
+                      ? 'bg-blue-400 cursor-not-allowed text-white/70'
+                      : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-blue-500/30'
                       }`}
                   >
                     {isGenerating ? (
@@ -261,74 +371,106 @@ export default function RegistrationDesk() {
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
-                        Generating...
+                        Generating Daily Sequence...
                       </span>
                     ) : (
-                      'Generate Secure Token'
+                      'Generate Token & Slip'
                     )}
                   </button>
                 </form>
               </div>
             </div>
 
-            {/* Token Preview Section - Responsive Width */}
-            <div className="w-full xl:w-[400px] print:w-full">
-              <div className={`h-full bg-white rounded-3xl shadow-xl border border-slate-200 p-8 flex flex-col items-center justify-center relative overflow-hidden transition-all duration-700 print:shadow-none print:border-none print:p-0 ${generatedToken ? 'opacity-100 translate-y-0' : 'opacity-80 translate-y-4 xl:translate-y-0'}`}>
+            {/* Token Ticket Preview Section */}
+            <div className="w-full xl:w-[380px] print:w-full">
+              <div className={`h-full bg-white rounded-3xl shadow-sm border border-slate-200 p-6 flex flex-col items-center justify-center relative overflow-hidden transition-all duration-500 print:shadow-none print:border-none print:p-0 ${generatedToken ? 'opacity-100' : 'opacity-90'}`}>
 
-                {generatedToken ? (
-                  <div className="w-full flex-1 flex flex-col animation-fade-in print:block">
-                    <div className="flex items-center justify-center gap-2 text-emerald-600 font-bold mb-6 bg-emerald-50 py-2 rounded-full print:hidden">
-                      <CheckCircle2 size={20} /> Successfully Generated
+                {generatedToken && generatedTokenData ? (
+                  <div className="w-full flex-1 flex flex-col print:block">
+                    <div className="flex items-center justify-center gap-2 text-emerald-700 font-bold mb-4 bg-emerald-50 py-2 rounded-xl border border-emerald-200 text-sm print:hidden">
+                      <CheckCircle2 size={18} /> Token Ready for Print
                     </div>
 
-                    {/* The Ticket Graphic */}
-                    <div id="print-ticket" className="w-full bg-slate-50 border-2 border-dashed border-slate-300 rounded-2xl p-8 relative shadow-inner flex-1 flex flex-col">
-                      <div className="text-center mb-6">
-                        <h4 className="font-black text-xl tracking-widest text-slate-800">AIIMS KALYANI</h4>
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">OPD Registration</p>
+                    {/* PHYSICAL PRINT TICKET */}
+                    <div id="print-ticket" className="w-full bg-white border-2 border-dashed border-slate-400 rounded-2xl p-6 relative shadow-inner flex-1 flex flex-col print:border-black print:rounded-none">
+                      <div className="text-center pb-4 border-b-2 border-dashed border-slate-300">
+                        <h4 className="font-black text-lg tracking-widest text-slate-900">AIIMS KALYANI</h4>
+                        <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Out-Patient Department (OPD)</p>
+                        <span className="inline-block mt-1 text-xs font-black text-blue-700 bg-blue-50 px-3 py-0.5 rounded-full border border-blue-200">
+                          {generatedTokenData.deptName} OPD
+                        </span>
                       </div>
 
-                      <div className="text-center py-8 border-y-2 border-dashed border-slate-200 my-2 flex-1 flex flex-col justify-center">
-                        <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-3">Token Number</p>
-                        <h2 className="text-7xl font-black text-slate-900 tracking-tighter drop-shadow-sm">{generatedToken}</h2>
-                      </div>
-
-                      <div className="mt-6 space-y-3 bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
-                        <div className="flex justify-between text-sm">
-                          <span className="text-slate-500 font-medium">Patient:</span>
-                          <span className="font-bold text-slate-800">{patientData.name || 'Rahul Kumar'}</span>
-                        </div>
-                        <div className="flex justify-between items-center text-sm py-0.5">
-                          <span className="text-slate-500 font-medium">Dept:</span>
-                          <span className="font-black text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-md border border-blue-200 text-xs">
-                            {deptName ? `${deptName} Dept` : 'Medicine Dept'}
+                      {/* Token Big Number */}
+                      <div className="text-center py-6 border-b-2 border-dashed border-slate-300 flex-1 flex flex-col justify-center">
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Queue Token Number</p>
+                        <h2 className="text-5xl font-black text-slate-900 tracking-tight">{generatedTokenData.tokenNumber}</h2>
+                        {generatedTokenData.priority === 'EMERGENCY' && (
+                          <span className="mt-2 inline-block text-xs font-black text-red-600 bg-red-100 px-3 py-1 rounded-full uppercase tracking-wider">
+                            🚨 Emergency Priority
                           </span>
+                        )}
+                        {generatedTokenData.priority === 'SENIOR' && (
+                          <span className="mt-2 inline-block text-xs font-black text-amber-700 bg-amber-100 px-3 py-1 rounded-full uppercase tracking-wider">
+                            🟡 Senior Citizen
+                          </span>
+                        )}
+                      </div>
+
+                      {/* QR Code on Ticket */}
+                      <div className="my-4 flex flex-col items-center justify-center p-3 bg-slate-50 rounded-xl border border-slate-200 text-center">
+                        {qrUrl && (
+                          <QRCodeSVG
+                            value={qrUrl}
+                            size={100}
+                            level="M"
+                            includeMargin={false}
+                          />
+                        )}
+                        <p className="text-[10px] font-bold text-slate-500 mt-2 flex items-center gap-1 justify-center">
+                          <QrCode size={12} /> Scan with phone to track live position
+                        </p>
+                      </div>
+
+                      {/* Ticket Metadata */}
+                      <div className="space-y-1.5 text-xs text-slate-700 border-t border-slate-200 pt-3">
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Patient:</span>
+                          <span className="font-bold">{generatedTokenData.name}</span>
                         </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-slate-500 font-medium">Priority:</span>
-                          <span className="font-bold text-slate-800">Normal</span>
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">UHID:</span>
+                          <span className="font-mono font-bold">{generatedTokenData.uhid}</span>
                         </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-slate-500 font-medium">Time:</span>
-                          <span className="font-bold text-slate-800">{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Mobile:</span>
+                          <span className="font-mono">{generatedTokenData.phone}</span>
                         </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Issued Time:</span>
+                          <span className="font-bold">{generatedTokenData.issuedAt}</span>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 pt-2 border-t border-dashed border-slate-300 text-center text-[10px] text-slate-400">
+                        Please watch TV monitors in the waiting hall.
                       </div>
                     </div>
 
                     <button
                       onClick={handlePrintToken}
-                      className="mt-6 w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-lg rounded-2xl shadow-lg shadow-emerald-200 transition-all active:scale-95 flex items-center justify-center gap-3 print:hidden"
+                      className="mt-4 w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-base rounded-2xl shadow-lg shadow-emerald-200 transition-all active:scale-95 flex items-center justify-center gap-2 print:hidden"
                     >
-                      <Printer size={24} /> Print Token
+                      <Printer size={20} /> Print Token Slip
                     </button>
                   </div>
                 ) : (
-                  <div className="flex-1 flex flex-col items-center justify-center text-slate-400 text-center px-6">
-                    <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center border-2 border-dashed border-slate-200 mb-6">
-                      <span className="text-4xl opacity-50">🎫</span>
+                  <div className="flex-1 flex flex-col items-center justify-center text-slate-400 text-center px-4">
+                    <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center border-2 border-dashed border-slate-300 mb-4">
+                      <span className="text-3xl opacity-60">🎫</span>
                     </div>
-                    <h3 className="text-lg font-bold text-slate-800 mb-2">No Token Generated</h3>
-                    <p className="text-sm">Fill out the patient details and click Generate to preview the ticket.</p>
+                    <h3 className="text-base font-bold text-slate-800 mb-1">No Active Token</h3>
+                    <p className="text-xs text-slate-500">Enter patient info and click Generate to preview slip &amp; QR code.</p>
                   </div>
                 )}
               </div>
@@ -337,6 +479,96 @@ export default function RegistrationDesk() {
           </div>
         </div>
       </main>
+
+      {/* Find Patient & Re-print Modal */}
+      {isSearchModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full p-6 border border-slate-200 flex flex-col max-h-[85vh] animate-in fade-in duration-200">
+            <div className="flex justify-between items-center pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center font-bold">
+                  <Search size={20} />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-900 text-lg">Find Patient / Reprint Token</h3>
+                  <p className="text-xs text-slate-500">Search by Mobile Number, UHID, Patient Name, or Token Number</p>
+                </div>
+              </div>
+              <button onClick={() => setSearchModalOpen(false)} className="p-2 text-slate-400 hover:text-slate-700 rounded-lg">
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Search Input */}
+            <form onSubmit={handleSearch} className="my-4 flex gap-2">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Enter phone, UHID, name, or MED-001..."
+                className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 font-medium focus:ring-2 focus:ring-blue-500 outline-none"
+                autoFocus
+              />
+              <button
+                type="submit"
+                disabled={isSearching}
+                className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-all flex items-center gap-2"
+              >
+                {isSearching ? 'Searching...' : 'Search'}
+              </button>
+            </form>
+
+            {/* Search Results List */}
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-[200px]">
+              {searchResults.map((t: any) => {
+                const pName = t.patient ? `${t.patient.firstName} ${t.patient.lastName}`.trim() : 'Patient';
+                return (
+                  <div
+                    key={t.id}
+                    className="p-4 rounded-2xl border border-slate-200 hover:border-blue-400 hover:bg-blue-50/40 transition-all flex items-center justify-between gap-4"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-black text-slate-900 text-lg">{t.tokenNumber}</span>
+                        <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                          {t.status}
+                        </span>
+                        {t.priority === 'EMERGENCY' && (
+                          <span className="text-[10px] font-black text-red-600 bg-red-100 px-2 py-0.5 rounded-md">
+                            🚨 Emergency
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm font-semibold text-slate-700 mt-1">{pName} ({t.patient?.phone || 'No phone'})</p>
+                      <p className="text-xs text-slate-400">UHID: {t.patient?.uhid || '---'} • {t.department?.name || 'Medicine'} OPD</p>
+                    </div>
+
+                    <button
+                      onClick={() => handleSelectSearchedToken(t)}
+                      className="px-4 py-2 bg-slate-900 hover:bg-blue-600 text-white font-bold text-xs rounded-xl transition-colors flex items-center gap-1.5"
+                    >
+                      <Printer size={14} /> Preview &amp; Print
+                    </button>
+                  </div>
+                );
+              })}
+
+              {!isSearching && searchResults.length === 0 && searchQuery && (
+                <div className="text-center py-12 text-slate-400 text-sm">
+                  No matching tokens found for "{searchQuery}".
+                </div>
+              )}
+
+              {!searchQuery && (
+                <div className="text-center py-12 text-slate-400 text-sm">
+                  Type a patient name, phone number, or token number to search records.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

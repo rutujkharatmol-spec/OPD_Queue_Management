@@ -97,6 +97,37 @@ export async function deleteDepartment(id: string) {
   return response.json();
 }
 
+export async function recallPatient(departmentId: string, roomNumber: string) {
+  const response = await fetchWithOfflineSync(`${API_BASE_URL}/queue/recall/${departmentId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ roomNumber }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || 'Failed to recall patient');
+  }
+  return response.json();
+}
+
+export async function searchTokens(query: string, departmentId?: string) {
+  const params = new URLSearchParams({ q: query });
+  if (departmentId) params.append('departmentId', departmentId);
+  const response = await fetchWithOfflineSync(`${API_BASE_URL}/tokens/search?${params.toString()}`);
+  if (!response.ok) return [];
+  const data = await response.json();
+  return Array.isArray(data) ? data : [];
+}
+
+export async function getDepartmentAnalytics(departmentId?: string, date?: string) {
+  const url = departmentId
+    ? `${API_BASE_URL}/queue/analytics/${departmentId}${date ? `?date=${date}` : ''}`
+    : `${API_BASE_URL}/queue/analytics${date ? `?date=${date}` : ''}`;
+  const response = await fetchWithOfflineSync(url);
+  if (!response.ok) throw new Error('Failed to fetch analytics');
+  return response.json();
+}
+
 export async function getRooms(departmentId?: string) {
   const url = departmentId ? `${API_BASE_URL}/settings/rooms?departmentId=${departmentId}` : `${API_BASE_URL}/settings/rooms`;
   const response = await fetchWithOfflineSync(url);
@@ -107,12 +138,22 @@ export async function getRooms(departmentId?: string) {
   return Array.isArray(data) ? data : [];
 }
 
-export async function createRoom(roomNumber: string, isActive: boolean = true, departmentId?: string) {
+export async function createRoom(roomNumber: string, isActive: boolean = true, departmentId?: string, doctorName?: string) {
   const response = await fetchWithOfflineSync(`${API_BASE_URL}/settings/rooms`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ roomNumber, isActive, departmentId }),
+    body: JSON.stringify({ roomNumber, isActive, departmentId, doctorName }),
   });
   if (!response.ok) throw new Error('Failed to create room');
+  return response.json();
+}
+
+export async function updateRoom(id: string, roomNumber?: string, isActive?: boolean, doctorName?: string) {
+  const response = await fetchWithOfflineSync(`${API_BASE_URL}/settings/rooms/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ roomNumber, isActive, doctorName }),
+  });
+  if (!response.ok) throw new Error('Failed to update room');
   return response.json();
 }

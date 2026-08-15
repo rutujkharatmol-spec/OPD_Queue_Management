@@ -4,7 +4,16 @@ import { fetchWithOfflineSync } from '../lib/offlineSync';
 
 export interface TokenDisplayData {
   department: string;
-  activeTokens: { id: string; token: string; room: string; patientName: string; uhid: string; }[];
+  activeTokens: {
+    id: string;
+    token: string;
+    room: string;
+    patientName: string;
+    uhid: string;
+    doctorName?: string;
+    calledAt?: number;
+    recalledAt?: number;
+  }[];
   nextTokens: string[];
 }
 

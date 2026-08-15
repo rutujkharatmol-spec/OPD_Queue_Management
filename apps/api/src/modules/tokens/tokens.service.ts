@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, Between } from 'typeorm';
 import { Token, TokenPriority, TokenStatus } from './entities/token.entity';
 import { Patient } from '../patients/entities/patient.entity';
 import { Doctor } from '../doctors/entities/doctor.entity';
@@ -75,7 +75,7 @@ export class TokensService {
         await queryRunner.manager.save(patient);
       }
 
-      // 2. Generate Daily Sequence Number
+      // 2. Generate Daily Sequence Number (resets to 001 every day per department)
       const startOfDay = new Date();
       startOfDay.setHours(0, 0, 0, 0);
       const endOfDay = new Date();
@@ -84,6 +84,7 @@ export class TokensService {
       const todayTokensCount = await queryRunner.manager.count(Token, {
         where: {
           department: { id: departmentId },
+          issuedAt: Between(startOfDay, endOfDay),
         },
       });
 
@@ -98,12 +99,11 @@ export class TokensService {
         department: { id: departmentId },
         priority,
         status: TokenStatus.WAITING,
+        issuedAt: new Date(),
       });
 
       await queryRunner.manager.save(token);
       await queryRunner.commitTransaction();
-
-
 
       return token;
     } catch (error) {
@@ -112,6 +112,28 @@ export class TokensService {
     } finally {
       await queryRunner.release();
     }
+  }
+
+  async searchTokens(query: string, departmentId?: string): Promise<Token[]> {
+    if (!query || !query.trim()) return [];
+
+    const trimmed = query.trim().toLowerCase();
+    const qb = this.tokenRepository.createQueryBuilder('token')
+      .leftJoinAndSelect('token.patient', 'patient')
+      .leftJoinAndSelect('token.doctor', 'doctor')
+      .leftJoinAndSelect('token.department', 'department')
+      .where(
+        '(LOWER(token.tokenNumber) LIKE :q OR LOWER(patient.uhid) LIKE :q OR LOWER(patient.firstName) LIKE :q OR LOWER(patient.lastName) LIKE :q OR patient.phone LIKE :q)',
+        { q: `%${trimmed}%` }
+      )
+      .orderBy('token.issuedAt', 'DESC')
+      .take(20);
+
+    if (departmentId) {
+      qb.andWhere('token.department.id = :departmentId', { departmentId });
+    }
+
+    return qb.getMany();
   }
 
   async getDoctorQueue(doctorId: string): Promise<Token[]> {
@@ -128,6 +150,7 @@ export class TokensService {
       relations: ['patient'],
     });
   }
+
   async getTokenStatus(tokenNumber: string) {
     const token = await this.tokenRepository.findOne({
       where: { tokenNumber },
@@ -156,9 +179,6 @@ export class TokensService {
       });
 
       // Count how many are ahead of THIS token
-      // Ahead = priority > token.priority OR (priority == token.priority AND issuedAt < token.issuedAt)
-
-      // We map priorities to numbers for easier comparison
       const priorityWeight = {
         [TokenPriority.EMERGENCY]: 3,
         [TokenPriority.SENIOR]: 2,

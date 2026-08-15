@@ -1,8 +1,8 @@
 "use client";
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Settings as SettingsIcon, Plus, Trash2, Edit2, Check, X, ArrowLeft } from 'lucide-react';
-import { API_BASE_URL } from '../../lib/api';
+import { Settings as SettingsIcon, Plus, Trash2, Edit2, Check, X, ArrowLeft, Stethoscope, Building2 } from 'lucide-react';
+import { API_BASE_URL, getRooms, createRoom, updateRoom } from '../../lib/api';
 import { fetchWithOfflineSync } from '../../lib/offlineSync';
 import { useSearchParams } from 'next/navigation';
 
@@ -10,6 +10,7 @@ interface Room {
   id: string;
   roomNumber: string;
   isActive: boolean;
+  doctorName?: string;
 }
 
 export default function SettingsPage() {
@@ -18,8 +19,12 @@ export default function SettingsPage() {
 
   const [rooms, setRooms] = useState<Room[]>([]);
   const [newRoomNumber, setNewRoomNumber] = useState('');
+  const [newDoctorName, setNewDoctorName] = useState('');
+
   const [editingRoomId, setEditingRoomId] = useState<string | null>(null);
   const [editRoomNumber, setEditRoomNumber] = useState('');
+  const [editDoctorName, setEditDoctorName] = useState('');
+
   const [loading, setLoading] = useState(true);
   const [deptName, setDeptName] = useState('');
 
@@ -48,14 +53,8 @@ export default function SettingsPage() {
   const fetchRooms = async () => {
     try {
       setLoading(true);
-      const url = deptId
-        ? `${API_BASE_URL}/settings/rooms?departmentId=${deptId}`
-        : `${API_BASE_URL}/settings/rooms`;
-      const res = await fetchWithOfflineSync(url);
-      if (res.ok) {
-        const data = await res.json();
-        setRooms(Array.isArray(data) ? data : []);
-      }
+      const data = await getRooms(deptId);
+      setRooms(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Failed to fetch rooms', err);
     } finally {
@@ -68,18 +67,10 @@ export default function SettingsPage() {
     if (!newRoomNumber.trim()) return;
 
     try {
-      const res = await fetchWithOfflineSync(`${API_BASE_URL}/settings/rooms`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          roomNumber: newRoomNumber.trim(),
-          departmentId: deptId || undefined
-        })
-      });
-      if (res.ok) {
-        setNewRoomNumber('');
-        fetchRooms();
-      }
+      await createRoom(newRoomNumber.trim(), true, deptId || undefined, newDoctorName.trim() || undefined);
+      setNewRoomNumber('');
+      setNewDoctorName('');
+      fetchRooms();
     } catch (err) {
       console.error('Failed to add room', err);
     }
@@ -102,43 +93,38 @@ export default function SettingsPage() {
   const startEditing = (room: Room) => {
     setEditingRoomId(room.id);
     setEditRoomNumber(room.roomNumber);
+    setEditDoctorName(room.doctorName || '');
   };
 
   const saveEdit = async (id: string) => {
     if (!editRoomNumber.trim()) return;
     try {
-      const res = await fetchWithOfflineSync(`${API_BASE_URL}/settings/rooms/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ roomNumber: editRoomNumber.trim() })
-      });
-      if (res.ok) {
-        setEditingRoomId(null);
-        fetchRooms();
-      }
+      await updateRoom(id, editRoomNumber.trim(), true, editDoctorName.trim() || undefined);
+      setEditingRoomId(null);
+      fetchRooms();
     } catch (err) {
       console.error('Failed to update room', err);
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-900 p-6 lg:p-10">
-      <header className="flex justify-between items-center mb-10 max-w-5xl mx-auto bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
+    <div className="min-h-screen bg-slate-100 font-sans text-slate-900 p-6 lg:p-10">
+      <header className="flex justify-between items-center mb-8 max-w-5xl mx-auto bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
         <div className="flex items-center gap-4">
           <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center">
             <SettingsIcon size={24} />
           </div>
           <div>
             <h1 className="text-2xl font-black text-slate-900">
-              {deptName ? `${deptName} — Settings` : 'System Settings'}
+              {deptName ? `${deptName} OPD — Room Settings` : 'OPD Room Settings'}
             </h1>
-            <p className="text-slate-500 font-medium text-sm">
-              {deptName ? `Configure rooms for ${deptName} department` : 'Configure OPD parameters'}
+            <p className="text-slate-500 font-medium text-xs mt-0.5">
+              Assign room numbers and attending doctors for consultation calling.
             </p>
           </div>
         </div>
-        <Link href={`/doctor?deptId=${deptId}`} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors flex items-center gap-2">
-          <ArrowLeft size={18} /> Back to Doctor Room
+        <Link href={`/doctor?deptId=${deptId}`} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors flex items-center gap-2 text-xs">
+          <ArrowLeft size={16} /> Back to Doctor Room
         </Link>
       </header>
 
@@ -146,80 +132,124 @@ export default function SettingsPage() {
 
         {/* Rooms Configuration */}
         <section className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="p-6 lg:p-8 border-b border-slate-100 bg-slate-50/50">
-            <h2 className="text-xl font-bold text-slate-800">
-              {deptName ? `${deptName} Consultation Rooms` : 'Consultation Rooms'}
-            </h2>
-            <p className="text-slate-500 text-sm mt-1">
-              {deptName
-                ? `Manage rooms for ${deptName} department only. Other departments have their own rooms.`
-                : 'Manage the rooms available for doctors to assign patients.'}
-            </p>
+          <div className="p-6 lg:p-8 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+            <div>
+              <h2 className="text-lg font-black text-slate-800 flex items-center gap-2">
+                <Building2 size={20} className="text-blue-600" />
+                {deptName ? `${deptName} Consultation Rooms` : 'Consultation Rooms'}
+              </h2>
+              <p className="text-slate-500 text-xs mt-1">
+                Rooms configured here will appear on the Doctor Dashboard and TV monitors.
+              </p>
+            </div>
+            <span className="text-xs font-bold bg-blue-100 text-blue-700 px-3 py-1 rounded-full">
+              {rooms.length} Room{rooms.length === 1 ? '' : 's'} Active
+            </span>
           </div>
 
           <div className="p-6 lg:p-8">
-            <form onSubmit={handleAddRoom} className="flex gap-4 mb-8">
-              <input
-                type="text"
-                value={newRoomNumber}
-                onChange={(e) => setNewRoomNumber(e.target.value)}
-                placeholder="Enter new room number (e.g. 101)"
-                className="flex-1 px-5 py-3 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-              />
-              <button
-                type="submit"
-                disabled={!newRoomNumber.trim()}
-                className="px-6 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                <Plus size={20} /> Add Room
-              </button>
+            {/* Add Room Form */}
+            <form onSubmit={handleAddRoom} className="grid grid-cols-1 sm:grid-cols-12 gap-3 mb-8 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+              <div className="sm:col-span-4">
+                <input
+                  type="text"
+                  required
+                  value={newRoomNumber}
+                  onChange={(e) => setNewRoomNumber(e.target.value)}
+                  placeholder="Room No. (e.g. 101)"
+                  className="w-full px-4 py-3 bg-white border border-slate-300 rounded-xl font-bold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm"
+                />
+              </div>
+              <div className="sm:col-span-5">
+                <input
+                  type="text"
+                  value={newDoctorName}
+                  onChange={(e) => setNewDoctorName(e.target.value)}
+                  placeholder="Assigned Doctor (e.g. Dr. A. Sharma)"
+                  className="w-full px-4 py-3 bg-white border border-slate-300 rounded-xl font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm"
+                />
+              </div>
+              <div className="sm:col-span-3">
+                <button
+                  type="submit"
+                  disabled={!newRoomNumber.trim()}
+                  className="w-full h-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm shadow-sm"
+                >
+                  <Plus size={18} /> Add Room
+                </button>
+              </div>
             </form>
 
             {loading ? (
-              <div className="text-center py-10 text-slate-400 font-medium animate-pulse">Loading rooms...</div>
+              <div className="text-center py-10 text-slate-400 font-medium animate-pulse text-sm">Loading room configurations...</div>
             ) : rooms.length === 0 ? (
-              <div className="text-center py-10 text-slate-400 font-medium bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                No rooms configured yet{deptName ? ` for ${deptName}` : ''}. Add one above.
+              <div className="text-center py-12 text-slate-400 font-medium bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-sm">
+                No rooms configured yet{deptName ? ` for ${deptName}` : ''}. Use the form above to add room numbers.
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {rooms.map(room => (
-                  <div key={room.id} className="flex items-center justify-between p-5 bg-white border border-slate-200 rounded-2xl shadow-sm hover:shadow-md transition-shadow group">
+                  <div key={room.id} className="p-5 bg-white border border-slate-200 rounded-2xl shadow-sm hover:shadow-md transition-shadow group flex flex-col justify-between">
 
                     {editingRoomId === room.id ? (
-                      <div className="flex items-center gap-2 w-full">
+                      <div className="space-y-3 w-full">
                         <input
                           type="text"
                           value={editRoomNumber}
                           onChange={(e) => setEditRoomNumber(e.target.value)}
-                          className="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg font-bold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-blue-500"
+                          placeholder="Room Number"
+                          className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-bold text-slate-900 text-sm focus:outline-none focus:border-blue-500"
                           autoFocus
                         />
-                        <button onClick={() => saveEdit(room.id)} className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg">
-                          <Check size={18} />
-                        </button>
-                        <button onClick={() => setEditingRoomId(null)} className="p-2 text-slate-400 hover:bg-slate-100 rounded-lg">
-                          <X size={18} />
-                        </button>
+                        <input
+                          type="text"
+                          value={editDoctorName}
+                          onChange={(e) => setEditDoctorName(e.target.value)}
+                          placeholder="Doctor Name (Optional)"
+                          className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-medium text-slate-800 text-xs focus:outline-none focus:border-blue-500"
+                        />
+                        <div className="flex justify-end gap-2 pt-1">
+                          <button onClick={() => saveEdit(room.id)} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold flex items-center gap-1">
+                            <Check size={14} /> Save
+                          </button>
+                          <button onClick={() => setEditingRoomId(null)} className="px-3 py-1.5 bg-slate-200 text-slate-700 rounded-lg text-xs font-bold flex items-center gap-1">
+                            <X size={14} /> Cancel
+                          </button>
+                        </div>
                       </div>
                     ) : (
                       <>
-                        <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 font-black">
-                            R
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-700 font-black text-sm">
+                              {room.roomNumber}
+                            </div>
+                            <div>
+                              <p className="font-bold text-slate-900 text-base">Room {room.roomNumber}</p>
+                              {room.doctorName ? (
+                                <p className="text-xs text-slate-600 font-semibold flex items-center gap-1 mt-0.5">
+                                  <Stethoscope size={12} className="text-blue-500" />
+                                  {room.doctorName}
+                                </p>
+                              ) : (
+                                <p className="text-xs text-slate-400 italic mt-0.5">No doctor assigned</p>
+                              )}
+                            </div>
                           </div>
-                          <div>
-                            <p className="font-bold text-slate-800 text-lg">{room.roomNumber}</p>
-                            <p className="text-xs text-slate-400 font-medium">{room.isActive ? 'Active' : 'Inactive'}</p>
+
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => startEditing(room)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit room & doctor">
+                              <Edit2 size={16} />
+                            </button>
+                            <button onClick={() => handleDeleteRoom(room.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete room">
+                              <Trash2 size={16} />
+                            </button>
                           </div>
                         </div>
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button onClick={() => startEditing(room)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
-                            <Edit2 size={16} />
-                          </button>
-                          <button onClick={() => handleDeleteRoom(room.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
-                            <Trash2 size={16} />
-                          </button>
+
+                        <div className="mt-4 pt-3 border-t border-slate-100 flex justify-between items-center text-[11px] text-slate-400 font-medium">
+                          <span>Status: <strong className="text-emerald-600">Active</strong></span>
+                          <span>Dept: {deptName || 'Medicine'}</span>
                         </div>
                       </>
                     )}

@@ -1,4 +1,4 @@
-import { Controller, Patch, Param, Body, Get } from '@nestjs/common';
+import { Controller, Patch, Param, Body, Get, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { QueueService } from './queue.service';
 import { MarkTokenActionDto } from './dto/mark-token-action.dto';
@@ -19,6 +19,17 @@ export class QueueController {
     return this.queueService.callNextPatient(departmentId, roomNumber);
   }
 
+  @Patch('recall/:departmentId')
+  @ApiOperation({ summary: 'Recall / Ring again the currently active patient in a room' })
+  @ApiResponse({ status: 200, description: 'Returns the recalled token.' })
+  async recallPatient(
+    @Param('departmentId') departmentId: string,
+    @Body('roomNumber') roomNumber: string
+  ) {
+    if (!roomNumber) throw new Error('roomNumber is required');
+    return this.queueService.recallPatient(departmentId, roomNumber);
+  }
+
   @Patch('action/:tokenId')
   @ApiOperation({ summary: 'Mark a token action (SKIP, ABSENT, COMPLETE)' })
   @ApiResponse({ status: 200, description: 'The token action has been recorded.' })
@@ -28,6 +39,25 @@ export class QueueController {
     @Body() dto: MarkTokenActionDto,
   ) {
     return this.queueService.markTokenAction(tokenId, dto.action as 'SKIP' | 'ABSENT' | 'NOT_AVAILABLE' | 'COMPLETE');
+  }
+
+  @Get('analytics/:departmentId')
+  @ApiOperation({ summary: 'Get OPD analytics for a department' })
+  @ApiResponse({ status: 200, description: 'Returns department analytics metrics.' })
+  async getDepartmentAnalytics(
+    @Param('departmentId') departmentId: string,
+    @Query('date') date?: string
+  ) {
+    return this.queueService.getDepartmentAnalytics(departmentId, date);
+  }
+
+  @Get('analytics')
+  @ApiOperation({ summary: 'Get overall OPD analytics' })
+  @ApiResponse({ status: 200, description: 'Returns overall analytics metrics.' })
+  async getOverallAnalytics(
+    @Query('date') date?: string
+  ) {
+    return this.queueService.getDepartmentAnalytics(undefined, date);
   }
 
   @Get('live/:departmentId')

@@ -11,16 +11,16 @@ export class SettingsController {
   }
 
   @Post('rooms')
-  async createRoom(@Body() body: { roomNumber: string; isActive?: boolean; departmentId?: string }) {
-    return this.settingsService.createRoom(body.roomNumber, body.isActive, body.departmentId);
+  async createRoom(@Body() body: { roomNumber: string; isActive?: boolean; departmentId?: string; doctorName?: string }) {
+    return this.settingsService.createRoom(body.roomNumber, body.isActive, body.departmentId, body.doctorName);
   }
 
   @Put('rooms/:id')
   async updateRoom(
     @Param('id') id: string,
-    @Body() body: { roomNumber?: string; isActive?: boolean },
+    @Body() body: { roomNumber?: string; isActive?: boolean; doctorName?: string },
   ) {
-    return this.settingsService.updateRoom(id, body.roomNumber, body.isActive);
+    return this.settingsService.updateRoom(id, body.roomNumber, body.isActive, body.doctorName);
   }
 
   @Delete('rooms/:id')
