@@ -76,20 +76,20 @@ export class TokensService {
       }
 
       if (!patient) {
-        const uhid = patientData?.uhid || `UHID-${Date.now().toString().slice(-6)}`;
+        const uhid = patientData?.uhid?.trim() || `UHID-${Date.now().toString().slice(-6)}`;
 
         patient = queryRunner.manager.create(Patient, {
           id: targetPatientId,
           uhid: uhid,
-          firstName: patientData?.firstName || 'Unknown',
-          lastName: patientData?.lastName ?? '',
-          phone: patientData?.phone || '0000000000'
+          firstName: patientData?.firstName?.trim() || 'Patient',
+          lastName: patientData?.lastName?.trim() || '',
+          phone: patientData?.phone?.trim() || ''
         });
         await queryRunner.manager.save(patient);
       } else {
-        if (patientData?.firstName) patient.firstName = patientData.firstName;
-        if (patientData?.lastName !== undefined) patient.lastName = patientData.lastName;
-        if (patientData?.phone && patientData.phone !== '0000000000') patient.phone = patientData.phone;
+        if (patientData?.firstName !== undefined) patient.firstName = patientData.firstName.trim() || 'Patient';
+        if (patientData?.lastName !== undefined) patient.lastName = patientData.lastName.trim();
+        if (patientData?.phone !== undefined) patient.phone = patientData.phone.trim();
         await queryRunner.manager.save(patient);
       }
 

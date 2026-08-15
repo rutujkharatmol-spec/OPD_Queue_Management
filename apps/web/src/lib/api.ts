@@ -6,11 +6,11 @@ export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL
   : '/api/v1';
 
 export async function generateToken(
-  patientId: string,
-  departmentId: string,
-  doctorId: string,
-  priority: string,
-  patientData?: { firstName: string; lastName: string; phone: string; uhid: string; }
+  patientId?: string,
+  departmentId?: string,
+  doctorId?: string,
+  priority: string = 'NORMAL',
+  patientData?: { firstName?: string; lastName?: string; phone?: string; uhid?: string; }
 ) {
   const response = await fetchWithOfflineSync(`${API_BASE_URL}/tokens`, {
     method: 'POST',

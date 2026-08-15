@@ -12,14 +12,14 @@ export class Patient extends BaseEntity {
   @Column({ unique: true })
   uhid: string;
 
-  @Column({ name: 'first_name' })
-  firstName: string;
+  @Column({ name: 'first_name', nullable: true, default: 'Patient' })
+  firstName?: string;
 
-  @Column({ name: 'last_name' })
-  lastName: string;
+  @Column({ name: 'last_name', nullable: true, default: '' })
+  lastName?: string;
 
-  @Column()
-  phone: string;
+  @Column({ nullable: true, default: '' })
+  phone?: string;
 
   @Column({ type: 'date', nullable: true })
   dob: Date;

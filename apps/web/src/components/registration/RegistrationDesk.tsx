@@ -67,23 +67,26 @@ export default function RegistrationDesk() {
       const randomPatientId = crypto.randomUUID();
       const dummyDoctorId = "550e8400-e29b-41d4-a716-446655440000";
 
-      const nameParts = patientData.name.trim().split(' ');
-      const firstName = nameParts[0] || 'Unknown';
+      const trimmedName = patientData.name.trim();
+      const nameParts = trimmedName ? trimmedName.split(' ') : [];
+      const firstName = nameParts[0] || 'Patient';
       const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+      const phone = patientData.phone.trim();
+      const uhid = patientData.uhid.trim();
 
       const token = await generateToken(randomPatientId, deptId, dummyDoctorId, priority, {
         firstName: firstName,
         lastName: lastName,
-        phone: patientData.phone,
-        uhid: patientData.uhid
+        phone: phone,
+        uhid: uhid || undefined
       });
 
       setGeneratedToken(token.tokenNumber);
       setGeneratedTokenData({
         tokenNumber: token.tokenNumber,
-        name: patientData.name,
-        phone: patientData.phone,
-        uhid: patientData.uhid || token.patient?.uhid,
+        name: trimmedName || 'Patient',
+        phone: phone || '---',
+        uhid: uhid || token.patient?.uhid || '---',
         priority: priority,
         deptName: deptName || 'Medicine',
         issuedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -315,30 +318,28 @@ export default function RegistrationDesk() {
                   <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 space-y-4">
                     <div>
                       <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
-                        <User size={16} className="text-slate-400" /> Patient Full Name *
+                        <User size={16} className="text-slate-400" /> Patient Full Name (Optional)
                       </label>
                       <input
                         type="text"
-                        required
                         value={patientData.name}
                         onChange={e => setPatientData({ ...patientData, name: e.target.value })}
                         className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-800 focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
-                        placeholder="E.g. Rahul Kumar"
+                        placeholder="E.g. Rahul Kumar (Leave blank for generic token)"
                       />
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
-                          <Phone size={16} className="text-slate-400" /> Mobile Number *
+                          <Phone size={16} className="text-slate-400" /> Mobile Number (Optional)
                         </label>
                         <input
                           type="tel"
-                          required
                           value={patientData.phone}
                           onChange={e => setPatientData({ ...patientData, phone: e.target.value })}
                           className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-800 focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
-                          placeholder="10-digit mobile"
+                          placeholder="10-digit mobile (Optional)"
                         />
                       </div>
 
@@ -351,7 +352,7 @@ export default function RegistrationDesk() {
                           value={patientData.uhid}
                           onChange={e => setPatientData({ ...patientData, uhid: e.target.value })}
                           className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-800 focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
-                          placeholder="UHID-XXXXXX"
+                          placeholder="UHID-XXXXXX (Optional)"
                         />
                       </div>
                     </div>
