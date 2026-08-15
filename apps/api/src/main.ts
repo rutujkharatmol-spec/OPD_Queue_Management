@@ -33,7 +33,7 @@ async function bootstrap() {
   });
 
   const port = parseInt(process.env.PORT || '4000', 10);
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
   console.log(`Application is running on: http://localhost:${port}`);
 }
 bootstrap();
