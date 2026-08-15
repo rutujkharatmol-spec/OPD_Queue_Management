@@ -1,11 +1,10 @@
 import { fetchWithOfflineSync } from './offlineSync';
 
-// In production this points straight at the deployed API origin. Without it, dev
-// falls back to the same-origin proxy in next.config.ts to avoid CORS and startup races.
-// Trailing slashes are stripped so `https://host/` doesn't produce `https://host//api/v1`.
-const apiOrigin = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '');
-
-export const API_BASE_URL = apiOrigin ? `${apiOrigin}/api/v1` : '/api/v1';
+// The API is served by this same app (src/app/api/v1/**), so it is always same-origin.
+// That holds for both deployments — Vercel and `next start` on the OPD server — which
+// means no build-time URL to configure and nothing to rebuild when the server's IP
+// changes. See next.config.ts for the temporary fallback to the old NestJS API.
+export const API_BASE_URL = '/api/v1';
 
 export async function generateToken(
   departmentId: string,

@@ -32,10 +32,30 @@ function createClient() {
 
 // Next.js clears the module cache on every hot reload in development, which would
 // otherwise leak a new pool per edit until Postgres refuses connections.
-const globalForPrisma = globalThis as unknown as { prisma?: ReturnType<typeof createClient> };
+const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
-export const db = globalForPrisma.prisma ?? createClient();
-
-if (process.env.NODE_ENV !== 'production') {
-  globalForPrisma.prisma = db;
+function getClient(): PrismaClient {
+  if (!globalForPrisma.prisma) {
+    globalForPrisma.prisma = createClient();
+  }
+  return globalForPrisma.prisma;
 }
+
+/**
+ * Connects on first use, not at import.
+ *
+ * `next build` imports every route module to collect its metadata, so constructing the
+ * client at module scope would make a missing DATABASE_URL a build failure — on Vercel,
+ * a red deploy rather than a clear runtime error. Deferring it means the build never
+ * needs database credentials and a misconfigured environment reports itself on the
+ * first request, where the message is actionable.
+ */
+export const db: PrismaClient = new Proxy({} as PrismaClient, {
+  get(_target, property, receiver) {
+    const client = getClient();
+    const value = Reflect.get(client as object, property, receiver);
+    // Model delegates are plain objects; only top-level methods ($transaction,
+    // $queryRaw, …) need their receiver preserved.
+    return typeof value === 'function' ? value.bind(client) : value;
+  },
+});

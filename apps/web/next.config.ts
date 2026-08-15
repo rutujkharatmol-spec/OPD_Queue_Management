@@ -1,48 +1,42 @@
 import type { NextConfig } from 'next';
 
 /**
- * Two supported deployments:
+ * The API lives in this app, at src/app/api/v1/**, and is reached same-origin. That
+ * works unchanged in both deployments — Vercel serverless and `next start` on the OPD
+ * server — so the normal case needs no configuration at all.
  *
- * 1. On-prem OPD server (the one that must survive an internet outage).
- *    Set API_PROXY_TARGET=http://127.0.0.1:4000. The browser calls same-origin
- *    /api/v1 and Next proxies to the local API. Because the target is resolved on
- *    the server, terminals just browse to http://<server-ip>:3000 and the server's
- *    IP is never baked into the client bundle — change the IP, no rebuild needed.
+ * LEGACY_API_URL is a migration aid, not part of the target setup. While endpoints are
+ * still being moved off NestJS, set it to the old API and un-migrated paths fall
+ * through to it, so each endpoint switches over the moment its handler lands.
  *
- * 2. Cloud mirror on Vercel (read-only patient view for phones on mobile data).
- *    Set NEXT_PUBLIC_API_URL=https://<api-host>. The browser calls that origin
- *    directly, so no Vercel function is invoked per request.
+ * This must go in the `fallback` phase, not the default array form. Next checks
+ * non-dynamic routes (5), then `afterFiles` rewrites (6), then dynamic routes (7),
+ * then `fallback` rewrites (8). The array form is `afterFiles`, which sits *above*
+ * dynamic routes — so it silently shadows every `[id]` handler while letting static
+ * ones through. `fallback` runs after all route handlers have had their turn.
+ *
+ * Delete the variable once the migration is done.
  */
-const proxyTarget = process.env.API_PROXY_TARGET?.replace(/\/+$/, '');
-const publicApiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '');
-const isProd = process.env.NODE_ENV === 'production';
+const legacyApiUrl = process.env.LEGACY_API_URL?.replace(/\/+$/, '');
+const isDev = process.env.NODE_ENV !== 'production';
 
-// NEXT_PUBLIC_* is inlined at build time, so a production bundle built without any
-// API target can never reach the backend. Fail the build rather than ship a
-// frontend that silently proxies every call to localhost.
-if (isProd && !proxyTarget && !publicApiUrl) {
-  throw new Error(
-    'No API target configured. Set API_PROXY_TARGET=http://127.0.0.1:4000 for the ' +
-      'on-prem OPD server, or NEXT_PUBLIC_API_URL=https://<api-host> for a cloud ' +
-      'deployment, then rebuild. See .env.example.'
-  );
-}
-
-// Local dev falls back to the API's default port so `pnpm dev` needs no configuration.
-const devTarget = proxyTarget || publicApiUrl || 'http://127.0.0.1:4000';
+// Local development still has the NestJS server on :4000 for whatever has not moved yet.
+const fallbackTarget = legacyApiUrl || (isDev ? 'http://127.0.0.1:4000' : null);
 
 const nextConfig: NextConfig = {
   async rewrites() {
-    // When NEXT_PUBLIC_API_URL is set the browser already calls the API directly,
-    // so proxying would just add a hop (and a serverless invocation on Vercel).
-    if (isProd && !proxyTarget) return [];
+    if (!fallbackTarget) return { beforeFiles: [], afterFiles: [], fallback: [] };
 
-    return [
-      {
-        source: '/api/v1/:path*',
-        destination: `${devTarget}/api/v1/:path*`,
-      },
-    ];
+    return {
+      beforeFiles: [],
+      afterFiles: [],
+      fallback: [
+        {
+          source: '/api/v1/:path*',
+          destination: `${fallbackTarget}/api/v1/:path*`,
+        },
+      ],
+    };
   },
 };
 
