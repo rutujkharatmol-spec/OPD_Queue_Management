@@ -75,7 +75,7 @@ export class QueueService {
       // 2. Mark any token currently CALLED in this specific room as completed
       const currentTokensInRoom = await queryRunner.manager.find(Token, {
         where: {
-          doctor: { id: doctorId },
+          department: { id: departmentId },
           roomNumber: roomNumber,
           status: TokenStatus.CALLED,
         },
@@ -87,10 +87,10 @@ export class QueueService {
         await queryRunner.manager.save(t);
       }
 
-      // 3. Find next waiting token
+      // 3. Find next waiting token in this department
       const nextToken = await queryRunner.manager.findOne(Token, {
         where: {
-          doctor: { id: doctorId },
+          department: { id: departmentId },
           status: TokenStatus.WAITING,
         },
         order: {
@@ -108,6 +108,7 @@ export class QueueService {
       }
 
       // 4. Update Token and Queue
+      nextToken.doctor = doctor;
       nextToken.status = TokenStatus.CALLED;
       nextToken.calledAt = new Date();
       nextToken.recalledAt = null as any;
@@ -319,12 +320,11 @@ export class QueueService {
       if (r.doctorName) roomDoctorMap.set(r.roomNumber, r.doctorName);
     });
 
-    // Find all actively serving tokens for this doctor/department
+    // Find all actively serving tokens for this department
     const activeTokensRaw = await this.tokenRepository.find({
-      where: {
-        doctor: { id: doctorId },
-        status: TokenStatus.CALLED,
-      },
+      where: departmentId
+        ? { department: { id: departmentId }, status: TokenStatus.CALLED }
+        : { status: TokenStatus.CALLED },
       order: {
         calledAt: 'DESC',
       },
@@ -357,10 +357,9 @@ export class QueueService {
     });
 
     const waitingTokens = await this.tokenRepository.find({
-      where: {
-        doctor: { id: doctorId },
-        status: TokenStatus.WAITING,
-      },
+      where: departmentId
+        ? { department: { id: departmentId }, status: TokenStatus.WAITING }
+        : { status: TokenStatus.WAITING },
       order: {
         priority: 'DESC',
         issuedAt: 'ASC',

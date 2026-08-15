@@ -53,9 +53,14 @@ export default function DoctorDashboard() {
   const handleCallNext = async (roomNumber: string) => {
     setCallingRoom(roomNumber);
     try {
-      await callNextPatient(deptId, roomNumber);
+      const called = await callNextPatient(deptId, roomNumber);
+      if (!called) {
+        alert('No more patients currently waiting in the queue.');
+      }
+      await useQueueStore.getState().fetchQueue(deptId);
     } catch (err) {
       console.error('Failed to call next patient:', err);
+      alert(err instanceof Error ? err.message : 'Failed to call next patient');
     } finally {
       setCallingRoom(null);
     }
@@ -67,6 +72,7 @@ export default function DoctorDashboard() {
       await recallPatient(deptId, roomNumber);
       setRecallSuccessRoom(roomNumber);
       setTimeout(() => setRecallSuccessRoom(null), 2500);
+      await useQueueStore.getState().fetchQueue(deptId);
     } catch (err) {
       console.error('Failed to recall patient:', err);
       alert('Could not recall patient. Ensure a patient is currently called in this room.');
@@ -78,6 +84,7 @@ export default function DoctorDashboard() {
   const handleTokenAction = async (tokenId: string, action: 'COMPLETE' | 'ABSENT' | 'NOT_AVAILABLE') => {
     try {
       await markTokenAction(tokenId, action);
+      await useQueueStore.getState().fetchQueue(deptId);
     } catch (err) {
       console.error(err);
       alert(`Failed to mark token as ${action}`);
@@ -287,11 +294,11 @@ export default function DoctorDashboard() {
                     <div className="space-y-2.5 mt-auto pt-4 border-t border-slate-100">
                       <button
                         onClick={() => handleCallNext(room.roomNumber)}
-                        disabled={isCalling || queueData.nextTokens.length === 0}
+                        disabled={isCalling}
                         className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-sm transition-all active:scale-95 shadow-md shadow-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                       >
                         {isCalling ? <AlertTriangle size={18} className="animate-spin" /> : <UserPlus size={18} />}
-                        {isCalling ? 'Calling...' : 'Call Next Patient'}
+                        {isCalling ? 'Calling...' : queueData.nextTokens.length === 0 ? 'Call Next Patient (Queue 0)' : 'Call Next Patient'}
                       </button>
 
                       <div className="grid grid-cols-3 gap-2">

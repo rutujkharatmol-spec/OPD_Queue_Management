@@ -21,6 +21,7 @@ interface QueueStore {
   liveQueues: Record<string, TokenDisplayData>; // key: departmentId
   activeInterval: NodeJS.Timeout | null;
   updateQueueData: (departmentId: string, data: TokenDisplayData) => void;
+  fetchQueue: (departmentId: string) => Promise<void>;
   initializeWebSocket: (departmentId: string) => void; // Keeping the name to prevent breaking other files
   disconnectWebSocket: () => void;
 }
@@ -35,35 +36,33 @@ export const useQueueStore = create<QueueStore>((set, get) => ({
         [departmentId]: data,
       }
     })),
+  fetchQueue: async (departmentId: string) => {
+    try {
+      const res = await fetchWithOfflineSync(`${API_BASE_URL}/queue/live/${departmentId}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && (data.activeTokens || data.nextTokens)) {
+          get().updateQueueData(departmentId, data);
+        }
+      }
+    } catch (err) {
+      if (err instanceof Error && err.name !== 'TypeError') {
+        console.error(`Failed to fetch queue updates from ${API_BASE_URL}/queue/live/${departmentId}`, err);
+      }
+    }
+  },
   initializeWebSocket: (departmentId) => {
     // Prevent multiple intervals
-    const { activeInterval, disconnectWebSocket } = get();
+    const { activeInterval, disconnectWebSocket, fetchQueue } = get();
     if (activeInterval) {
       disconnectWebSocket();
     }
 
-    const fetchQueue = async () => {
-      try {
-        const res = await fetchWithOfflineSync(`${API_BASE_URL}/queue/live/${departmentId}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data && (data.activeTokens || data.nextTokens)) {
-            get().updateQueueData(departmentId, data);
-          }
-        }
-      } catch (err) {
-        // Only log if it's not a generic network error to prevent console spam when server is restarting
-        if (err instanceof Error && err.name !== 'TypeError') {
-          console.error(`Failed to fetch queue updates from ${API_BASE_URL}/queue/live/${departmentId}`, err);
-        }
-      }
-    };
-
     // Initial fetch
-    fetchQueue();
+    fetchQueue(departmentId);
 
-    // Poll every 3 seconds
-    const interval = setInterval(fetchQueue, 3000);
+    // Poll every 2.5 seconds
+    const interval = setInterval(() => fetchQueue(departmentId), 2500);
     set({ activeInterval: interval });
   },
   disconnectWebSocket: () => {
