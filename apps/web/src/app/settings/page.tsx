@@ -5,6 +5,7 @@ import { Settings as SettingsIcon, Plus, Trash2, Edit2, Check, X, ArrowLeft, Ste
 import { API_BASE_URL, getRooms, createRoom, updateRoom } from '../../lib/api';
 import { fetchWithOfflineSync } from '../../lib/offlineSync';
 import { useSearchParams } from 'next/navigation';
+import { useDepartmentStore } from '../../store/useDepartmentStore';
 
 interface Room {
   id: string;
@@ -15,11 +16,18 @@ interface Room {
 
 export default function SettingsPage() {
   const searchParams = useSearchParams();
-  const deptId = searchParams.get('deptId') || '660e8400-e29b-41d4-a716-446655440000';
+  const requestedDeptId = searchParams.get('deptId');
+  const { departments, loadDepartments, getEffectiveDeptId } = useDepartmentStore();
+
+  const deptId = getEffectiveDeptId(requestedDeptId);
 
   const [rooms, setRooms] = useState<Room[]>([]);
   const [newRoomNumber, setNewRoomNumber] = useState('');
   const [newDoctorName, setNewDoctorName] = useState('');
+
+  useEffect(() => {
+    loadDepartments(requestedDeptId);
+  }, [requestedDeptId, loadDepartments]);
 
   const [editingRoomId, setEditingRoomId] = useState<string | null>(null);
   const [editRoomNumber, setEditRoomNumber] = useState('');

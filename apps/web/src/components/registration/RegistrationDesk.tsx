@@ -9,16 +9,17 @@ import { useSearchParams } from 'next/navigation';
 import { QRCodeSVG } from 'qrcode.react';
 import { generateToken, getDepartments, searchTokens } from '../../lib/api';
 
+import { useDepartmentStore } from '../../store/useDepartmentStore';
+
 export default function RegistrationDesk() {
   const searchParams = useSearchParams();
-  // Falls back to the first active department rather than a hardcoded id: a literal
-  // UUID only exists in the database it was copied from, so it breaks on any other
-  // install — including the OPD server's own local database.
   const requestedDeptId = searchParams.get('deptId');
-  const [resolvedDeptId, setResolvedDeptId] = useState<string>(requestedDeptId || '');
-  const deptId = resolvedDeptId;
+  const { selectedDeptId, departments, setSelectedDeptId, loadDepartments, getEffectiveDeptId } = useDepartmentStore();
 
-  const [deptName, setDeptName] = useState<string>('');
+  const deptId = getEffectiveDeptId(requestedDeptId);
+  const currentDept = departments.find((d) => d.id === deptId);
+  const deptName = currentDept?.name || 'Department';
+
   const [isSidebarOpen, setSidebarOpen] = useState(false);
 
   // Form State
@@ -47,22 +48,8 @@ export default function RegistrationDesk() {
   }, []);
 
   useEffect(() => {
-    async function resolveDepartment() {
-      try {
-        const depts = await getDepartments();
-        if (depts.length === 0) return;
-
-        // Honour ?deptId= when it names a department this database actually has;
-        // otherwise open on the first one so the desk is never stuck on a dead id.
-        const found = depts.find((d: any) => d.id === requestedDeptId) || depts[0];
-        setResolvedDeptId(found.id);
-        setDeptName(found.name);
-      } catch (err) {
-        console.error('Failed to fetch departments', err);
-      }
-    }
-    resolveDepartment();
-  }, [requestedDeptId]);
+    loadDepartments(requestedDeptId);
+  }, [requestedDeptId, loadDepartments]);
 
   const handleGenerateToken = async (e: React.FormEvent) => {
     e.preventDefault();

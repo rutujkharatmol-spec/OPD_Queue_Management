@@ -4,16 +4,25 @@ import { useQueueStore } from '../../store/useQueueStore';
 import { Moon, Sun, Volume2, VolumeX, Stethoscope, Sparkles } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 
+import { useDepartmentStore } from '../../store/useDepartmentStore';
+
 type AudioLang = 'dual' | 'en' | 'hi' | 'bn';
 
 export default function TvDisplay() {
   const searchParams = useSearchParams();
-  const deptId = searchParams.get('deptId') || '660e8400-e29b-41d4-a716-446655440000';
+  const requestedDeptId = searchParams.get('deptId');
+  const { loadDepartments, getEffectiveDeptId } = useDepartmentStore();
+
+  const deptId = getEffectiveDeptId(requestedDeptId);
 
   const { liveQueues, initializeWebSocket } = useQueueStore();
   const queueData = liveQueues[deptId] || { department: 'Department', activeTokens: [], nextTokens: [] };
   const [pulseScale, setPulseScale] = useState(false);
   const [isDark, setIsDark] = useState(true); // Default to sleek dark mode for TV screens
+
+  useEffect(() => {
+    loadDepartments(requestedDeptId);
+  }, [requestedDeptId, loadDepartments]);
 
   // Audio & Speech Settings
   const [audioEnabled, setAudioEnabled] = useState(false);

@@ -9,6 +9,8 @@ import { API_BASE_URL, callNextPatient, markTokenAction, recallPatient, getRooms
 import { useQueueStore } from '../../store/useQueueStore';
 import { useSearchParams } from 'next/navigation';
 
+import { useDepartmentStore } from '../../store/useDepartmentStore';
+
 interface Room {
   id: string;
   roomNumber: string;
@@ -18,7 +20,10 @@ interface Room {
 
 export default function DoctorDashboard() {
   const searchParams = useSearchParams();
-  const deptId = searchParams.get('deptId') || '660e8400-e29b-41d4-a716-446655440000';
+  const requestedDeptId = searchParams.get('deptId');
+  const { loadDepartments, getEffectiveDeptId } = useDepartmentStore();
+
+  const deptId = getEffectiveDeptId(requestedDeptId);
 
   const queueData = useQueueStore((state) => state.liveQueues[deptId]) || { department: 'Medicine', activeTokens: [], nextTokens: [] };
 
@@ -26,6 +31,10 @@ export default function DoctorDashboard() {
   const [callingRoom, setCallingRoom] = useState<string | null>(null);
   const [recallingRoom, setRecallingRoom] = useState<string | null>(null);
   const [recallSuccessRoom, setRecallSuccessRoom] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadDepartments(requestedDeptId);
+  }, [requestedDeptId, loadDepartments]);
 
   useEffect(() => {
     // Start polling the queue state

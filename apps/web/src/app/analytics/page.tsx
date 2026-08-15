@@ -9,35 +9,26 @@ import { getDepartmentAnalytics, getDepartments } from '../../lib/api';
 import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 
+import { useDepartmentStore } from '../../store/useDepartmentStore';
+
 function AnalyticsContent() {
   const searchParams = useSearchParams();
-  const initialDeptId = searchParams.get('deptId') || '';
+  const initialDeptId = searchParams.get('deptId');
+  const { selectedDeptId, departments, setSelectedDeptId, loadDepartments, getEffectiveDeptId } = useDepartmentStore();
 
-  const [selectedDeptId, setSelectedDeptId] = useState<string>(initialDeptId);
-  const [departments, setDepartments] = useState<any[]>([]);
+  const deptId = getEffectiveDeptId(initialDeptId);
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [analytics, setAnalytics] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function loadDepts() {
-      try {
-        const data = await getDepartments();
-        setDepartments(data);
-        if (!selectedDeptId && data.length > 0) {
-          setSelectedDeptId(data[0].id);
-        }
-      } catch (err) {
-        console.error('Failed to load departments:', err);
-      }
-    }
-    loadDepts();
-  }, []);
+    loadDepartments(initialDeptId);
+  }, [initialDeptId, loadDepartments]);
 
   const fetchAnalytics = async () => {
     setLoading(true);
     try {
-      const data = await getDepartmentAnalytics(selectedDeptId || undefined, selectedDate);
+      const data = await getDepartmentAnalytics(deptId || undefined, selectedDate);
       setAnalytics(data);
     } catch (err) {
       console.error('Failed to fetch analytics:', err);
@@ -48,9 +39,9 @@ function AnalyticsContent() {
 
   useEffect(() => {
     fetchAnalytics();
-  }, [selectedDeptId, selectedDate]);
+  }, [deptId, selectedDate]);
 
-  const currentDept = departments.find(d => d.id === selectedDeptId);
+  const currentDept = departments.find((d) => d.id === deptId);
 
   const totalTokens = analytics?.totalGenerated || 0;
   const completedCount = analytics?.completedCount || 0;
@@ -94,7 +85,7 @@ function AnalyticsContent() {
           <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
             <Building2 size={16} className="text-slate-500" />
             <select
-              value={selectedDeptId}
+              value={deptId}
               onChange={(e) => setSelectedDeptId(e.target.value)}
               className="bg-transparent font-bold text-xs text-slate-800 outline-none cursor-pointer"
             >

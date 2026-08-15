@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { getDepartments, createDepartment, updateDepartment, deleteDepartment } from '../lib/api';
 
+import { useDepartmentStore } from '../store/useDepartmentStore';
+
 interface Department {
   id: string;
   name: string;
@@ -15,8 +17,8 @@ function HomeContent() {
   const router = useRouter();
   const urlDeptId = searchParams.get('deptId');
 
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [selectedDeptId, setSelectedDeptId] = useState<string>(urlDeptId || '');
+  const { selectedDeptId, departments, setSelectedDeptId, loadDepartments } = useDepartmentStore();
+
   const [isAddingDept, setIsAddingDept] = useState(false);
   const [newDeptName, setNewDeptName] = useState('');
   const [newDeptCode, setNewDeptCode] = useState('');
@@ -26,25 +28,11 @@ function HomeContent() {
   const [editDeptCode, setEditDeptCode] = useState('');
 
   useEffect(() => {
-    fetchDepartments();
-  }, []);
+    loadDepartments(urlDeptId);
+  }, [urlDeptId, loadDepartments]);
 
-  const fetchDepartments = async (retriesLeft = 5) => {
-    try {
-      const data = await getDepartments();
-      setDepartments(data);
-      if (data.length > 0 && !selectedDeptId && !urlDeptId) {
-        setSelectedDeptId(data[0].id);
-      } else if (urlDeptId) {
-        setSelectedDeptId(urlDeptId);
-      }
-    } catch (err) {
-      if (retriesLeft > 0) {
-        await new Promise((resolve) => setTimeout(resolve, 1500));
-        return fetchDepartments(retriesLeft - 1);
-      }
-      console.error('Failed to fetch departments', err);
-    }
+  const fetchDepartments = async () => {
+    await loadDepartments(urlDeptId);
   };
 
   const handleAddDepartment = async (e: React.FormEvent) => {
