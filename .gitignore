@@ -5,5 +5,4 @@ dist
 AGENTS.md
 CLAUDE.md
 *.tsbuildinfo
-
-
+.claude

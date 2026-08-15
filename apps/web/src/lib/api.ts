@@ -6,8 +6,8 @@ export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL
   : '/api/v1';
 
 export async function generateToken(
+  departmentId: string,
   patientId?: string,
-  departmentId?: string,
   doctorId?: string,
   priority: string = 'NORMAL',
   patientData?: { firstName?: string; lastName?: string; phone?: string; uhid?: string; }

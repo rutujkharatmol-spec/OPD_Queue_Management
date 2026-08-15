@@ -74,7 +74,7 @@ export default function RegistrationDesk() {
       const phone = patientData.phone.trim();
       const uhid = patientData.uhid.trim();
 
-      const token = await generateToken(randomPatientId, deptId, dummyDoctorId, priority, {
+      const token = await generateToken(deptId, randomPatientId, dummyDoctorId, priority, {
         firstName: firstName,
         lastName: lastName,
         phone: phone,
@@ -115,7 +115,7 @@ export default function RegistrationDesk() {
   };
 
   const handleSelectSearchedToken = (t: any) => {
-    const pName = t.patient ? `${t.patient.firstName} ${t.patient.lastName}`.trim() : 'Patient';
+    const pName = t.patient ? (`${t.patient.firstName || ''} ${t.patient.lastName || ''}`.trim() || 'Patient') : 'Patient';
     setGeneratedToken(t.tokenNumber);
     setGeneratedTokenData({
       tokenNumber: t.tokenNumber,
@@ -522,7 +522,7 @@ export default function RegistrationDesk() {
             {/* Search Results List */}
             <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-[200px]">
               {searchResults.map((t: any) => {
-                const pName = t.patient ? `${t.patient.firstName} ${t.patient.lastName}`.trim() : 'Patient';
+                const pName = t.patient ? (`${t.patient.firstName || ''} ${t.patient.lastName || ''}`.trim() || 'Patient') : 'Patient';
                 return (
                   <div
                     key={t.id}

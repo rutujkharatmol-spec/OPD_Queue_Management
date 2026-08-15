@@ -87,9 +87,9 @@ export class TokensService {
         });
         await queryRunner.manager.save(patient);
       } else {
-        if (patientData?.firstName !== undefined) patient.firstName = patientData.firstName.trim() || 'Patient';
-        if (patientData?.lastName !== undefined) patient.lastName = patientData.lastName.trim();
-        if (patientData?.phone !== undefined) patient.phone = patientData.phone.trim();
+        if (patientData?.firstName?.trim()) patient.firstName = patientData.firstName.trim();
+        if (patientData?.lastName?.trim()) patient.lastName = patientData.lastName.trim();
+        if (patientData?.phone?.trim() && patientData.phone.trim() !== '0000000000') patient.phone = patientData.phone.trim();
         await queryRunner.manager.save(patient);
       }
 
