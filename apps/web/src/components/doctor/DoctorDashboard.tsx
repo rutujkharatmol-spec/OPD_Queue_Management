@@ -270,7 +270,9 @@ export default function DoctorDashboard() {
                             </div>
                             <div>
                               <p className="text-sm font-bold text-slate-800">{activePatient.patientName}</p>
-                              <p className="text-xs text-slate-400 font-mono">UHID: {activePatient.uhid}</p>
+                              {activePatient.uhid && activePatient.uhid !== '---' ? (
+                                <p className="text-xs text-slate-400 font-mono">UHID: {activePatient.uhid}</p>
+                              ) : null}
                             </div>
                           </div>
                         </div>

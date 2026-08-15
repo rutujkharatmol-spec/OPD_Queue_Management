@@ -334,8 +334,8 @@ export class QueueService {
         token: t.tokenNumber,
         room: rNum,
         doctorName: roomDoctorMap.get(rNum) || undefined,
-        patientName: t.patient ? `${t.patient.firstName || ''} ${t.patient.lastName || ''}`.trim() || 'Unknown Patient' : 'Unknown Patient',
-        uhid: t.patient?.uhid || '---',
+        patientName: t.patient ? `${t.patient.firstName || ''} ${t.patient.lastName || ''}`.trim() || 'Patient' : 'Patient',
+        uhid: t.patient?.uhid || '',
         recalledAt: t.recalledAt ? new Date(t.recalledAt).getTime() : undefined,
         calledAt: t.calledAt ? new Date(t.calledAt).getTime() : undefined,
       };

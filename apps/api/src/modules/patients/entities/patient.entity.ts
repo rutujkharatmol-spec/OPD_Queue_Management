@@ -9,8 +9,8 @@ export enum Gender {
 
 @Entity('patients')
 export class Patient extends BaseEntity {
-  @Column({ unique: true })
-  uhid: string;
+  @Column({ nullable: true })
+  uhid?: string;
 
   @Column({ name: 'first_name', nullable: true, default: 'Patient' })
   firstName?: string;

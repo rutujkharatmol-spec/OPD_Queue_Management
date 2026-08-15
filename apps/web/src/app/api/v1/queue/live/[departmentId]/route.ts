@@ -57,8 +57,8 @@ export const GET = route(async (_request: Request, { params }: Context) => {
       token: token.tokenNumber,
       room,
       doctorName: doctorByRoom.get(room) || undefined,
-      patientName: name || 'Unknown Patient',
-      uhid: token.patient?.uhid || '---',
+      patientName: name || 'Patient',
+      uhid: token.patient?.uhid || '',
       calledAt: token.calledAt?.getTime(),
       recalledAt: token.recalledAt?.getTime(),
     });

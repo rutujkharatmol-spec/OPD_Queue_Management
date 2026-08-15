@@ -65,28 +65,28 @@ export class TokensService {
       doctorId = doctor.id;
 
       let patient: Patient | null = null;
-      if (patientData?.uhid) {
-        patient = await queryRunner.manager.findOne(Patient, { where: { uhid: patientData.uhid } });
+      const cleanUhid = patientData?.uhid?.trim() || null;
+      if (cleanUhid) {
+        patient = await queryRunner.manager.findOne(Patient, { where: { uhid: cleanUhid } });
       }
       if (!patient && targetPatientId) {
         patient = await queryRunner.manager.findOne(Patient, { where: { id: targetPatientId } });
       }
-      if (!patient && patientData?.phone && patientData.phone !== '0000000000') {
-        patient = await queryRunner.manager.findOne(Patient, { where: { phone: patientData.phone } });
+      if (!patient && patientData?.phone && patientData.phone.trim() !== '' && patientData.phone.trim() !== '0000000000') {
+        patient = await queryRunner.manager.findOne(Patient, { where: { phone: patientData.phone.trim() } });
       }
 
       if (!patient) {
-        const uhid = patientData?.uhid?.trim() || `UHID-${Date.now().toString().slice(-6)}`;
-
         patient = queryRunner.manager.create(Patient, {
           id: targetPatientId,
-          uhid: uhid,
+          uhid: cleanUhid || undefined,
           firstName: patientData?.firstName?.trim() || 'Patient',
           lastName: patientData?.lastName?.trim() || '',
           phone: patientData?.phone?.trim() || ''
         });
         await queryRunner.manager.save(patient);
       } else {
+        if (cleanUhid) patient.uhid = cleanUhid;
         if (patientData?.firstName?.trim()) patient.firstName = patientData.firstName.trim();
         if (patientData?.lastName?.trim()) patient.lastName = patientData.lastName.trim();
         if (patientData?.phone?.trim() && patientData.phone.trim() !== '0000000000') patient.phone = patientData.phone.trim();

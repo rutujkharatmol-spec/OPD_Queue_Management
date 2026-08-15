@@ -86,7 +86,7 @@ export default function RegistrationDesk() {
         tokenNumber: token.tokenNumber,
         name: trimmedName || 'Patient',
         phone: phone || '---',
-        uhid: uhid || token.patient?.uhid || '---',
+        uhid: uhid || token.patient?.uhid || '',
         priority: priority,
         deptName: deptName || 'Medicine',
         issuedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -121,7 +121,7 @@ export default function RegistrationDesk() {
       tokenNumber: t.tokenNumber,
       name: pName,
       phone: t.patient?.phone || '---',
-      uhid: t.patient?.uhid || '---',
+      uhid: t.patient?.uhid || '',
       priority: t.priority || 'NORMAL',
       deptName: t.department?.name || deptName || 'Medicine',
       issuedAt: t.issuedAt ? new Date(t.issuedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Today'
@@ -439,14 +439,18 @@ export default function RegistrationDesk() {
                           <span className="text-slate-500">Patient:</span>
                           <span className="font-bold">{generatedTokenData.name}</span>
                         </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-500">UHID:</span>
-                          <span className="font-mono font-bold">{generatedTokenData.uhid}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-500">Mobile:</span>
-                          <span className="font-mono">{generatedTokenData.phone}</span>
-                        </div>
+                        {generatedTokenData.uhid ? (
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">UHID:</span>
+                            <span className="font-mono font-bold">{generatedTokenData.uhid}</span>
+                          </div>
+                        ) : null}
+                        {generatedTokenData.phone && generatedTokenData.phone !== '---' ? (
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">Mobile:</span>
+                            <span className="font-mono">{generatedTokenData.phone}</span>
+                          </div>
+                        ) : null}
                         <div className="flex justify-between">
                           <span className="text-slate-500">Issued Time:</span>
                           <span className="font-bold">{generatedTokenData.issuedAt}</span>
@@ -540,8 +544,8 @@ export default function RegistrationDesk() {
                           </span>
                         )}
                       </div>
-                      <p className="text-sm font-semibold text-slate-700 mt-1">{pName} ({t.patient?.phone || 'No phone'})</p>
-                      <p className="text-xs text-slate-400">UHID: {t.patient?.uhid || '---'} • {t.department?.name || 'Medicine'} OPD</p>
+                      <p className="text-sm font-semibold text-slate-700 mt-1">{pName} {t.patient?.phone && t.patient.phone !== '0000000000' ? `(${t.patient.phone})` : ''}</p>
+                      <p className="text-xs text-slate-400">{t.patient?.uhid ? `UHID: ${t.patient.uhid} • ` : ''}{t.department?.name || 'Medicine'} OPD</p>
                     </div>
 
                     <button

@@ -90,7 +90,7 @@ model Patient {
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamp(6)
   deletedAt DateTime? @map("deleted_at") @db.Timestamp(6)
 
-  uhid      String    @unique
+  uhid      String?   @map("uhid")
   firstName String?   @default("Patient") @map("first_name")
   lastName  String?   @default("") @map("last_name")
   phone     String?   @default("")
