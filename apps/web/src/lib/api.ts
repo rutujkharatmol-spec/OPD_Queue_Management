@@ -38,8 +38,11 @@ export async function callNextPatient(departmentId: string, roomNumber: string) 
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ roomNumber }),
   });
-  if (!response.ok) throw new Error('Failed to call next patient');
-  // Returns empty if queue is empty, handle carefully
+  if (!response.ok) {
+    const errText = await response.text();
+    console.error(`callNextPatient failed (${response.status}):`, errText);
+    throw new Error(`Failed to call next patient: ${errText || response.statusText}`);
+  }
   const text = await response.text();
   return text ? JSON.parse(text) : null;
 }

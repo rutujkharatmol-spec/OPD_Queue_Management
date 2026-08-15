@@ -25,13 +25,23 @@ export class QueueService {
     await queryRunner.startTransaction();
 
     try {
-      // Find the doctor for this department
+      // Find the department and doctor for this department
+      let dept = departmentId ? await queryRunner.manager.findOne(Department, { where: { id: departmentId } }) : null;
+      if (!dept) {
+        dept = await queryRunner.manager.findOne(Department, { where: { code: 'MED' } });
+        if (!dept) {
+          dept = await queryRunner.manager.findOne(Department, { where: { isActive: true } });
+        }
+        if (!dept) {
+          dept = queryRunner.manager.create(Department, { name: 'Medicine', code: 'MED', isActive: true });
+          await queryRunner.manager.save(dept);
+        }
+        departmentId = dept.id;
+      }
+
       let doctor = await queryRunner.manager.findOne(Doctor, { where: { department: { id: departmentId } }, relations: ['department'] });
 
       if (!doctor) {
-        let dept = await queryRunner.manager.findOne(Department, { where: { id: departmentId } });
-        if (!dept) throw new NotFoundException('Department not found');
-
         doctor = queryRunner.manager.create(Doctor, {
           name: `Doctor for ${dept.name}`,
           roomNumber: roomNumber,
@@ -118,7 +128,12 @@ export class QueueService {
   }
 
   async recallPatient(departmentId: string, roomNumber: string): Promise<Token> {
-    let doctor = await this.dataSource.manager.findOne(Doctor, { where: { department: { id: departmentId } } });
+    let dept = departmentId ? await this.departmentRepository.findOne({ where: { id: departmentId } }) : null;
+    if (!dept) {
+      dept = await this.departmentRepository.findOne({ where: { code: 'MED' } }) || await this.departmentRepository.findOne({ where: { isActive: true } });
+    }
+    const targetDeptId = dept ? dept.id : departmentId;
+    let doctor = await this.dataSource.manager.findOne(Doctor, { where: { department: { id: targetDeptId } } });
     if (!doctor) throw new NotFoundException('Doctor/Department not found');
 
     const activeToken = await this.tokenRepository.findOne({

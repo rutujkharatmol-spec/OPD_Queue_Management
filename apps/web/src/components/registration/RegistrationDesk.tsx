@@ -11,7 +11,12 @@ import { generateToken, getDepartments, searchTokens } from '../../lib/api';
 
 export default function RegistrationDesk() {
   const searchParams = useSearchParams();
-  const deptId = searchParams.get('deptId') || '660e8400-e29b-41d4-a716-446655440000';
+  // Falls back to the first active department rather than a hardcoded id: a literal
+  // UUID only exists in the database it was copied from, so it breaks on any other
+  // install — including the OPD server's own local database.
+  const requestedDeptId = searchParams.get('deptId');
+  const [resolvedDeptId, setResolvedDeptId] = useState<string>(requestedDeptId || '');
+  const deptId = resolvedDeptId;
 
   const [deptName, setDeptName] = useState<string>('');
   const [isSidebarOpen, setSidebarOpen] = useState(false);
@@ -42,21 +47,22 @@ export default function RegistrationDesk() {
   }, []);
 
   useEffect(() => {
-    async function fetchDeptName() {
+    async function resolveDepartment() {
       try {
         const depts = await getDepartments();
-        const found = depts.find((d: any) => d.id === deptId);
-        if (found) {
-          setDeptName(found.name);
-        }
+        if (depts.length === 0) return;
+
+        // Honour ?deptId= when it names a department this database actually has;
+        // otherwise open on the first one so the desk is never stuck on a dead id.
+        const found = depts.find((d: any) => d.id === requestedDeptId) || depts[0];
+        setResolvedDeptId(found.id);
+        setDeptName(found.name);
       } catch (err) {
         console.error('Failed to fetch departments', err);
       }
     }
-    if (deptId) {
-      fetchDeptName();
-    }
-  }, [deptId]);
+    resolveDepartment();
+  }, [requestedDeptId]);
 
   const handleGenerateToken = async (e: React.FormEvent) => {
     e.preventDefault();
