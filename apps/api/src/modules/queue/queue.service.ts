@@ -310,10 +310,24 @@ export class QueueService {
         doctor: { id: doctorId },
         status: TokenStatus.CALLED,
       },
+      order: {
+        calledAt: 'DESC',
+      },
       relations: ['patient']
     });
 
-    const activeTokens = activeTokensRaw.map(t => {
+    // Deduplicate so each room displays only its most recent active patient
+    const seenRooms = new Set<string>();
+    const uniqueActiveTokens: Token[] = [];
+    for (const t of activeTokensRaw) {
+      const rNum = t.roomNumber || '101';
+      if (!seenRooms.has(rNum)) {
+        seenRooms.add(rNum);
+        uniqueActiveTokens.push(t);
+      }
+    }
+
+    const activeTokens = uniqueActiveTokens.map(t => {
       const rNum = t.roomNumber || '101';
       return {
         id: t.id,

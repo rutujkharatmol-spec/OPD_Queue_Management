@@ -23,9 +23,9 @@ export class TokensService {
   ) { }
 
   async generateToken(
-    patientId: string,
-    departmentId: string,
-    doctorId: string,
+    patientId?: string,
+    departmentId?: string,
+    doctorId?: string,
     priority: TokenPriority = TokenPriority.NORMAL,
     patientData?: { firstName?: string; lastName?: string; phone?: string; uhid?: string }
   ): Promise<Token> {
@@ -33,22 +33,27 @@ export class TokensService {
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
+    const targetPatientId = patientId || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : '123e4567-e89b-12d3-a456-426614174000');
+
     try {
       // 1. Get or Create Department, Doctor, Patient for Demo compatibility
-      let department = await queryRunner.manager.findOne(Department, { where: { id: departmentId } });
+      let department: Department | null = null;
+      if (departmentId) {
+        department = await queryRunner.manager.findOne(Department, { where: { id: departmentId } });
+      }
       if (!department) {
-        // Fallback check by unique code to prevent duplicate key errors
         department = await queryRunner.manager.findOne(Department, { where: { code: 'MED' } });
         if (!department) {
-          department = queryRunner.manager.create(Department, { id: departmentId, name: 'Medicine', code: 'MED' });
+          department = queryRunner.manager.create(Department, { name: 'Medicine', code: 'MED' });
           await queryRunner.manager.save(department);
-        } else {
-          // If found by code but different ID, we must use the existing ID in our token
-          departmentId = department.id;
         }
+        departmentId = department.id;
       }
 
-      let doctor = await queryRunner.manager.findOne(Doctor, { where: { department: { id: departmentId } } });
+      let doctor = doctorId ? await queryRunner.manager.findOne(Doctor, { where: { id: doctorId } }) : null;
+      if (!doctor) {
+        doctor = await queryRunner.manager.findOne(Doctor, { where: { department: { id: departmentId } } });
+      }
       if (!doctor) {
         doctor = queryRunner.manager.create(Doctor, {
           name: `Doctor for ${department.name}`,
@@ -59,19 +64,32 @@ export class TokensService {
       }
       doctorId = doctor.id;
 
-      let patient = await queryRunner.manager.findOne(Patient, { where: { id: patientId } });
+      let patient: Patient | null = null;
+      if (patientData?.uhid) {
+        patient = await queryRunner.manager.findOne(Patient, { where: { uhid: patientData.uhid } });
+      }
+      if (!patient && targetPatientId) {
+        patient = await queryRunner.manager.findOne(Patient, { where: { id: targetPatientId } });
+      }
+      if (!patient && patientData?.phone && patientData.phone !== '0000000000') {
+        patient = await queryRunner.manager.findOne(Patient, { where: { phone: patientData.phone } });
+      }
+
       if (!patient) {
-        // Use the generated UUID to create a fresh patient record!
-        // Use provided UHID or generate a random one based on timestamp
         const uhid = patientData?.uhid || `UHID-${Date.now().toString().slice(-6)}`;
 
         patient = queryRunner.manager.create(Patient, {
-          id: patientId,
+          id: targetPatientId,
           uhid: uhid,
           firstName: patientData?.firstName || 'Unknown',
           lastName: patientData?.lastName ?? '',
           phone: patientData?.phone || '0000000000'
         });
+        await queryRunner.manager.save(patient);
+      } else {
+        if (patientData?.firstName) patient.firstName = patientData.firstName;
+        if (patientData?.lastName !== undefined) patient.lastName = patientData.lastName;
+        if (patientData?.phone && patientData.phone !== '0000000000') patient.phone = patientData.phone;
         await queryRunner.manager.save(patient);
       }
 
@@ -94,9 +112,9 @@ export class TokensService {
       // 3. Create Token
       const token = queryRunner.manager.create(Token, {
         tokenNumber,
-        patient: { id: patientId },
-        doctor: { id: doctorId },
-        department: { id: departmentId },
+        patient: patient,
+        doctor: doctor,
+        department: department,
         priority,
         status: TokenStatus.WAITING,
         issuedAt: new Date(),
@@ -123,14 +141,14 @@ export class TokensService {
       .leftJoinAndSelect('token.doctor', 'doctor')
       .leftJoinAndSelect('token.department', 'department')
       .where(
-        '(LOWER(token.tokenNumber) LIKE :q OR LOWER(patient.uhid) LIKE :q OR LOWER(patient.firstName) LIKE :q OR LOWER(patient.lastName) LIKE :q OR patient.phone LIKE :q)',
+        '(LOWER(COALESCE(token.tokenNumber, \'\')) LIKE :q OR LOWER(COALESCE(patient.uhid, \'\')) LIKE :q OR LOWER(COALESCE(patient.firstName, \'\')) LIKE :q OR LOWER(COALESCE(patient.lastName, \'\')) LIKE :q OR COALESCE(patient.phone, \'\') LIKE :q)',
         { q: `%${trimmed}%` }
       )
       .orderBy('token.issuedAt', 'DESC')
       .take(20);
 
     if (departmentId) {
-      qb.andWhere('token.department.id = :departmentId', { departmentId });
+      qb.andWhere('department.id = :departmentId', { departmentId });
     }
 
     return qb.getMany();

@@ -3,17 +3,19 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { TokenPriority } from '../entities/token.entity';
 
 export class GenerateTokenDto {
-  @ApiProperty({ description: 'The UUID of the patient' })
+  @ApiPropertyOptional({ description: 'The UUID of the patient' })
+  @IsOptional()
   @IsUUID()
-  patientId: string;
+  patientId?: string;
 
   @ApiProperty({ description: 'The UUID of the department' })
   @IsUUID()
   departmentId: string;
 
-  @ApiProperty({ description: 'The UUID of the doctor' })
+  @ApiPropertyOptional({ description: 'The UUID of the doctor' })
+  @IsOptional()
   @IsUUID()
-  doctorId: string;
+  doctorId?: string;
 
   @ApiPropertyOptional({ enum: TokenPriority, default: TokenPriority.NORMAL })
   @IsOptional()
