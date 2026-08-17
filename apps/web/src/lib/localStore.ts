@@ -464,6 +464,56 @@ export function localSearchTokens(query: string, departmentId?: string): LocalTo
     .slice(0, 20);
 }
 
+export function getLocalTokenStatus(tokenNumber: string) {
+  const tokens = getLocalTokens();
+  const depts = getLocalDepartments();
+  const today = getTodayString();
+
+  const token = tokens.find(t => t.tokenNumber === tokenNumber);
+  if (!token) return null;
+
+  const dept = depts.find(d => d.id === token.departmentId);
+  const departmentName = dept?.name || 'Department';
+
+  const todayDeptTokens = tokens.filter(
+    t => t.departmentId === token.departmentId && t.serviceDate === today
+  );
+
+  // Currently serving (CALLED) tokens in this department
+  const currentlyServing = todayDeptTokens
+    .filter(t => t.status === 'CALLED')
+    .map(t => t.tokenNumber);
+
+  let patientsAhead = 0;
+  let estimatedWaitTimeMins = 0;
+
+  if (token.status === 'WAITING') {
+    const priorityWeight = { EMERGENCY: 3, SENIOR: 2, NORMAL: 1 };
+    const myWeight = priorityWeight[token.priority] || 1;
+
+    patientsAhead = todayDeptTokens.filter(t => {
+      if (t.status !== 'WAITING') return false;
+      const tWeight = priorityWeight[t.priority] || 1;
+      if (tWeight > myWeight) return true;
+      if (tWeight === myWeight && new Date(t.issuedAt).getTime() < new Date(token.issuedAt).getTime()) return true;
+      return false;
+    }).length;
+
+    estimatedWaitTimeMins = patientsAhead * 5 + (currentlyServing.length > 0 ? 5 : 0);
+  }
+
+  return {
+    tokenNumber: token.tokenNumber,
+    status: token.status,
+    priority: token.priority,
+    departmentName,
+    roomNumber: token.roomNumber || null,
+    currentlyServing,
+    patientsAhead: token.status === 'WAITING' ? patientsAhead : 0,
+    estimatedWaitTimeMins: token.status === 'WAITING' ? estimatedWaitTimeMins : 0,
+  };
+}
+
 export function getLocalAnalytics(departmentId?: string, dateStr?: string) {
   const tokens = getLocalTokens();
   const targetDate = dateStr || getTodayString();

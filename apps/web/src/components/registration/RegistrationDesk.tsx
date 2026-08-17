@@ -74,6 +74,7 @@ export default function RegistrationDesk() {
         uhid: uhid || undefined
       });
 
+      const now = new Date();
       setGeneratedToken(token.tokenNumber);
       setGeneratedTokenData({
         tokenNumber: token.tokenNumber,
@@ -82,7 +83,8 @@ export default function RegistrationDesk() {
         uhid: uhid || token.patient?.uhid || '',
         priority: priority,
         deptName: deptName || 'Medicine',
-        issuedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        date: now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
+        issuedAt: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       });
     } catch (err) {
       console.error(err);
@@ -109,6 +111,7 @@ export default function RegistrationDesk() {
 
   const handleSelectSearchedToken = (t: any) => {
     const pName = t.patient ? (`${t.patient.firstName || ''} ${t.patient.lastName || ''}`.trim() || 'Patient') : 'Patient';
+    const tokenDate = t.issuedAt ? new Date(t.issuedAt) : new Date();
     setGeneratedToken(t.tokenNumber);
     setGeneratedTokenData({
       tokenNumber: t.tokenNumber,
@@ -117,7 +120,8 @@ export default function RegistrationDesk() {
       uhid: t.patient?.uhid || '',
       priority: t.priority || 'NORMAL',
       deptName: t.department?.name || deptName || 'Medicine',
-      issuedAt: t.issuedAt ? new Date(t.issuedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Today'
+      date: tokenDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
+      issuedAt: t.issuedAt ? tokenDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Today'
     });
     setSearchModalOpen(false);
   };
@@ -428,6 +432,10 @@ export default function RegistrationDesk() {
 
                       {/* Ticket Metadata */}
                       <div className="space-y-1.5 text-xs text-slate-700 border-t border-slate-200 pt-3">
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Date:</span>
+                          <span className="font-bold">{generatedTokenData.date}</span>
+                        </div>
                         <div className="flex justify-between">
                           <span className="text-slate-500">Patient:</span>
                           <span className="font-bold">{generatedTokenData.name}</span>

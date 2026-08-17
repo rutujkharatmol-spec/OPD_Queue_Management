@@ -20,8 +20,8 @@ import type { NextConfig } from 'next';
 const legacyApiUrl = process.env.LEGACY_API_URL?.replace(/\/+$/, '');
 const isDev = process.env.NODE_ENV !== 'production';
 
-// Local development still has the NestJS server on :4000 for whatever has not moved yet.
-const fallbackTarget = legacyApiUrl || (isDev ? 'http://127.0.0.1:4000' : null);
+// Only fall back to an external API if LEGACY_API_URL is explicitly configured
+const fallbackTarget = legacyApiUrl || null;
 
 const nextConfig: NextConfig = {
   async rewrites() {

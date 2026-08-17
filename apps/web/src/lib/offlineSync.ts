@@ -14,6 +14,7 @@ import {
   localRecallPatient,
   localMarkTokenAction,
   localSearchTokens,
+  getLocalTokenStatus,
   getLocalAnalytics,
 } from './localStore';
 
@@ -192,6 +193,12 @@ function handleWithLocalStore(url: string, method: string, options: RequestInit)
     const data = localSearchTokens(q, deptId);
     return jsonResponse(data, 200);
   }
+  if (pathname.includes('/tokens/status/') && method === 'GET') {
+    const tokenNum = pathname.split('/tokens/status/')[1]?.split('?')[0] || '';
+    const data = getLocalTokenStatus(decodeURIComponent(tokenNum));
+    if (!data) return jsonResponse({ message: 'Token not found' }, 404);
+    return jsonResponse(data, 200);
+  }
 
   // 4. QUEUE
   if (pathname.includes('/queue/live/') && method === 'GET') {
@@ -266,14 +273,12 @@ export async function fetchWithOfflineSync(url: string | URL, options: RequestIn
 
     // If server failed (404, 500, 502, 503, 504 - e.g. Neon DB offline or Vercel serverless error)
     if (response.status >= 500 || response.status === 404) {
-      console.warn(`[OfflineSync] Server error ${response.status} for ${method} ${targetUrl} -> Falling back to LocalStore`);
       return handleWithLocalStore(targetUrl, method, options);
     }
 
     return response;
-  } catch (error) {
+  } catch {
     // Network / DNS failure or server down
-    console.warn(`[OfflineSync] Network exception for ${method} ${targetUrl} -> Falling back to LocalStore:`, error);
     return handleWithLocalStore(targetUrl, method, options);
   }
 }

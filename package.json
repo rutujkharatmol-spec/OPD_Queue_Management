@@ -3,8 +3,12 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "pnpm --filter \"*\" run dev",
+    "dev": "pnpm --filter web run dev",
+    "dev:all": "pnpm --filter \"*\" run dev",
+    "dev:api": "pnpm --filter api run dev",
+    "dev:web": "pnpm --filter web run dev",
     "build": "pnpm --filter \"*\" run build",
+    "build:web": "pnpm --filter web run build",
     "lint": "pnpm --filter \"*\" run lint"
   },
   "dependencies": {

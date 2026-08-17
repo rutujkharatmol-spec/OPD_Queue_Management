@@ -31,15 +31,41 @@ export function conflict(message: string) {
  * The real error is logged server-side but never returned: these responses reach a
  * public waiting-room display, and database errors leak schema details.
  */
+let hasLoggedDbWarning = false;
+
 export function route<Args extends unknown[]>(
   handler: (...args: Args) => Promise<Response>
 ): (...args: Args) => Promise<Response> {
   return async (...args: Args) => {
     try {
       return await handler(...args);
-    } catch (error) {
-      console.error('[api] unhandled error:', error);
-      return NextResponse.json({ message: 'Internal server error' }, { status: 500 });
+    } catch (error: any) {
+      const msg = String(error?.message || '');
+      const code = error?.code;
+      const name = error?.name;
+      const isDbDown =
+        code === 'P1001' ||
+        code === 'P1000' ||
+        code === 'P1002' ||
+        code === 'P1003' ||
+        name === 'PrismaClientInitializationError' ||
+        name === 'PrismaClientKnownRequestError' ||
+        name === 'DriverAdapterError' ||
+        error?.meta?.driverAdapterError !== undefined ||
+        msg.includes('DatabaseNotReachable') ||
+        msg.includes("Can't reach database server") ||
+        msg.includes('ECONNREFUSED') ||
+        msg.includes('DATABASE_URL');
+
+      if (isDbDown) {
+        if (!hasLoggedDbWarning) {
+          console.warn('[api] Database not reachable. Client will operate using offline local persistent store.');
+          hasLoggedDbWarning = true;
+        }
+      } else {
+        console.error('[api] unhandled error:', error);
+      }
+      return NextResponse.json({ message: 'Database unreachable / Internal server error' }, { status: 500 });
     }
   };
 }
