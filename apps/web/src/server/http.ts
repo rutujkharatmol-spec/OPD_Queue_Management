@@ -49,7 +49,6 @@ export function route<Args extends unknown[]>(
         code === 'P1002' ||
         code === 'P1003' ||
         name === 'PrismaClientInitializationError' ||
-        name === 'PrismaClientKnownRequestError' ||
         name === 'DriverAdapterError' ||
         error?.meta?.driverAdapterError !== undefined ||
         msg.includes('DatabaseNotReachable') ||
@@ -63,7 +62,7 @@ export function route<Args extends unknown[]>(
           hasLoggedDbWarning = true;
         }
       } else {
-        console.error('[api] unhandled error:', error);
+        console.error('[api] Request error:', code ? `[${code}]` : '', msg || error);
       }
       return NextResponse.json({ message: 'Database unreachable / Internal server error' }, { status: 500 });
     }

@@ -4,6 +4,7 @@ packages:
 allowBuilds:
   '@nestjs/core': true
   '@prisma/engines': true
+  msedge-tts: true
   prisma: true
   sharp: true
   sqlite3: true

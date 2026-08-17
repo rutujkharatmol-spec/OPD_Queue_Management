@@ -157,7 +157,7 @@ model Token {
   /// The clinic day this token belongs to. Stored rather than derived from issuedAt
   /// so the per-day uniqueness below can be enforced by the database, and so "today's
   /// queue" is an index lookup instead of a timestamp range scan.
-  serviceDate DateTime      @map("service_date") @db.Date
+  serviceDate DateTime      @default(now()) @map("service_date") @db.Date
 
   status      TokenStatus   @default(WAITING)
   priority    TokenPriority @default(NORMAL)

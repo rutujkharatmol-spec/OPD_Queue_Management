@@ -161,3 +161,11 @@ export async function updateRoom(id: string, roomNumber?: string, isActive?: boo
   if (!response.ok) throw new Error('Failed to update room');
   return response.json();
 }
+
+export async function deleteRoom(id: string) {
+  const response = await fetchWithOfflineSync(`${API_BASE_URL}/settings/rooms/${id}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) throw new Error('Failed to delete room');
+  return response.json();
+}

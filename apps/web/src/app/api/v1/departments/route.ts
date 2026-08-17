@@ -5,10 +5,41 @@ import { ok, badRequest, conflict, route, readJson } from '@/server/http';
 export const dynamic = 'force-dynamic';
 
 export const GET = route(async () => {
-  const departments = await db.department.findMany({
+  let departments = await db.department.findMany({
     where: { deletedAt: null },
     orderBy: { createdAt: 'asc' },
   });
+
+  // If a fresh database is connected, seed standard default departments and rooms automatically
+  if (departments.length === 0) {
+    try {
+      const defaults = [
+        { name: 'Medicine', code: 'MED', description: 'General Medicine OPD' },
+        { name: 'ENT', code: 'ENT', description: 'Ear, Nose, Throat OPD' },
+        { name: 'Orthopedics', code: 'ORTHO', description: 'Orthopedics & Joint Clinic' },
+        { name: 'Pediatrics', code: 'PED', description: 'Child Health & Care' },
+      ];
+
+      for (const d of defaults) {
+        const created = await db.department.create({ data: d });
+        // Add sample room
+        await db.room.create({
+          data: {
+            roomNumber: d.code === 'MED' ? '101' : d.code === 'ENT' ? '201' : '301',
+            departmentId: created.id,
+            doctorName: `Dr. ${d.name} Specialist`,
+          },
+        });
+      }
+
+      departments = await db.department.findMany({
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+      });
+    } catch {
+      // Ignored if concurrently seeded
+    }
+  }
 
   return ok(departments);
 });

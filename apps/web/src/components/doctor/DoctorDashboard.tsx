@@ -3,9 +3,13 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   Home, Users, LogOut, CheckCircle, Clock, PauseCircle,
-  PhoneOff, AlertTriangle, UserPlus, Settings, Bell, BarChart2, Stethoscope, ArrowRight
+  PhoneOff, AlertTriangle, UserPlus, Settings, Bell, BarChart2, Stethoscope, ArrowRight,
+  Plus, Trash2, Edit2, Check, X, Building2
 } from 'lucide-react';
-import { API_BASE_URL, callNextPatient, markTokenAction, recallPatient, getRooms } from '../../lib/api';
+import {
+  API_BASE_URL, callNextPatient, markTokenAction, recallPatient,
+  getRooms, createRoom, updateRoom, deleteRoom
+} from '../../lib/api';
 import { useQueueStore } from '../../store/useQueueStore';
 import { useSearchParams } from 'next/navigation';
 
@@ -32,25 +36,32 @@ export default function DoctorDashboard() {
   const [recallingRoom, setRecallingRoom] = useState<string | null>(null);
   const [recallSuccessRoom, setRecallSuccessRoom] = useState<string | null>(null);
 
+  // Room Management Popup State
+  const [isRoomModalOpen, setIsRoomModalOpen] = useState(false);
+  const [newRoomNumber, setNewRoomNumber] = useState('');
+  const [newDoctorName, setNewDoctorName] = useState('');
+  const [editingRoomId, setEditingRoomId] = useState<string | null>(null);
+  const [editRoomNumber, setEditRoomNumber] = useState('');
+  const [editDoctorName, setEditDoctorName] = useState('');
+
   useEffect(() => {
     loadDepartments(requestedDeptId);
   }, [requestedDeptId, loadDepartments]);
 
+  const fetchRooms = async () => {
+    try {
+      const data = await getRooms(deptId);
+      setRooms(Array.isArray(data) ? data : []);
+    } catch (err) {
+      if (err instanceof Error && err.name !== 'TypeError') {
+        console.error('Failed to fetch rooms', err);
+      }
+    }
+  };
+
   useEffect(() => {
     // Start polling the queue state
     useQueueStore.getState().initializeWebSocket(deptId);
-
-    // Fetch available rooms
-    const fetchRooms = async () => {
-      try {
-        const data = await getRooms(deptId);
-        setRooms(data.filter((r: Room) => r.isActive));
-      } catch (err) {
-        if (err instanceof Error && err.name !== 'TypeError') {
-          console.error('Failed to fetch rooms', err);
-        }
-      }
-    };
     fetchRooms();
 
     // Cleanup on unmount
@@ -58,6 +69,43 @@ export default function DoctorDashboard() {
       useQueueStore.getState().disconnectWebSocket();
     };
   }, [deptId]);
+
+  const handleAddRoom = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newRoomNumber.trim()) return;
+    try {
+      await createRoom(newRoomNumber.trim(), true, deptId || undefined, newDoctorName.trim() || undefined);
+      setNewRoomNumber('');
+      setNewDoctorName('');
+      await fetchRooms();
+    } catch (err) {
+      console.error('Failed to add room', err);
+      alert('Failed to add room.');
+    }
+  };
+
+  const handleDeleteRoom = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this room?')) return;
+    try {
+      await deleteRoom(id);
+      await fetchRooms();
+    } catch (err) {
+      console.error('Failed to delete room', err);
+      alert('Failed to delete room.');
+    }
+  };
+
+  const saveEditRoom = async (id: string) => {
+    if (!editRoomNumber.trim()) return;
+    try {
+      await updateRoom(id, editRoomNumber.trim(), true, editDoctorName.trim() || undefined);
+      setEditingRoomId(null);
+      await fetchRooms();
+    } catch (err) {
+      console.error('Failed to update room', err);
+      alert('Failed to update room.');
+    }
+  };
 
   const handleCallNext = async (roomNumber: string) => {
     setCallingRoom(roomNumber);
@@ -125,13 +173,13 @@ export default function DoctorDashboard() {
             >
               <BarChart2 size={18} />
             </Link>
-            <Link
-              href={`/settings?deptId=${deptId}`}
+            <button
+              onClick={() => setIsRoomModalOpen(true)}
               className="p-2.5 bg-slate-800 rounded-xl hover:bg-blue-600 transition-colors text-slate-300 hover:text-white"
-              title="Room Settings"
+              title="Add / Configure Rooms"
             >
               <Settings size={18} />
-            </Link>
+            </button>
             <Link
               href={`/?deptId=${deptId}`}
               className="p-2.5 bg-slate-800 rounded-xl hover:bg-blue-600 transition-colors text-slate-300 hover:text-white"
@@ -204,13 +252,13 @@ export default function DoctorDashboard() {
               <BarChart2 size={16} />
               <span>OPD Metrics</span>
             </Link>
-            <Link
-              href={`/settings?deptId=${deptId}`}
-              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors flex items-center gap-2 border border-slate-200"
+            <button
+              onClick={() => setIsRoomModalOpen(true)}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl transition-all shadow-md shadow-blue-500/20 flex items-center gap-2"
             >
-              <Settings size={16} />
-              <span>Configure Rooms</span>
-            </Link>
+              <Plus size={16} />
+              <span>+ Add / Manage Rooms</span>
+            </button>
           </div>
         </header>
 
@@ -221,10 +269,14 @@ export default function DoctorDashboard() {
               <div className="col-span-full flex flex-col items-center justify-center p-12 bg-white rounded-3xl border border-dashed border-slate-300 text-slate-400">
                 <Settings size={44} className="mb-3 text-slate-300" />
                 <p className="font-bold text-slate-800 text-base mb-1">No Rooms Configured</p>
-                <p className="text-xs text-slate-400 mb-6">Please configure rooms in settings before calling patients.</p>
-                <Link href={`/settings?deptId=${deptId}`} className="px-6 py-2.5 bg-blue-600 text-white rounded-xl font-bold text-sm">
-                  Go to Settings
-                </Link>
+                <p className="text-xs text-slate-400 mb-6">Add consultation rooms to start calling patients in this department.</p>
+                <button
+                  onClick={() => setIsRoomModalOpen(true)}
+                  className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm transition-all shadow-md shadow-blue-500/20 flex items-center gap-2"
+                >
+                  <Plus size={16} />
+                  <span>+ Add Consultation Room</span>
+                </button>
               </div>
             ) : (
               rooms.map(room => {
@@ -259,43 +311,39 @@ export default function DoctorDashboard() {
                         className={`px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all shadow-sm ${isRecallSuccess
                           ? 'bg-emerald-600 text-white animate-bounce'
                           : activePatient
-                            ? 'bg-amber-500 hover:bg-amber-600 text-white active:scale-95 shadow-amber-500/20'
+                            ? 'bg-amber-500 hover:bg-amber-600 text-white cursor-pointer active:scale-95'
                             : 'bg-slate-100 text-slate-400 cursor-not-allowed'
                           }`}
-                        title="Re-announce and ring bell on TV monitor"
+                        title={activePatient ? 'Ring Bell / Call Patient Again' : 'No active patient to recall'}
                       >
-                        <Bell size={14} className={isRecalling ? 'animate-spin' : isRecallSuccess ? 'animate-ping' : ''} />
-                        {isRecalling ? 'Ringing...' : isRecallSuccess ? 'Rang TV Bell!' : 'Recall'}
+                        <Bell size={14} className={isRecalling ? 'animate-spin' : ''} />
+                        <span>{isRecallSuccess ? 'Called!' : isRecalling ? 'Calling...' : 'Recall'}</span>
                       </button>
                     </div>
 
                     {/* Active Patient Card */}
-                    <div className="my-auto py-6 flex flex-col justify-center items-center text-center">
-                      <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
-                        Currently Serving
-                      </div>
-
+                    <div className="flex-1 bg-slate-50 border border-slate-200/80 rounded-2xl p-5 mb-6 flex flex-col justify-center items-center text-center">
                       {activePatient ? (
-                        <div className="space-y-3">
-                          <div className="text-5xl font-black text-slate-900 tracking-tight">
+                        <>
+                          <span className="text-xs font-black uppercase tracking-wider text-blue-600 mb-1">
+                            Currently In Room
+                          </span>
+                          <span className="text-4xl font-black text-slate-900 tracking-tight my-1">
                             {activePatient.token}
-                          </div>
-                          <div className="inline-flex items-center gap-2 bg-slate-50 border border-slate-200 px-4 py-2 rounded-2xl text-left">
-                            <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-xs shrink-0">
-                              👤
-                            </div>
-                            <div>
-                              <p className="text-sm font-bold text-slate-800">{activePatient.patientName}</p>
-                              {activePatient.uhid && activePatient.uhid !== '---' ? (
-                                <p className="text-xs text-slate-400 font-mono">UHID: {activePatient.uhid}</p>
-                              ) : null}
-                            </div>
-                          </div>
-                        </div>
+                          </span>
+                          <p className="text-sm font-bold text-slate-700 mt-1">{activePatient.patientName}</p>
+                          {activePatient.uhid && (
+                            <span className="text-[11px] font-semibold text-slate-400">
+                              UHID: {activePatient.uhid}
+                            </span>
+                          )}
+                        </>
                       ) : (
-                        <div className="text-4xl font-black text-slate-300 tracking-widest py-4">
-                          ---
-                        </div>
+                        <>
+                          <Users size={32} className="text-slate-300 mb-2" />
+                          <p className="text-sm font-bold text-slate-500">Room Ready</p>
+                          <p className="text-xs text-slate-400 mt-0.5">Click &apos;Call Next&apos; to invite the next patient</p>
+                        </>
                       )}
                     </div>
 
@@ -343,6 +391,178 @@ export default function DoctorDashboard() {
           </div>
         </div>
       </main>
+
+      {/* Configure Consultation Rooms Modal Popup */}
+      {isRoomModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl relative max-h-[90vh] flex flex-col text-white">
+            
+            {/* Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+              <div>
+                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                  <Building2 className="text-blue-500 w-5 h-5" />
+                  Rooms — {queueData.department || 'Medicine'}
+                </h2>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Add, edit, or delete consultation rooms for this department.
+                </p>
+              </div>
+              <button
+                onClick={() => setIsRoomModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+                title="Close"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Content: Add Room Form + Existing Rooms List */}
+            <div className="flex-1 overflow-y-auto py-4 space-y-5">
+              {/* Add Room Form */}
+              <form onSubmit={handleAddRoom} className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
+                <p className="text-xs font-bold text-blue-400 uppercase tracking-wider">Add New Room</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-400 mb-1">Room Number *</label>
+                    <input
+                      type="text"
+                      required
+                      value={newRoomNumber}
+                      onChange={(e) => setNewRoomNumber(e.target.value)}
+                      placeholder="e.g. 101"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white font-bold placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-400 mb-1">Doctor Name (Optional)</label>
+                    <input
+                      type="text"
+                      value={newDoctorName}
+                      onChange={(e) => setNewDoctorName(e.target.value)}
+                      placeholder="e.g. Dr. A. Sharma"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white font-medium placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  disabled={!newRoomNumber.trim()}
+                  className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl transition-all shadow-md shadow-blue-500/20 flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+                >
+                  <Plus size={16} /> Add Room
+                </button>
+              </form>
+
+              {/* Existing Rooms List */}
+              <div className="space-y-2">
+                <div className="flex justify-between items-center px-1">
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    Existing Rooms ({rooms.length})
+                  </p>
+                </div>
+
+                {rooms.length === 0 ? (
+                  <div className="p-6 text-center text-slate-500 text-xs bg-slate-950/60 rounded-2xl border border-dashed border-slate-800">
+                    No consultation rooms added yet for this department.
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                    {rooms.map((r) => (
+                      <div
+                        key={r.id}
+                        className="bg-slate-950 border border-slate-800/90 rounded-xl p-3 flex items-center justify-between gap-2"
+                      >
+                        {editingRoomId === r.id ? (
+                          <div className="flex-1 space-y-2">
+                            <div className="grid grid-cols-2 gap-2">
+                              <input
+                                type="text"
+                                value={editRoomNumber}
+                                onChange={(e) => setEditRoomNumber(e.target.value)}
+                                className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white font-bold focus:outline-none focus:border-blue-500"
+                                placeholder="Room No."
+                                autoFocus
+                              />
+                              <input
+                                type="text"
+                                value={editDoctorName}
+                                onChange={(e) => setEditDoctorName(e.target.value)}
+                                className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
+                                placeholder="Doctor Name"
+                              />
+                            </div>
+                            <div className="flex justify-end gap-1.5">
+                              <button
+                                onClick={() => saveEditRoom(r.id)}
+                                className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg text-xs font-bold flex items-center gap-1"
+                              >
+                                <Check size={12} /> Save
+                              </button>
+                              <button
+                                onClick={() => setEditingRoomId(null)}
+                                className="px-2.5 py-1 bg-slate-800 text-slate-300 rounded-lg text-xs font-bold"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/30 text-blue-400 font-bold text-xs flex items-center justify-center">
+                                {r.roomNumber}
+                              </div>
+                              <div>
+                                <p className="font-bold text-white text-xs">Room {r.roomNumber}</p>
+                                <p className="text-[11px] text-slate-400">
+                                  {r.doctorName || 'No doctor assigned'}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => {
+                                  setEditingRoomId(r.id);
+                                  setEditRoomNumber(r.roomNumber);
+                                  setEditDoctorName(r.doctorName || '');
+                                }}
+                                className="p-1.5 text-slate-400 hover:text-blue-400 rounded-lg hover:bg-slate-800 transition-colors"
+                                title="Edit"
+                              >
+                                <Edit2 size={14} />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteRoom(r.id)}
+                                className="p-1.5 text-slate-400 hover:text-red-400 rounded-lg hover:bg-slate-800 transition-colors"
+                                title="Delete"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="pt-4 border-t border-slate-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsRoomModalOpen(false)}
+                className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
     </div>
   );
 }

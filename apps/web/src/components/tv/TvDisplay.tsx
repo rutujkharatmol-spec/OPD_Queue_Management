@@ -1,12 +1,13 @@
 "use client";
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useQueueStore } from '../../store/useQueueStore';
 import { Moon, Sun, Volume2, VolumeX, Stethoscope, Sparkles } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
-
 import { useDepartmentStore } from '../../store/useDepartmentStore';
-
-type AudioLang = 'dual' | 'en' | 'hi' | 'bn';
+import {
+  VoiceGender, AudioLang, announcePatientCall,
+  playHospitalChime, stopAudioAnnouncement
+} from '../../lib/speechService';
 
 export default function TvDisplay() {
   const searchParams = useSearchParams();
@@ -27,114 +28,32 @@ export default function TvDisplay() {
   // Audio & Speech Settings
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [audioLang, setAudioLang] = useState<AudioLang>('dual');
+  const [voiceGender, setVoiceGender] = useState<VoiceGender>('female');
   const [audioPromptDismissed, setAudioPromptDismissed] = useState(false);
-  const audioCtxRef = useRef<AudioContext | null>(null);
   const prevTokensSnapshotRef = useRef<string>('');
+
+  useEffect(() => {
+    try {
+      const savedGender = localStorage.getItem('tv_voice_gender') as VoiceGender;
+      if (savedGender === 'female' || savedGender === 'male') setVoiceGender(savedGender);
+      const savedLang = localStorage.getItem('tv_audio_lang') as AudioLang;
+      if (savedLang) setAudioLang(savedLang);
+    } catch {}
+  }, []);
+
+  const handleSetVoiceGender = (gender: VoiceGender) => {
+    setVoiceGender(gender);
+    try { localStorage.setItem('tv_voice_gender', gender); } catch {}
+  };
+
+  const handleSetAudioLang = (lang: AudioLang) => {
+    setAudioLang(lang);
+    try { localStorage.setItem('tv_audio_lang', lang); } catch {}
+  };
 
   useEffect(() => {
     initializeWebSocket(deptId);
   }, [deptId, initializeWebSocket]);
-
-  // Web Audio Hospital Chime Synthesizer
-  const playHospitalChime = useCallback(() => {
-    try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioCtx) return;
-
-      if (!audioCtxRef.current || audioCtxRef.current.state === 'suspended') {
-        audioCtxRef.current = new AudioCtx();
-        if (audioCtxRef.current.state === 'suspended') {
-          audioCtxRef.current.resume();
-        }
-      }
-
-      const ctx = audioCtxRef.current;
-      const now = ctx.currentTime;
-
-      // Tone 1: High chime (E5 - 659.25Hz)
-      const osc1 = ctx.createOscillator();
-      const gain1 = ctx.createGain();
-      osc1.type = 'sine';
-      osc1.frequency.setValueAtTime(659.25, now);
-      gain1.gain.setValueAtTime(0, now);
-      gain1.gain.linearRampToValueAtTime(0.4, now + 0.05);
-      gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
-      osc1.connect(gain1);
-      gain1.connect(ctx.destination);
-      osc1.start(now);
-      osc1.stop(now + 0.8);
-
-      // Tone 2: Harmonizing lower chime (C5 - 523.25Hz) after 180ms
-      const osc2 = ctx.createOscillator();
-      const gain2 = ctx.createGain();
-      osc2.type = 'sine';
-      osc2.frequency.setValueAtTime(523.25, now + 0.18);
-      gain2.gain.setValueAtTime(0, now + 0.18);
-      gain2.gain.linearRampToValueAtTime(0.45, now + 0.23);
-      gain2.gain.exponentialRampToValueAtTime(0.001, now + 1.3);
-      osc2.connect(gain2);
-      gain2.connect(ctx.destination);
-      osc2.start(now + 0.18);
-      osc2.stop(now + 1.3);
-    } catch (e) {
-      console.warn('Audio chime failed to play:', e);
-    }
-  }, []);
-
-  // Web Speech API Announcement
-  const speakToken = useCallback((tokenNumber: string, roomNumber: string, isEmergency: boolean = false) => {
-    if (!('speechSynthesis' in window)) return;
-
-    // Clean token for spoken pronunciation (e.g. "MED-002" -> "M E D 0 0 2")
-    const cleanToken = tokenNumber.replace('🚨', '').trim();
-    const tokenSpoken = cleanToken.split('').join(' ');
-
-    const voices = window.speechSynthesis.getVoices();
-
-    const speakPhrase = (text: string, lang: string) => {
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 0.9;
-      utterance.pitch = 1.0;
-      utterance.lang = lang;
-
-      const matchingVoice = voices.find(v => v.lang.startsWith(lang));
-      if (matchingVoice) utterance.voice = matchingVoice;
-
-      window.speechSynthesis.speak(utterance);
-    };
-
-    window.speechSynthesis.cancel(); // Stop any overlapping speech
-
-    if (audioLang === 'dual') {
-      // English First
-      const enText = isEmergency
-        ? `Emergency! Token ${tokenSpoken}, please proceed immediately to Room ${roomNumber}.`
-        : `Token ${tokenSpoken}, please proceed to Room ${roomNumber}.`;
-      speakPhrase(enText, 'en-IN');
-
-      // Hindi Follow-up
-      setTimeout(() => {
-        const hiText = `टोकन ${cleanToken}, कमरा नंबर ${roomNumber} में जाएं।`;
-        speakPhrase(hiText, 'hi-IN');
-      }, 3500);
-    } else if (audioLang === 'hi') {
-      const hiText = isEmergency
-        ? `इमरजेंसी! टोकन ${cleanToken}, कृपया तुरंत कमरा नंबर ${roomNumber} में जाएं।`
-        : `टोकन ${cleanToken}, कृपया कमरा नंबर ${roomNumber} में जाएं।`;
-      speakPhrase(hiText, 'hi-IN');
-    } else if (audioLang === 'bn') {
-      const bnText = isEmergency
-        ? `জরুরী! টোকেন ${cleanToken}, অনুগ্রহ করে দ্রুত রুম নম্বর ${roomNumber} এ যান।`
-        : `টোকেন ${cleanToken}, অনুগ্রহ করে রুম নম্বর ${roomNumber} এ যান।`;
-      speakPhrase(bnText, 'bn-IN');
-    } else {
-      // English Only
-      const enText = isEmergency
-        ? `Emergency! Token ${tokenSpoken}, please proceed immediately to Room ${roomNumber}.`
-        : `Token ${tokenSpoken}, please proceed to Room ${roomNumber}.`;
-      speakPhrase(enText, 'en-US');
-    }
-  }, [audioLang]);
 
   // Trigger announcement whenever active tokens change or are recalled
   useEffect(() => {
@@ -149,8 +68,6 @@ export default function TvDisplay() {
       const timer = setTimeout(() => setPulseScale(false), 800);
 
       if (audioEnabled) {
-        playHospitalChime();
-
         // Identify which token was just called or recalled
         const prevItems = prevTokensSnapshotRef.current.split('|');
         const changedItem = active.find((t: any) => {
@@ -159,10 +76,14 @@ export default function TvDisplay() {
         }) || active[0];
 
         if (changedItem) {
-          setTimeout(() => {
-            const isEmerg = changedItem.token?.includes('🚨');
-            speakToken(changedItem.token, changedItem.room, isEmerg);
-          }, 600);
+          const isEmerg = changedItem.token?.includes('🚨');
+          announcePatientCall({
+            tokenNumber: changedItem.token,
+            roomNumber: changedItem.room,
+            isEmergency: isEmerg,
+            lang: audioLang,
+            gender: voiceGender,
+          });
         }
       }
 
@@ -171,12 +92,17 @@ export default function TvDisplay() {
     } else if (!prevTokensSnapshotRef.current && active.length > 0) {
       prevTokensSnapshotRef.current = currentSnapshot;
     }
-  }, [queueData?.activeTokens, audioEnabled, playHospitalChime, speakToken]);
+  }, [queueData?.activeTokens, audioEnabled, audioLang, voiceGender]);
 
   const handleEnableAudio = () => {
     setAudioEnabled(true);
     setAudioPromptDismissed(true);
     playHospitalChime();
+  };
+
+  const handleDisableAudio = () => {
+    setAudioEnabled(false);
+    stopAudioAnnouncement();
   };
 
   const activeTokens = queueData.activeTokens || [];
@@ -211,105 +137,111 @@ export default function TvDisplay() {
           </div>
         )}
 
-        {/* Top Control Bar */}
-        <div className="absolute top-4 right-6 z-40 flex items-center gap-3">
-          {/* Audio Language Selector */}
-          <div className="flex items-center bg-white/80 dark:bg-black/60 backdrop-blur-md rounded-2xl p-1 border border-slate-200 dark:border-white/10 shadow-lg text-xs font-bold">
-            <button
-              onClick={() => setAudioLang('dual')}
-              className={`px-3 py-1.5 rounded-xl transition-all ${audioLang === 'dual' ? 'bg-blue-600 text-white shadow' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
-              title="English + Hindi"
-            >
-              Dual (EN+HI)
-            </button>
-            <button
-              onClick={() => setAudioLang('en')}
-              className={`px-3 py-1.5 rounded-xl transition-all ${audioLang === 'en' ? 'bg-blue-600 text-white shadow' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
-            >
-              EN
-            </button>
-            <button
-              onClick={() => setAudioLang('hi')}
-              className={`px-3 py-1.5 rounded-xl transition-all ${audioLang === 'hi' ? 'bg-blue-600 text-white shadow' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
-            >
-              HI
-            </button>
-            <button
-              onClick={() => setAudioLang('bn')}
-              className={`px-3 py-1.5 rounded-xl transition-all ${audioLang === 'bn' ? 'bg-blue-600 text-white shadow' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
-            >
-              BN
-            </button>
-          </div>
-
-          {/* Sound Toggle Button */}
-          <button
-            onClick={() => {
-              if (!audioEnabled) {
-                handleEnableAudio();
-              } else {
-                setAudioEnabled(false);
-              }
-            }}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl shadow-lg backdrop-blur-md border transition-all font-bold text-xs ${audioEnabled
-              ? 'bg-emerald-600 text-white border-emerald-400 shadow-emerald-600/30'
-              : 'bg-white/80 dark:bg-black/60 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-white/10'
-              }`}
-          >
-            {audioEnabled ? (
-              <>
-                <Volume2 size={16} className="animate-pulse" />
-                <span>Audio: ON</span>
-              </>
-            ) : (
-              <>
-                <VolumeX size={16} />
-                <span>Audio: OFF</span>
-              </>
-            )}
-          </button>
-
-          {/* Theme Toggle Button */}
-          <button
-            onClick={() => setIsDark(!isDark)}
-            className="p-3 bg-white/80 dark:bg-black/60 backdrop-blur-md rounded-2xl shadow-lg border border-slate-200 dark:border-white/10 hover:bg-white dark:hover:bg-black/80 transition-all text-slate-600 dark:text-slate-300"
-            title="Toggle Theme"
-          >
-            {isDark ? <Sun size={18} /> : <Moon size={18} />}
-          </button>
-        </div>
-
-        {/* Animated Background Mesh */}
-        <div className="absolute inset-0 z-0 opacity-60 dark:opacity-40 pointer-events-none transition-opacity duration-500">
-          <div className="absolute top-[-10%] left-[-10%] w-[50vw] h-[50vw] bg-blue-300/30 dark:bg-blue-700/30 blur-[140px] rounded-full mix-blend-multiply dark:mix-blend-screen animate-pulse-slow"></div>
-          <div className="absolute bottom-[-10%] right-[-10%] w-[60vw] h-[60vw] bg-indigo-200/40 dark:bg-purple-900/40 blur-[160px] rounded-full mix-blend-multiply dark:mix-blend-screen animate-pulse-slow" style={{ animationDelay: '2s' }}></div>
-          {hasEmergency && (
-            <div className="absolute inset-0 bg-red-100/50 dark:bg-red-600/10 animate-pulse mix-blend-multiply dark:mix-blend-overlay z-0"></div>
-          )}
-        </div>
-
-        {/* Hospital Header */}
-        <header className="relative z-10 flex h-[11vh] items-center justify-between bg-white/90 dark:bg-slate-900/80 backdrop-blur-xl px-8 lg:px-14 shadow-sm dark:shadow-2xl border-b border-slate-200 dark:border-white/10 transition-colors duration-500">
+        {/* Hospital Header & Controls */}
+        <header className="relative z-10 flex min-h-[11vh] items-center justify-between bg-white/90 dark:bg-slate-900/80 backdrop-blur-xl px-6 lg:px-12 py-3 shadow-sm dark:shadow-2xl border-b border-slate-200 dark:border-white/10 transition-colors duration-500 gap-4 flex-wrap">
+          {/* Brand & Department */}
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-blue-600 flex items-center justify-center text-white font-black text-xl shadow-lg shadow-blue-500/30">
+            <div className="w-12 h-12 rounded-2xl bg-blue-600 flex items-center justify-center text-white font-black text-xl shadow-lg shadow-blue-500/30 shrink-0">
               +
             </div>
             <div>
-              <h2 className="text-sm font-black uppercase tracking-widest text-blue-600 dark:text-blue-400">AIIMS Kalyani</h2>
-              <h1 className="text-[3.2vh] font-black uppercase tracking-wider text-slate-900 dark:text-white">
+              <h2 className="text-xs sm:text-sm font-black uppercase tracking-widest text-blue-600 dark:text-blue-400">AIIMS Kalyani</h2>
+              <h1 className="text-lg sm:text-2xl font-black uppercase tracking-wider text-slate-900 dark:text-white">
                 {queueData.department} OPD
               </h1>
             </div>
           </div>
 
-          <div className="flex items-center gap-6">
-            <div className="text-right hidden sm:block">
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Live Status</p>
-              <div className="flex items-center gap-2 justify-end">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span className="text-sm font-black text-slate-700 dark:text-slate-200">Active Calling</span>
-              </div>
+          {/* Right Controls: Status, Language, Audio, Theme */}
+          <div className="flex items-center gap-2.5 sm:gap-3.5 flex-wrap justify-end">
+            {/* Live Calling Indicator */}
+            <div className="hidden md:flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-xl">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Active Calling</span>
             </div>
+
+            {/* Audio Language Selector */}
+            <div className="flex items-center bg-slate-100 dark:bg-black/60 backdrop-blur-md rounded-xl p-1 border border-slate-200 dark:border-white/10 shadow-sm text-xs font-bold">
+              <button
+                onClick={() => handleSetAudioLang('dual')}
+                className={`px-2.5 py-1 rounded-lg transition-all text-xs ${audioLang === 'dual' ? 'bg-blue-600 text-white shadow' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
+                title="English + Hindi"
+              >
+                Dual (EN+HI)
+              </button>
+              <button
+                onClick={() => handleSetAudioLang('en')}
+                className={`px-2 py-1 rounded-lg transition-all text-xs ${audioLang === 'en' ? 'bg-blue-600 text-white shadow' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
+              >
+                EN
+              </button>
+              <button
+                onClick={() => handleSetAudioLang('hi')}
+                className={`px-2 py-1 rounded-lg transition-all text-xs ${audioLang === 'hi' ? 'bg-blue-600 text-white shadow' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
+              >
+                HI
+              </button>
+              <button
+                onClick={() => handleSetAudioLang('bn')}
+                className={`px-2 py-1 rounded-lg transition-all text-xs ${audioLang === 'bn' ? 'bg-blue-600 text-white shadow' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
+              >
+                BN
+              </button>
+            </div>
+
+            {/* Voice Gender Selector */}
+            <div className="flex items-center bg-slate-100 dark:bg-black/60 backdrop-blur-md rounded-xl p-1 border border-slate-200 dark:border-white/10 shadow-sm text-xs font-bold">
+              <button
+                onClick={() => handleSetVoiceGender('female')}
+                className={`px-2.5 py-1 rounded-lg transition-all text-xs flex items-center gap-1 ${voiceGender === 'female' ? 'bg-pink-600 text-white shadow' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
+                title="Female Realistic Voice"
+              >
+                <span>👩 Female</span>
+              </button>
+              <button
+                onClick={() => handleSetVoiceGender('male')}
+                className={`px-2.5 py-1 rounded-lg transition-all text-xs flex items-center gap-1 ${voiceGender === 'male' ? 'bg-blue-600 text-white shadow' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
+                title="Male Realistic Voice"
+              >
+                <span>👨 Male</span>
+              </button>
+            </div>
+
+            {/* Sound Toggle Button */}
+            <button
+              onClick={() => {
+                if (!audioEnabled) {
+                  handleEnableAudio();
+                } else {
+                  handleDisableAudio();
+                }
+              }}
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl shadow-sm backdrop-blur-md border transition-all font-bold text-xs ${audioEnabled
+                ? 'bg-emerald-600 text-white border-emerald-400 shadow-emerald-600/30'
+                : 'bg-slate-100 dark:bg-black/60 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-white/10'
+                }`}
+            >
+              {audioEnabled ? (
+                <>
+                  <Volume2 size={15} className="animate-pulse" />
+                  <span>Audio: ON</span>
+                </>
+              ) : (
+                <>
+                  <VolumeX size={15} />
+                  <span>Audio: OFF</span>
+                </>
+              )}
+            </button>
+
+            {/* Theme Toggle Button */}
+            <button
+              onClick={() => setIsDark(!isDark)}
+              className="p-2.5 bg-slate-100 dark:bg-black/60 backdrop-blur-md rounded-xl shadow-sm border border-slate-200 dark:border-white/10 hover:bg-slate-200 dark:hover:bg-black/80 transition-all text-slate-600 dark:text-slate-300"
+              title="Toggle Theme"
+            >
+              {isDark ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
           </div>
         </header>
 

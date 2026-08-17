@@ -11,31 +11,30 @@ import { PrismaClient } from '@/generated/prisma/client';
  * connection exhaustion — keep it small there and let the pooler do the work.
  */
 function getConnectionString(): string | undefined {
-  const isVercel = Boolean(process.env.VERCEL);
-  const isProd = process.env.NODE_ENV === 'production';
-
-  // 1. If explicit DATABASE_URL is set and not empty, use it
+  // 1. Explicit DATABASE_URL
   if (process.env.DATABASE_URL?.trim()) {
     return process.env.DATABASE_URL.trim();
   }
 
-  // 2. In Vercel / Production deployment, prioritize cloud & Neon database URLs
-  if (isVercel || isProd) {
-    return (
-      process.env.POSTGRES_PRISMA_URL?.trim() ||
-      process.env.POSTGRES_URL?.trim() ||
-      process.env.NEON_DATABASE_URL?.trim() ||
-      process.env.LOCAL_DATABASE_URL?.trim()
-    );
+  // 2. Cloud / Neon Database URLs
+  if (process.env.NEON_DATABASE_URL?.trim()) {
+    return process.env.NEON_DATABASE_URL.trim();
   }
 
-  // 3. In Local Development, check local DB first, then fallback to cloud/Neon if provided
-  return (
-    process.env.LOCAL_DATABASE_URL?.trim() ||
-    process.env.NEON_DATABASE_URL?.trim() ||
-    process.env.POSTGRES_PRISMA_URL?.trim() ||
-    process.env.POSTGRES_URL?.trim()
-  );
+  if (process.env.POSTGRES_PRISMA_URL?.trim()) {
+    return process.env.POSTGRES_PRISMA_URL.trim();
+  }
+
+  if (process.env.POSTGRES_URL?.trim()) {
+    return process.env.POSTGRES_URL.trim();
+  }
+
+  // 3. Fallback to Local Hospital Database URL
+  if (process.env.LOCAL_DATABASE_URL?.trim()) {
+    return process.env.LOCAL_DATABASE_URL.trim();
+  }
+
+  return undefined;
 }
 
 function createClient() {

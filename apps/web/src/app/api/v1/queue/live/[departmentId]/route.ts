@@ -22,19 +22,17 @@ export const GET = route(async (_request: Request, { params }: Context) => {
   //    doctor's patients silently vanished from the board.
   // 2. Scoped to today. The old query matched WAITING tokens of any age, so a token
   //    left unserved yesterday reappeared on this morning's display.
-  const [rooms, activeRaw, waiting] = await Promise.all([
-    db.room.findMany({ where: { departmentId, deletedAt: null } }),
-    db.token.findMany({
-      where: { departmentId, serviceDate, status: 'CALLED', deletedAt: null },
-      orderBy: { calledAt: 'desc' },
-      include: { patient: true },
-    }),
-    db.token.findMany({
-      where: { departmentId, serviceDate, status: 'WAITING', deletedAt: null },
-      // Enum order is NORMAL, SENIOR, EMERGENCY, so descending puts emergencies first.
-      orderBy: [{ priority: 'desc' }, { issuedAt: 'asc' }],
-    }),
-  ]);
+  const rooms = await db.room.findMany({ where: { departmentId, deletedAt: null } });
+  const activeRaw = await db.token.findMany({
+    where: { departmentId, serviceDate, status: 'CALLED', deletedAt: null },
+    orderBy: { calledAt: 'desc' },
+    include: { patient: true },
+  });
+  const waiting = await db.token.findMany({
+    where: { departmentId, serviceDate, status: 'WAITING', deletedAt: null },
+    // Enum order is NORMAL, SENIOR, EMERGENCY, so descending puts emergencies first.
+    orderBy: [{ priority: 'desc' }, { issuedAt: 'asc' }],
+  });
 
   const doctorByRoom = new Map(
     rooms.filter((r) => r.doctorName).map((r) => [r.roomNumber, r.doctorName as string])

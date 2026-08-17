@@ -33,6 +33,7 @@ function NavbarContent() {
   }
 
   const getHref = (path: string) => {
+    if (path === '/settings') return '/settings';
     return activeDeptId ? `${path}?deptId=${activeDeptId}` : path;
   };
 
@@ -68,7 +69,7 @@ function NavbarContent() {
           </div>
 
           {/* Department Quick Switcher */}
-          {pathname !== '/' && departments.length > 0 && (
+          {pathname !== '/' && pathname !== '/settings' && departments.length > 0 && (
             <div className="relative flex items-center">
               <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-700/80 hover:border-slate-600 rounded-xl px-3 py-1.5 text-xs text-slate-200 transition-all shadow-inner">
                 <Building2 className="w-3.5 h-3.5 text-blue-400 shrink-0" />
