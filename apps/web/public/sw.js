@@ -53,6 +53,13 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
+// Listen for message from client to activate immediately
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
 // Fetch: Handle offline caching strategies
 self.addEventListener('fetch', (event) => {
   const { request } = event;

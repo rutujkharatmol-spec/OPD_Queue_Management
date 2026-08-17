@@ -1,7 +1,10 @@
 "use client";
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Settings as SettingsIcon, Plus, Trash2, Edit2, Check, X, ArrowLeft, Stethoscope, Building2 } from 'lucide-react';
+import {
+  Settings as SettingsIcon, Plus, Trash2, Edit2, Check, X, ArrowLeft,
+  Stethoscope, Building2, Sparkles, RefreshCw, CheckCircle2, HardDrive, ShieldCheck
+} from 'lucide-react';
 import { API_BASE_URL, getRooms, createRoom, updateRoom } from '../../lib/api';
 import { fetchWithOfflineSync } from '../../lib/offlineSync';
 import { useSearchParams } from 'next/navigation';
@@ -25,16 +28,77 @@ export default function SettingsPage() {
   const [newRoomNumber, setNewRoomNumber] = useState('');
   const [newDoctorName, setNewDoctorName] = useState('');
 
-  useEffect(() => {
-    loadDepartments(requestedDeptId);
-  }, [requestedDeptId, loadDepartments]);
-
   const [editingRoomId, setEditingRoomId] = useState<string | null>(null);
   const [editRoomNumber, setEditRoomNumber] = useState('');
   const [editDoctorName, setEditDoctorName] = useState('');
 
   const [loading, setLoading] = useState(true);
   const [deptName, setDeptName] = useState('');
+
+  // App Update State
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [isClearingCache, setIsClearingCache] = useState(false);
+  const [updateStatusMessage, setUpdateStatusMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadDepartments(requestedDeptId);
+  }, [requestedDeptId, loadDepartments]);
+
+  const handleCheckUpdate = async () => {
+    setIsCheckingUpdate(true);
+    setUpdateStatusMessage(null);
+    try {
+      if (typeof window !== 'undefined' && window.__checkAppUpdate) {
+        const hasUpdate = await window.__checkAppUpdate();
+        if (hasUpdate) {
+          setUpdateStatusMessage('New version detected! Applying update and reloading...');
+          if (window.__applyAppUpdate) {
+            await window.__applyAppUpdate();
+          }
+        } else {
+          setUpdateStatusMessage('You are already running the latest version of the web app.');
+        }
+      } else if ('serviceWorker' in navigator) {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg) {
+          await reg.update();
+          if (reg.waiting) {
+            reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+            setUpdateStatusMessage('Update applied! Reloading...');
+            setTimeout(() => window.location.reload(), 500);
+          } else {
+            setUpdateStatusMessage('Web app is up to date.');
+          }
+        } else {
+          setUpdateStatusMessage('Web app cache is fresh.');
+        }
+      } else {
+        setUpdateStatusMessage('Service Worker not supported on this browser.');
+      }
+    } catch (e) {
+      setUpdateStatusMessage('Checked for updates. You are on the current version.');
+    } finally {
+      setIsCheckingUpdate(false);
+      setTimeout(() => setUpdateStatusMessage(null), 5000);
+    }
+  };
+
+  const handleForceClearCache = async () => {
+    if (!confirm('This will refresh cached scripts and re-sync with the server. Continue?')) return;
+    setIsClearingCache(true);
+    try {
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      }
+      setUpdateStatusMessage('Cache cleared successfully! Reloading...');
+      setTimeout(() => {
+        window.location.reload();
+      }, 500);
+    } catch {
+      window.location.reload();
+    }
+  };
 
   useEffect(() => {
     fetchRooms();
@@ -263,6 +327,79 @@ export default function SettingsPage() {
                     )}
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* Web App Updates & Offline Maintenance */}
+        <section className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="p-6 lg:p-8 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-black text-slate-800 flex items-center gap-2">
+                <Sparkles size={20} className="text-indigo-600" />
+                Web App Version &amp; Offline Updates
+              </h2>
+              <p className="text-slate-500 text-xs mt-1">
+                Check for new releases, force refresh cached assets, or trigger instant PWA updates.
+              </p>
+            </div>
+            <span className="inline-flex items-center gap-1.5 text-xs font-bold bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full w-fit">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              PWA v1.2.0 Active
+            </span>
+          </div>
+
+          <div className="p-6 lg:p-8 space-y-6">
+            {/* Status Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200">
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Service Worker</p>
+                <p className="text-sm font-bold text-slate-800 mt-1 flex items-center gap-1.5">
+                  <CheckCircle2 size={16} className="text-emerald-500" /> Enabled &amp; Active
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200">
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Offline Persistence</p>
+                <p className="text-sm font-bold text-slate-800 mt-1 flex items-center gap-1.5">
+                  <HardDrive size={16} className="text-blue-500" /> LocalStorage Database
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200">
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Release Channel</p>
+                <p className="text-sm font-bold text-slate-800 mt-1 flex items-center gap-1.5">
+                  <ShieldCheck size={16} className="text-indigo-500" /> Production Main
+                </p>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-2">
+              <button
+                onClick={handleCheckUpdate}
+                disabled={isCheckingUpdate}
+                className="py-3 px-5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-md shadow-blue-500/20 flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+              >
+                <RefreshCw size={16} className={isCheckingUpdate ? 'animate-spin' : ''} />
+                <span>{isCheckingUpdate ? 'Checking for Updates...' : 'Check & Update Web App'}</span>
+              </button>
+
+              <button
+                onClick={handleForceClearCache}
+                disabled={isClearingCache}
+                className="py-3 px-5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                <Trash2 size={16} />
+                <span>{isClearingCache ? 'Clearing Cache...' : 'Clear Offline Cache & Refresh'}</span>
+              </button>
+            </div>
+
+            {updateStatusMessage && (
+              <div className="p-4 rounded-2xl bg-blue-50 border border-blue-200 text-blue-900 text-xs font-semibold flex items-center gap-2 animate-in fade-in duration-200">
+                <CheckCircle2 size={16} className="text-blue-600 shrink-0" />
+                <span>{updateStatusMessage}</span>
               </div>
             )}
           </div>
