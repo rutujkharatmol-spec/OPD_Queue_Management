@@ -189,7 +189,7 @@ export default function SettingsPage() {
     setNewPasswordInput(DEFAULT_STAFF_PASSWORD);
     setConfirmPasswordInput(DEFAULT_STAFF_PASSWORD);
     setPassErrorMessage(null);
-    setPassStatusMessage('Staff password reset back to default ("89").');
+    setPassStatusMessage('Staff password reset back to default.');
     setTimeout(() => setPassStatusMessage(null), 4000);
   };
 
@@ -241,7 +241,7 @@ export default function SettingsPage() {
               currentSavedPass === DEFAULT_STAFF_PASSWORD ? 'bg-slate-100 text-slate-700' : 'bg-blue-100 text-blue-800'
             }`}>
               <Lock size={13} className={currentSavedPass === DEFAULT_STAFF_PASSWORD ? 'text-slate-500' : 'text-blue-600'} />
-              {currentSavedPass === DEFAULT_STAFF_PASSWORD ? 'Default Password ("89")' : 'Custom Password Active'}
+              {currentSavedPass === DEFAULT_STAFF_PASSWORD ? 'Default Password Active' : 'Custom Password Active'}
             </span>
           </div>
 
@@ -260,7 +260,7 @@ export default function SettingsPage() {
                         setNewPasswordInput(e.target.value);
                         setPassErrorMessage(null);
                       }}
-                      placeholder="Enter new password (e.g. 89 or mysecretpass)"
+                      placeholder="Enter new password"
                       className="w-full bg-slate-50 border border-slate-300 focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-500/20 rounded-xl px-4 py-2.5 pr-11 text-slate-900 placeholder-slate-400 font-mono text-sm transition-all"
                     />
                     <button
@@ -326,7 +326,7 @@ export default function SettingsPage() {
                   className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors flex items-center gap-2 cursor-pointer"
                 >
                   <RotateCcw size={14} />
-                  <span>Reset to Default (&quot;89&quot;)</span>
+                  <span>Reset to Default</span>
                 </button>
 
                 <button

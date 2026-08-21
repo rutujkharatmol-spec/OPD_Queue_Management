@@ -92,7 +92,7 @@ export function AuthWrapper({ children }: { children: React.ReactNode }) {
   const handleQuickReset = () => {
     resetStoredStaffPassword();
     setChangeError(null);
-    setSuccessMessage('Password reset to default ("89"). You can now login with 89.');
+    setSuccessMessage('Password reset to default. You can now login.');
     setIsChangingPass(false);
     setPassword(DEFAULT_STAFF_PASSWORD);
     setCurrentPassInput(DEFAULT_STAFF_PASSWORD);
@@ -146,7 +146,7 @@ export function AuthWrapper({ children }: { children: React.ReactNode }) {
                       setPassword(e.target.value);
                       setError(null);
                     }}
-                    placeholder="Enter password (default: 89)"
+                    placeholder="Enter password"
                     className={`w-full bg-slate-950 border ${error ? 'border-red-500 ring-2 ring-red-500/20' : 'border-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20'} rounded-xl px-4 py-3 pr-11 text-white placeholder-slate-500 focus:outline-none font-mono text-base transition-all`}
                     autoFocus
                   />
@@ -191,9 +191,9 @@ export function AuthWrapper({ children }: { children: React.ReactNode }) {
                   type="button"
                   onClick={handleQuickReset}
                   className="text-slate-400 hover:text-slate-200 font-medium flex items-center gap-1 cursor-pointer transition-colors"
-                  title="Reset to default '89'"
+                  title="Reset to default password"
                 >
-                  <RotateCcw size={12} /> Reset to Default (&quot;89&quot;)
+                  <RotateCcw size={12} /> Reset to Default
                 </button>
               </div>
             </form>
@@ -293,7 +293,7 @@ export function AuthWrapper({ children }: { children: React.ReactNode }) {
                   onClick={handleQuickReset}
                   className="text-slate-500 hover:text-slate-300 text-[11px] font-medium transition-colors"
                 >
-                  Forgot password? Reset to default (&quot;89&quot;)
+                  Forgot password? Reset to default
                 </button>
               </div>
             </form>
