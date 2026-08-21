@@ -19,7 +19,6 @@ import {
 } from './localStore';
 
 export const OFFLINE_QUEUE_KEY = 'offlineSyncQueue';
-const OFFLINE_CACHE_PREFIX = 'offline_cached_query_';
 
 export interface QueuedRequest {
   id: string;
@@ -63,23 +62,6 @@ export function setOfflineQueue(queue: QueuedRequest[]): void {
     window.dispatchEvent(new CustomEvent('offline-queue-updated', { detail: { count: queue.length } }));
   } catch (error) {
     console.error('[OfflineSync] Failed to write queue to localStorage:', error);
-  }
-}
-
-export function setCachedQuery(url: string, data: unknown): void {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(OFFLINE_CACHE_PREFIX + url, JSON.stringify(data));
-  } catch {}
-}
-
-export function getCachedQuery<T = unknown>(url: string): T | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = localStorage.getItem(OFFLINE_CACHE_PREFIX + url);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
   }
 }
 
@@ -208,7 +190,7 @@ function handleWithLocalStore(url: string, method: string, options: RequestInit)
   }
   if (pathname.includes('/queue/next/') && method === 'PATCH') {
     const deptId = pathname.split('/queue/next/')[1]?.split('?')[0] || '';
-    const data = localCallNextPatient(deptId, parsedBody.roomNumber || '101');
+    const data = localCallNextPatient(deptId, parsedBody.roomNumber || '101', parsedBody.tokenIdentifier || parsedBody.tokenNumber);
     return jsonResponse(data, 200);
   }
   if (pathname.includes('/queue/recall/') && method === 'PATCH') {
@@ -218,7 +200,7 @@ function handleWithLocalStore(url: string, method: string, options: RequestInit)
   }
   if (pathname.includes('/queue/action/') && method === 'PATCH') {
     const tokenId = pathname.split('/queue/action/')[1]?.split('?')[0] || '';
-    const data = localMarkTokenAction(tokenId, parsedBody.action || 'COMPLETE');
+    const data = localMarkTokenAction(tokenId, parsedBody.action || 'COMPLETE', parsedBody.passCount);
     return jsonResponse(data || { ok: true }, 200);
   }
   if (pathname.includes('/queue/analytics') && method === 'GET') {
@@ -260,22 +242,12 @@ export async function fetchWithOfflineSync(url: string | URL, options: RequestIn
   try {
     const response = await fetch(url, options);
 
-    // If server responded successfully (200-299)
-    if (response.ok) {
-      if (method === 'GET') {
-        try {
-          const cloned = response.clone();
-          cloned.json().then((data) => setCachedQuery(targetUrl, data)).catch(() => {});
-        } catch {}
-      }
-      return response;
-    }
-
     // If server failed (404, 500, 502, 503, 504 - e.g. Neon DB offline or Vercel serverless error)
     if (response.status >= 500 || response.status === 404) {
       return handleWithLocalStore(targetUrl, method, options);
     }
 
+    // Anything else — success, or a 4xx the client should see — passes straight through.
     return response;
   } catch {
     // Network / DNS failure or server down

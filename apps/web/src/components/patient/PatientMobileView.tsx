@@ -3,19 +3,25 @@ import React, { useEffect, useState } from 'react';
 import { Bell, MapPin, Stethoscope, Clock, ShieldAlert } from 'lucide-react';
 import { useQueueStore } from '../../store/useQueueStore';
 
+// For demonstration, fallback to mock data if store is empty. Hoisted so it is not
+// rebuilt on every render.
+const FALLBACK_QUEUE = {
+  department: 'Medicine',
+  activeTokens: [{ token: 'MED-042', room: '104' }],
+  nextTokens: ['MED-043', 'MED-044', 'MED-045', 'MED-046', 'MED-047', 'MED-048', 'MED-049']
+};
+
 export default function PatientMobileView({ tokenNumber = 'MED-049', departmentId = 'med_dept_1' }) {
-  const { liveQueues, initializeWebSocket } = useQueueStore();
-  
+  // Selecting just this department's slice keeps the view from re-rendering when any
+  // other part of the queue store changes.
+  const initializeWebSocket = useQueueStore((state) => state.initializeWebSocket);
+  const liveQueue = useQueueStore((state) => state.liveQueues[departmentId]);
+
   useEffect(() => {
     initializeWebSocket(departmentId);
   }, [departmentId, initializeWebSocket]);
 
-  // For demonstration, fallback to mock data if store is empty
-  const queueData = liveQueues[departmentId] || {
-    department: 'Medicine',
-    activeTokens: [{ token: 'MED-042', room: '104' }],
-    nextTokens: ['MED-043', 'MED-044', 'MED-045', 'MED-046', 'MED-047', 'MED-048', 'MED-049']
-  };
+  const queueData = liveQueue || FALLBACK_QUEUE;
 
   const activePatientData = queueData.activeTokens?.find((t: any) => t.token === tokenNumber);
   const isMyTurn = !!activePatientData;

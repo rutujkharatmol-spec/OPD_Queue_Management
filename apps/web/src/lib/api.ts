@@ -32,26 +32,30 @@ export async function generateToken(
   return response.json();
 }
 
-export async function callNextPatient(departmentId: string, roomNumber: string) {
+export async function callNextPatient(departmentId: string, roomNumber: string, tokenIdentifier?: string) {
   const response = await fetchWithOfflineSync(`${API_BASE_URL}/queue/next/${departmentId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ roomNumber }),
+    body: JSON.stringify({ roomNumber, tokenIdentifier, tokenNumber: tokenIdentifier }),
   });
   if (!response.ok) {
     const errText = await response.text();
     console.error(`callNextPatient failed (${response.status}):`, errText);
-    throw new Error(`Failed to call next patient: ${errText || response.statusText}`);
+    throw new Error(`Failed to call patient: ${errText || response.statusText}`);
   }
   const text = await response.text();
   return text ? JSON.parse(text) : null;
 }
 
-export async function markTokenAction(tokenId: string, action: 'SKIP' | 'ABSENT' | 'NOT_AVAILABLE' | 'COMPLETE') {
+export async function markTokenAction(
+  tokenId: string,
+  action: 'SKIP' | 'ABSENT' | 'NOT_AVAILABLE' | 'COMPLETE',
+  passCount?: number
+) {
   const response = await fetchWithOfflineSync(`${API_BASE_URL}/queue/action/${tokenId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action }),
+    body: JSON.stringify({ action, passCount }),
   });
   if (!response.ok) throw new Error('Failed to mark token action');
   return response.json();

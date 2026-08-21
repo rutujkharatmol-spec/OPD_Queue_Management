@@ -164,6 +164,18 @@ function playServerAudio(text: string, lang: string, gender: VoiceGender): Promi
  * Finds the best offline voice matching the language and gender,
  * strictly differentiating Male vs Female voices.
  */
+// Preference order, most natural first. Hoisted to module scope: these are constant,
+// but were rebuilt as two fresh arrays on every announcement.
+const MALE_VOICE_NAMES = [
+  'prabhat', 'madhur', 'ravi', 'david', 'george', 'daniel',
+  'mark', 'guy', 'christopher', 'male', 'man', 'google us english'
+];
+
+const FEMALE_VOICE_NAMES = [
+  'neerja', 'swara', 'heera', 'zira', 'samantha', 'victoria',
+  'karen', 'jenny', 'aria', 'female', 'woman', 'google uk english female', 'google हिन्दी'
+];
+
 function getBestNaturalOfflineVoice(langCode: string, gender: VoiceGender): SpeechSynthesisVoice | null {
   if (typeof window === 'undefined' || !('speechSynthesis' in window)) return null;
 
@@ -174,21 +186,16 @@ function getBestNaturalOfflineVoice(langCode: string, gender: VoiceGender): Spee
   const langVoices = voices.filter((v) => v.lang.toLowerCase().startsWith(langPrefix));
   const pool = langVoices.length > 0 ? langVoices : voices;
 
-  const maleNames = [
-    'prabhat', 'madhur', 'ravi', 'david', 'george', 'daniel',
-    'mark', 'guy', 'christopher', 'male', 'man', 'google us english'
-  ];
+  const targetNames = gender === 'male' ? MALE_VOICE_NAMES : FEMALE_VOICE_NAMES;
 
-  const femaleNames = [
-    'neerja', 'swara', 'heera', 'zira', 'samantha', 'victoria',
-    'karen', 'jenny', 'aria', 'female', 'woman', 'google uk english female', 'google हिन्दी'
-  ];
-
-  const targetNames = gender === 'male' ? maleNames : femaleNames;
+  // Each candidate name previously rescanned the pool and lowercased every voice name
+  // again — up to 13 × pool passes. Lowercasing once up front keeps the same preference
+  // order (first matching name in the list wins) at a fraction of the work.
+  const lowerNames = pool.map((v) => v.name.toLowerCase());
 
   for (const name of targetNames) {
-    const found = pool.find((v) => v.name.toLowerCase().includes(name));
-    if (found) return found;
+    const index = lowerNames.findIndex((voiceName) => voiceName.includes(name));
+    if (index !== -1) return pool[index];
   }
 
   // Fallback to any voice for this language

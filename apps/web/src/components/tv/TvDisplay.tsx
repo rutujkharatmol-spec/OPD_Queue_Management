@@ -9,15 +9,27 @@ import {
   playHospitalChime, stopAudioAnnouncement
 } from '../../lib/speechService';
 
+/**
+ * Shared fallback for a department with no data yet.
+ *
+ * Module-level on purpose: built inline it was a new object on every render, so the
+ * announcement effect below — which depends on `queueData.activeTokens` — saw a changed
+ * dependency every single time and re-ran continuously before any data arrived.
+ */
+const EMPTY_QUEUE = { department: 'Department', activeTokens: [], nextTokens: [] as string[] };
+
 export default function TvDisplay() {
   const searchParams = useSearchParams();
   const requestedDeptId = searchParams.get('deptId');
-  const { loadDepartments, getEffectiveDeptId } = useDepartmentStore();
+  // Selected individually rather than destructured off the whole store: subscribing to
+  // the entire store re-rendered this (large) tree on every unrelated store write.
+  const loadDepartments = useDepartmentStore((state) => state.loadDepartments);
+  const getEffectiveDeptId = useDepartmentStore((state) => state.getEffectiveDeptId);
 
   const deptId = getEffectiveDeptId(requestedDeptId);
 
-  const { liveQueues, initializeWebSocket } = useQueueStore();
-  const queueData = liveQueues[deptId] || { department: 'Department', activeTokens: [], nextTokens: [] };
+  const initializeWebSocket = useQueueStore((state) => state.initializeWebSocket);
+  const queueData = useQueueStore((state) => state.liveQueues[deptId]) || EMPTY_QUEUE;
   const [pulseScale, setPulseScale] = useState(false);
   const [isDark, setIsDark] = useState(true); // Default to sleek dark mode for TV screens
 
@@ -68,12 +80,13 @@ export default function TvDisplay() {
       const timer = setTimeout(() => setPulseScale(false), 800);
 
       if (audioEnabled) {
-        // Identify which token was just called or recalled
-        const prevItems = prevTokensSnapshotRef.current.split('|');
-        const changedItem = active.find((t: any) => {
-          const itemSig = `${t.token}:${t.room}:${t.calledAt || 0}:${t.recalledAt || 0}`;
-          return !prevItems.includes(itemSig);
-        }) || active[0];
+        // Identify which token was just called or recalled. A Set makes each lookup O(1);
+        // `Array.includes` inside `find` made this a full rescan of the previous
+        // snapshot per active room.
+        const prevItems = new Set(prevTokensSnapshotRef.current.split('|'));
+        const changedItem = active.find(
+          (t: any) => !prevItems.has(`${t.token}:${t.room}:${t.calledAt || 0}:${t.recalledAt || 0}`)
+        ) || active[0];
 
         if (changedItem) {
           const isEmerg = changedItem.token?.includes('🚨');

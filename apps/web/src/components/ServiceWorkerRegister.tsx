@@ -80,6 +80,11 @@ export function ServiceWorkerRegister() {
     });
 
     const register = async () => {
+      // In development mode, avoid SW caching to prevent conflicts with Turbopack Fast Refresh
+      if (process.env.NODE_ENV === 'development') {
+        return;
+      }
+
       try {
         const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
         setSwRegistration(registration);
@@ -109,7 +114,7 @@ export function ServiceWorkerRegister() {
 
         return () => clearInterval(interval);
       } catch (err) {
-        console.warn('[SW] ServiceWorker registration failed:', err);
+        console.warn('[SW] ServiceWorker registration notice:', err);
       }
     };
 

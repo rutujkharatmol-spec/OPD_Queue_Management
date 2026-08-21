@@ -8,6 +8,9 @@
  * - Device is completely offline with zero internet connection
  */
 
+import { getStoredPassCount } from './queueSettings';
+import { popNextFromRoomQueue } from './roomQueueSettings';
+
 export interface LocalDepartment {
   id: string;
   name: string;
@@ -98,15 +101,36 @@ const DEFAULT_ROOMS: LocalRoom[] = [
   { id: 'r-111', roomNumber: '111', isActive: true, doctorName: 'Dr. M. Banerjee', departmentId: '660e8400-e29b-41d4-a716-446655440000' },
 ];
 
+/**
+ * Parsed-value cache, keyed by storage key and validated against the raw string.
+ *
+ * The TV board and doctor dashboard poll the queue every 2.5s, and offline every one
+ * of those polls used to re-parse the whole token array from scratch — three times
+ * over, since a single live-queue read touches tokens, departments and rooms. Holding
+ * the parsed value and re-using it while the underlying string is byte-identical turns
+ * that into a string comparison. A write from another tab changes the raw string, so
+ * the check catches it and re-parses; writes from this tab refresh the entry directly.
+ *
+ * Callers now share one array rather than each getting a private deep copy, which is
+ * also where most of the memory saving comes from. Every mutating helper in this file
+ * saves before returning, so the shared copy never drifts from what is persisted.
+ */
+const parseCache = new Map<string, { raw: string; value: unknown }>();
+
 function getStorage<T>(key: string, defaultVal: T): T {
   if (typeof window === 'undefined') return defaultVal;
   try {
     const raw = localStorage.getItem(key);
     if (!raw) {
-      localStorage.setItem(key, JSON.stringify(defaultVal));
+      setStorage(key, defaultVal);
       return defaultVal;
     }
-    return JSON.parse(raw);
+    const cached = parseCache.get(key);
+    if (cached && cached.raw === raw) return cached.value as T;
+
+    const value = JSON.parse(raw) as T;
+    parseCache.set(key, { raw, value });
+    return value;
   } catch {
     return defaultVal;
   }
@@ -115,12 +139,67 @@ function getStorage<T>(key: string, defaultVal: T): T {
 function setStorage<T>(key: string, val: T): void {
   if (typeof window === 'undefined') return;
   try {
-    localStorage.setItem(key, JSON.stringify(val));
+    const raw = JSON.stringify(val);
+    localStorage.setItem(key, raw);
+    parseCache.set(key, { raw, value: val });
   } catch {}
 }
 
+/**
+ * Today in UTC as YYYY-MM-DD, recomputed only when the day actually rolls over.
+ *
+ * Deliberately still UTC, matching the original `toISOString()` behaviour: service
+ * dates already stored by this module are UTC-based, and switching to local time would
+ * re-file every token issued before 05:30 IST under the previous day.
+ */
+let cachedDayIndex = -1;
+let cachedTodayString = '';
+
 function getTodayString(): string {
-  return new Date().toISOString().split('T')[0];
+  const now = Date.now();
+  const dayIndex = Math.floor(now / 86_400_000); // UTC day, flips exactly when the date does
+  if (dayIndex !== cachedDayIndex) {
+    cachedDayIndex = dayIndex;
+    cachedTodayString = new Date(now).toISOString().slice(0, 10);
+  }
+  return cachedTodayString;
+}
+
+/** Emergencies first, then seniors. Hoisted so sorting does not rebuild it per comparison. */
+const PRIORITY_ORDER: Record<string, number> = { EMERGENCY: 3, SENIOR: 2, NORMAL: 1 };
+
+/** `crypto.randomUUID` where available, with the same timestamp fallback as before. */
+function newId(prefix: string): string {
+  return typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `${prefix}-${Date.now()}`;
+}
+
+/**
+ * Queue order: highest priority first, then longest-waiting first.
+ *
+ * Timestamps are parsed once per token instead of once per comparison — the comparator
+ * runs O(n log n) times, so parsing inside it made date parsing dominate the sort.
+ * `Array.prototype.sort` is stable, so equal entries keep their original order exactly
+ * as they did before.
+ */
+function sortByQueueOrder(tokens: LocalToken[]): LocalToken[] {
+  return tokens
+    .map((token) => ({
+      token,
+      weight: PRIORITY_ORDER[token.priority] || 1,
+      issuedAt: new Date(token.issuedAt).getTime(),
+    }))
+    .sort((a, b) => b.weight - a.weight || a.issuedAt - b.issuedAt)
+    .map((entry) => entry.token);
+}
+
+/** Most recently called first, with the same null-safe `|| 0` fallback as before. */
+function sortByCalledAtDesc(tokens: LocalToken[]): LocalToken[] {
+  return tokens
+    .map((token) => ({ token, calledAt: new Date(token.calledAt || 0).getTime() }))
+    .sort((a, b) => b.calledAt - a.calledAt)
+    .map((entry) => entry.token);
 }
 
 // ----------------- DEPARTMENTS -----------------
@@ -144,7 +223,7 @@ export function createLocalDepartment(name: string, code: string, description?: 
   }
 
   const newDept: LocalDepartment = {
-    id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `dept-${Date.now()}`,
+    id: newId('dept'),
     name: name.trim(),
     code: code.trim().toUpperCase(),
     description: description?.trim() || null,
@@ -212,7 +291,7 @@ export function saveLocalRooms(rooms: LocalRoom[]): void {
 export function createLocalRoom(roomNumber: string, isActive: boolean = true, departmentId?: string, doctorName?: string): LocalRoom {
   const rooms = getLocalRooms();
   const newRoom: LocalRoom = {
-    id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `room-${Date.now()}`,
+    id: newId('room'),
     roomNumber: roomNumber.trim(),
     isActive,
     departmentId: departmentId || '660e8400-e29b-41d4-a716-446655440000',
@@ -264,8 +343,13 @@ export function createLocalToken(
   const targetDeptId = dept.id;
 
   const today = getTodayString();
-  const todayDeptTokens = tokens.filter(t => t.departmentId === targetDeptId && t.serviceDate === today);
-  const sequence = todayDeptTokens.length + 1;
+  // Counted directly: the old version built a throwaway array of matching tokens only
+  // to read its length.
+  let issuedToday = 0;
+  for (const t of tokens) {
+    if (t.departmentId === targetDeptId && t.serviceDate === today) issuedToday++;
+  }
+  const sequence = issuedToday + 1;
   const tokenNumber = `${dept.code}-${String(sequence).padStart(3, '0')}`;
 
   const cleanFirstName = patientData?.firstName?.trim() || 'Patient';
@@ -273,7 +357,7 @@ export function createLocalToken(
   const cleanPhone = patientData?.phone?.trim() || '';
   const cleanUhid = patientData?.uhid?.trim() || null;
 
-  const patientId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `pat-${Date.now()}`;
+  const patientId = newId('pat');
   const patient: LocalPatient = {
     id: patientId,
     firstName: cleanFirstName,
@@ -283,7 +367,7 @@ export function createLocalToken(
   };
 
   const newToken: LocalToken = {
-    id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `tok-${Date.now()}`,
+    id: newId('tok'),
     tokenNumber,
     serviceDate: today,
     status: 'WAITING',
@@ -314,17 +398,24 @@ export function getLocalLiveQueue(departmentId: string) {
   const targetDeptId = dept.id;
   const today = getTodayString();
 
-  const todayTokens = tokens.filter(t => t.departmentId === targetDeptId && t.serviceDate === today);
+  // One pass over the token array instead of three chained filters, each of which
+  // allocated its own intermediate array.
+  const calledRaw: LocalToken[] = [];
+  const waitingRaw: LocalToken[] = [];
+
+  for (const t of tokens) {
+    if (t.departmentId !== targetDeptId || t.serviceDate !== today) continue;
+    if (t.status === 'CALLED') calledRaw.push(t);
+    else if (t.status === 'WAITING') waitingRaw.push(t);
+  }
 
   // Active called tokens (most recent per room)
-  const calledTokens = todayTokens
-    .filter(t => t.status === 'CALLED')
-    .sort((a, b) => new Date(b.calledAt || 0).getTime() - new Date(a.calledAt || 0).getTime());
+  const calledTokens = sortByCalledAtDesc(calledRaw);
 
   const roomDoctorMap = new Map<string, string>();
-  rooms.forEach(r => {
+  for (const r of rooms) {
     if (r.doctorName) roomDoctorMap.set(r.roomNumber, r.doctorName);
-  });
+  }
 
   const seenRooms = new Set<string>();
   const activeTokens = [];
@@ -348,14 +439,7 @@ export function getLocalLiveQueue(departmentId: string) {
   }
 
   // Waiting list (emergencies first, then issuedAt)
-  const waitingTokens = todayTokens
-    .filter(t => t.status === 'WAITING')
-    .sort((a, b) => {
-      const pOrder = { EMERGENCY: 3, SENIOR: 2, NORMAL: 1 };
-      const diff = (pOrder[b.priority] || 1) - (pOrder[a.priority] || 1);
-      if (diff !== 0) return diff;
-      return new Date(a.issuedAt).getTime() - new Date(b.issuedAt).getTime();
-    });
+  const waitingTokens = sortByQueueOrder(waitingRaw);
 
   return {
     department: dept.name,
@@ -364,41 +448,74 @@ export function getLocalLiveQueue(departmentId: string) {
   };
 }
 
-export function localCallNextPatient(departmentId: string, roomNumber: string): LocalToken | null {
+export function localCallNextPatient(departmentId: string, roomNumber: string, tokenIdentifier?: string): LocalToken | null {
   const tokens = getLocalTokens();
   const depts = getLocalDepartments();
   const dept = depts.find(d => d.id === departmentId) || depts[0] || DEFAULT_DEPARTMENTS[0];
   const targetDeptId = dept.id;
   const today = getTodayString();
 
-  // 1. Mark existing called patient in this room as COMPLETED
-  tokens.forEach(t => {
-    if (t.departmentId === targetDeptId && t.roomNumber === roomNumber && t.status === 'CALLED') {
+  const cleanIdentifier = tokenIdentifier?.replace(' 🚨', '').trim();
+
+  // 1. Mark existing called patient in this room as COMPLETED, and collect today's
+  //    waiting tokens in the same pass.
+  const completedAt = new Date().toISOString();
+  const waitingRaw: LocalToken[] = [];
+
+  for (const t of tokens) {
+    if (t.roomNumber === roomNumber && t.status === 'CALLED') {
       t.status = 'COMPLETED';
-      t.completedAt = new Date().toISOString();
+      t.completedAt = completedAt;
+      continue; // no longer WAITING
     }
-  });
+    if (t.departmentId === targetDeptId && t.serviceDate === today && t.status === 'WAITING') {
+      waitingRaw.push(t);
+    }
+  }
 
-  // 2. Find next waiting token
-  const waitingTokens = tokens
-    .filter(t => t.departmentId === targetDeptId && t.serviceDate === today && t.status === 'WAITING')
-    .sort((a, b) => {
-      const pOrder = { EMERGENCY: 3, SENIOR: 2, NORMAL: 1 };
-      const diff = (pOrder[b.priority] || 1) - (pOrder[a.priority] || 1);
-      if (diff !== 0) return diff;
-      return new Date(a.issuedAt).getTime() - new Date(b.issuedAt).getTime();
-    });
+  // 2. Find next waiting token or specifically requested token
+  let nextToken: LocalToken | undefined;
+  let targetId = cleanIdentifier;
 
-  if (waitingTokens.length === 0) {
+  // If no direct token specified, check if this room has staged tokens queued
+  if (!targetId) {
+    const staged = popNextFromRoomQueue(departmentId, roomNumber);
+    if (staged) {
+      targetId = staged.replace(' 🚨', '').trim();
+    }
+  }
+
+  if (targetId) {
+    const norm = targetId.toLowerCase();
+    
+    // Check in waitingRaw
+    nextToken = waitingRaw.find(t => t.id === targetId || (t.tokenNumber && t.tokenNumber.toLowerCase() === norm));
+    
+    // Check in all tokens for this department
+    if (!nextToken) {
+      nextToken = tokens.find(t => t.departmentId === targetDeptId && (t.id === targetId || (t.tokenNumber && t.tokenNumber.toLowerCase() === norm)));
+    }
+
+    // Check across all tokens regardless of department ID (handles seed/default UUID variations)
+    if (!nextToken) {
+      nextToken = tokens.find(t => t.id === targetId || (t.tokenNumber && t.tokenNumber.toLowerCase() === norm));
+    }
+  } else {
+    nextToken = sortByQueueOrder(waitingRaw)[0];
+  }
+
+  if (!nextToken) {
     saveLocalTokens(tokens);
     return null;
   }
 
-  const nextToken = waitingTokens[0];
   nextToken.status = 'CALLED';
   nextToken.roomNumber = roomNumber;
   nextToken.calledAt = new Date().toISOString();
   nextToken.recalledAt = null;
+  if (targetDeptId) {
+    nextToken.departmentId = targetDeptId;
+  }
 
   saveLocalTokens(tokens);
   return nextToken;
@@ -410,9 +527,9 @@ export function localRecallPatient(departmentId: string, roomNumber: string): Lo
   const dept = depts.find(d => d.id === departmentId) || depts[0] || DEFAULT_DEPARTMENTS[0];
   const targetDeptId = dept.id;
 
-  const activeToken = tokens
-    .filter(t => t.departmentId === targetDeptId && t.roomNumber === roomNumber && t.status === 'CALLED')
-    .sort((a, b) => new Date(b.calledAt || 0).getTime() - new Date(a.calledAt || 0).getTime())[0];
+  const activeToken = sortByCalledAtDesc(
+    tokens.filter(t => t.departmentId === targetDeptId && t.roomNumber === roomNumber && t.status === 'CALLED')
+  )[0];
 
   if (!activeToken) return null;
 
@@ -421,7 +538,11 @@ export function localRecallPatient(departmentId: string, roomNumber: string): Lo
   return activeToken;
 }
 
-export function localMarkTokenAction(tokenId: string, action: 'COMPLETE' | 'ABSENT' | 'NOT_AVAILABLE' | 'SKIP'): LocalToken | null {
+export function localMarkTokenAction(
+  tokenId: string,
+  action: 'COMPLETE' | 'ABSENT' | 'NOT_AVAILABLE' | 'SKIP',
+  passCount?: number
+): LocalToken | null {
   const tokens = getLocalTokens();
   const token = tokens.find(t => t.id === tokenId);
   if (!token) return null;
@@ -436,8 +557,33 @@ export function localMarkTokenAction(tokenId: string, action: 'COMPLETE' | 'ABSE
     token.roomNumber = null;
     token.calledAt = null;
     token.absentCount = (token.absentCount || 0) + 1;
-    // Push back in queue (timestamp + 10 mins)
-    token.issuedAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+
+    // Configurable pass count (defaults to stored pass count or 3)
+    const effectivePassCount = (typeof passCount === 'number' && passCount > 0)
+      ? passCount
+      : getStoredPassCount();
+
+    const today = getTodayString();
+    const otherWaiting = tokens.filter(t =>
+      t.id !== token.id &&
+      t.departmentId === token.departmentId &&
+      t.serviceDate === today &&
+      t.status === 'WAITING'
+    );
+    const sortedWaiting = sortByQueueOrder(otherWaiting);
+
+    if (sortedWaiting.length >= effectivePassCount) {
+      // Place after the Nth waiting token
+      const targetToken = sortedWaiting[effectivePassCount - 1];
+      token.issuedAt = new Date(new Date(targetToken.issuedAt).getTime() + 1000).toISOString();
+    } else if (sortedWaiting.length > 0) {
+      // Place at the very end of waiting list
+      const lastToken = sortedWaiting[sortedWaiting.length - 1];
+      token.issuedAt = new Date(new Date(lastToken.issuedAt).getTime() + 1000).toISOString();
+    } else {
+      // If no other tokens are waiting, push by 5 minutes
+      token.issuedAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+    }
   }
 
   saveLocalTokens(tokens);
@@ -449,19 +595,27 @@ export function localSearchTokens(query: string, departmentId?: string): LocalTo
   if (!query || !query.trim()) return [];
   const q = query.trim().toLowerCase();
 
-  return tokens
-    .filter(t => {
-      if (departmentId && t.departmentId !== departmentId) return false;
-      const tNum = (t.tokenNumber || '').toLowerCase();
-      const pFirst = (t.patient?.firstName || '').toLowerCase();
-      const pLast = (t.patient?.lastName || '').toLowerCase();
-      const pPhone = (t.patient?.phone || '').toLowerCase();
-      const pUhid = (t.patient?.uhid || '').toLowerCase();
+  // Fields are lowercased inline so `||` short-circuits: previously all five strings
+  // were allocated for every token even when the token number matched on the first test.
+  const matches = (t: LocalToken): boolean => {
+    if (departmentId && t.departmentId !== departmentId) return false;
+    if ((t.tokenNumber || '').toLowerCase().includes(q)) return true;
+    const patient = t.patient;
+    if (!patient) return false;
+    return (
+      (patient.firstName || '').toLowerCase().includes(q) ||
+      (patient.lastName || '').toLowerCase().includes(q) ||
+      (patient.phone || '').toLowerCase().includes(q) ||
+      (patient.uhid || '').toLowerCase().includes(q)
+    );
+  };
 
-      return tNum.includes(q) || pFirst.includes(q) || pLast.includes(q) || pPhone.includes(q) || pUhid.includes(q);
-    })
-    .sort((a, b) => new Date(b.issuedAt).getTime() - new Date(a.issuedAt).getTime())
-    .slice(0, 20);
+  return tokens
+    .filter(matches)
+    .map((token) => ({ token, issuedAt: new Date(token.issuedAt).getTime() }))
+    .sort((a, b) => b.issuedAt - a.issuedAt)
+    .slice(0, 20)
+    .map((entry) => entry.token);
 }
 
 export function getLocalTokenStatus(tokenNumber: string) {
@@ -475,32 +629,31 @@ export function getLocalTokenStatus(tokenNumber: string) {
   const dept = depts.find(d => d.id === token.departmentId);
   const departmentName = dept?.name || 'Department';
 
-  const todayDeptTokens = tokens.filter(
-    t => t.departmentId === token.departmentId && t.serviceDate === today
-  );
+  // Single pass: collect who is being served and count who is ahead at the same time.
+  // The caller's own issuedAt is parsed once here rather than once per comparison.
+  const isWaiting = token.status === 'WAITING';
+  const myWeight = PRIORITY_ORDER[token.priority] || 1;
+  const myIssuedAt = new Date(token.issuedAt).getTime();
 
-  // Currently serving (CALLED) tokens in this department
-  const currentlyServing = todayDeptTokens
-    .filter(t => t.status === 'CALLED')
-    .map(t => t.tokenNumber);
-
+  const currentlyServing: string[] = [];
   let patientsAhead = 0;
-  let estimatedWaitTimeMins = 0;
 
-  if (token.status === 'WAITING') {
-    const priorityWeight = { EMERGENCY: 3, SENIOR: 2, NORMAL: 1 };
-    const myWeight = priorityWeight[token.priority] || 1;
+  for (const t of tokens) {
+    if (t.departmentId !== token.departmentId || t.serviceDate !== today) continue;
 
-    patientsAhead = todayDeptTokens.filter(t => {
-      if (t.status !== 'WAITING') return false;
-      const tWeight = priorityWeight[t.priority] || 1;
-      if (tWeight > myWeight) return true;
-      if (tWeight === myWeight && new Date(t.issuedAt).getTime() < new Date(token.issuedAt).getTime()) return true;
-      return false;
-    }).length;
-
-    estimatedWaitTimeMins = patientsAhead * 5 + (currentlyServing.length > 0 ? 5 : 0);
+    if (t.status === 'CALLED') {
+      currentlyServing.push(t.tokenNumber);
+    } else if (isWaiting && t.status === 'WAITING') {
+      const tWeight = PRIORITY_ORDER[t.priority] || 1;
+      if (tWeight > myWeight || (tWeight === myWeight && new Date(t.issuedAt).getTime() < myIssuedAt)) {
+        patientsAhead++;
+      }
+    }
   }
+
+  const estimatedWaitTimeMins = isWaiting
+    ? patientsAhead * 5 + (currentlyServing.length > 0 ? 5 : 0)
+    : 0;
 
   return {
     tokenNumber: token.tokenNumber,
@@ -518,55 +671,75 @@ export function getLocalAnalytics(departmentId?: string, dateStr?: string) {
   const tokens = getLocalTokens();
   const targetDate = dateStr || getTodayString();
 
-  const filtered = tokens.filter(t => {
-    if (departmentId && t.departmentId !== departmentId) return false;
-    return t.serviceDate === targetDate;
-  });
+  // Previously this built a `filtered` array and then swept it twelve more times, once
+  // per statistic, allocating an intermediate array each time. Everything below is
+  // accumulated in a single pass; sums are added in the same left-to-right order the
+  // old `reduce` used, so the rounded averages come out bit-for-bit identical.
+  let totalGenerated = 0;
+  let completedCount = 0;
+  let waitingCount = 0;
+  let calledCount = 0;
+  let absentCount = 0;
+  let skippedCount = 0;
+  let emergency = 0;
+  let senior = 0;
+  let normal = 0;
 
-  const totalGenerated = filtered.length;
-  const completed = filtered.filter(t => t.status === 'COMPLETED');
-  const waiting = filtered.filter(t => t.status === 'WAITING');
-  const called = filtered.filter(t => t.status === 'CALLED');
-  const absent = filtered.filter(t => t.status === 'ABSENT');
-  const skipped = filtered.filter(t => t.status === 'SKIPPED');
-
-  const priorityCounts = {
-    emergency: filtered.filter(t => t.priority === 'EMERGENCY').length,
-    senior: filtered.filter(t => t.priority === 'SENIOR').length,
-    normal: filtered.filter(t => t.priority === 'NORMAL').length,
-  };
-
-  const waitTimes = filtered
-    .filter(t => t.calledAt && t.issuedAt)
-    .map(t => (new Date(t.calledAt!).getTime() - new Date(t.issuedAt).getTime()) / (1000 * 60));
-
-  const avgWaitTimeMins = waitTimes.length > 0 ? Math.round(waitTimes.reduce((a, b) => a + b, 0) / waitTimes.length) : 0;
-
-  const consultationTimes = completed
-    .filter(t => t.calledAt && t.completedAt)
-    .map(t => (new Date(t.completedAt!).getTime() - new Date(t.calledAt!).getTime()) / (1000 * 60));
-
-  const avgConsultationTimeMins =
-    consultationTimes.length > 0 ? Math.round(consultationTimes.reduce((a, b) => a + b, 0) / consultationTimes.length) : 0;
+  let waitTimeTotal = 0;
+  let waitTimeCount = 0;
+  let consultationTotal = 0;
+  let consultationCount = 0;
 
   const hourlyDistribution: Record<string, number> = {};
   for (let h = 8; h <= 18; h++) {
     hourlyDistribution[`${String(h).padStart(2, '0')}:00`] = 0;
   }
-  filtered.forEach(t => {
-    const hr = `${String(new Date(t.issuedAt).getHours()).padStart(2, '0')}:00`;
+
+  const roomStatsMap = new Map<string, number>();
+
+  for (const t of tokens) {
+    if (departmentId && t.departmentId !== departmentId) continue;
+    if (t.serviceDate !== targetDate) continue;
+
+    totalGenerated++;
+
+    const isCompleted = t.status === 'COMPLETED';
+    if (isCompleted) completedCount++;
+    else if (t.status === 'WAITING') waitingCount++;
+    else if (t.status === 'CALLED') calledCount++;
+    else if (t.status === 'ABSENT') absentCount++;
+    else if (t.status === 'SKIPPED') skippedCount++;
+
+    if (t.priority === 'EMERGENCY') emergency++;
+    else if (t.priority === 'SENIOR') senior++;
+    else if (t.priority === 'NORMAL') normal++;
+
+    // Parsed once and reused for the wait time, the consultation time and the hour bucket.
+    const issuedAt = new Date(t.issuedAt);
+    const calledAtMs = t.calledAt ? new Date(t.calledAt).getTime() : 0;
+
+    if (t.calledAt && t.issuedAt) {
+      waitTimeTotal += (calledAtMs - issuedAt.getTime()) / 60_000;
+      waitTimeCount++;
+    }
+
+    if (isCompleted && t.calledAt && t.completedAt) {
+      consultationTotal += (new Date(t.completedAt).getTime() - calledAtMs) / 60_000;
+      consultationCount++;
+    }
+
+    const hr = `${String(issuedAt.getHours()).padStart(2, '0')}:00`;
     if (hourlyDistribution[hr] !== undefined) {
       hourlyDistribution[hr]++;
     }
-  });
 
-  const roomStatsMap = new Map<string, number>();
-  completed.forEach(t => {
-    const r = t.roomNumber || '101';
-    roomStatsMap.set(r, (roomStatsMap.get(r) || 0) + 1);
-  });
+    if (isCompleted) {
+      const r = t.roomNumber || '101';
+      roomStatsMap.set(r, (roomStatsMap.get(r) || 0) + 1);
+    }
+  }
 
-  const roomStats = Array.from(roomStatsMap.entries()).map(([roomNumber, totalServed]) => ({
+  const roomStats = Array.from(roomStatsMap, ([roomNumber, totalServed]) => ({
     roomNumber,
     totalServed,
   }));
@@ -574,14 +747,15 @@ export function getLocalAnalytics(departmentId?: string, dateStr?: string) {
   return {
     date: targetDate,
     totalGenerated,
-    completedCount: completed.length,
-    waitingCount: waiting.length,
-    calledCount: called.length,
-    absentCount: absent.length,
-    skippedCount: skipped.length,
-    priorityCounts,
-    avgWaitTimeMins,
-    avgConsultationTimeMins,
+    completedCount,
+    waitingCount,
+    calledCount,
+    absentCount,
+    skippedCount,
+    priorityCounts: { emergency, senior, normal },
+    avgWaitTimeMins: waitTimeCount > 0 ? Math.round(waitTimeTotal / waitTimeCount) : 0,
+    avgConsultationTimeMins:
+      consultationCount > 0 ? Math.round(consultationTotal / consultationCount) : 0,
     hourlyDistribution,
     roomStats,
   };

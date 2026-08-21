@@ -2,9 +2,19 @@
 
 import Link from 'next/link';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
-import { Suspense, useEffect } from 'react';
+import { Suspense, useState, useEffect, useRef } from 'react';
 import { useDepartmentStore } from '../store/useDepartmentStore';
-import { Building2, ChevronDown } from 'lucide-react';
+import {
+  Building2, ChevronDown, Eye, Sliders, Check, X, RotateCcw,
+  LayoutGrid, Users, Stethoscope, Zap, Sparkles, Layers
+} from 'lucide-react';
+import {
+  UiVisibilitySettings,
+  DEFAULT_UI_SETTINGS,
+  getUiVisibilitySettings,
+  setUiVisibilitySettings,
+  resetUiVisibilitySettings
+} from '../lib/uiSettings';
 
 function NavbarContent() {
   const pathname = usePathname();
@@ -12,12 +22,26 @@ function NavbarContent() {
   const router = useRouter();
 
   const urlDeptId = searchParams.get('deptId');
-  const { selectedDeptId, departments, isLoaded, setSelectedDeptId, loadDepartments, getEffectiveDeptId } = useDepartmentStore();
+  const { selectedDeptId, departments, setSelectedDeptId, loadDepartments, getEffectiveDeptId } = useDepartmentStore();
 
   const activeDeptId = getEffectiveDeptId(urlDeptId);
 
+  const [uiSettings, setUiSettingsState] = useState<UiVisibilitySettings>(DEFAULT_UI_SETTINGS);
+  const [isShowUiOpen, setIsShowUiOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     loadDepartments(urlDeptId);
+    setUiSettingsState(getUiVisibilitySettings());
+
+    const handleUpdate = () => {
+      setUiSettingsState(getUiVisibilitySettings());
+    };
+
+    window.addEventListener('opd-ui-visibility-updated', handleUpdate);
+    return () => {
+      window.removeEventListener('opd-ui-visibility-updated', handleUpdate);
+    };
   }, [urlDeptId, loadDepartments]);
 
   // Keep store in sync if URL has a valid deptId
@@ -26,6 +50,21 @@ function NavbarContent() {
       setSelectedDeptId(urlDeptId);
     }
   }, [urlDeptId, selectedDeptId, setSelectedDeptId]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsShowUiOpen(false);
+      }
+    }
+    if (isShowUiOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isShowUiOpen]);
 
   // Hide Navbar completely on the patient page as requested
   if (pathname.startsWith('/patient')) {
@@ -46,6 +85,18 @@ function NavbarContent() {
     }
   };
 
+  const handleToggle = (key: keyof UiVisibilitySettings) => {
+    const updated = setUiVisibilitySettings({
+      [key]: !uiSettings[key],
+    });
+    setUiSettingsState(updated);
+  };
+
+  const handleResetAll = () => {
+    const res = resetUiVisibilitySettings();
+    setUiSettingsState(res);
+  };
+
   const links = [
     { href: '/', label: 'Home' },
     { href: '/registration', label: 'Registration' },
@@ -58,7 +109,7 @@ function NavbarContent() {
   return (
     <nav className="sticky top-0 z-50 border-b border-slate-800 bg-slate-950/90 backdrop-blur-md print:hidden">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16 gap-4">
+        <div className="flex items-center justify-between h-16 gap-3">
           
           {/* Brand Logo */}
           <div className="flex-shrink-0 flex items-center">
@@ -69,7 +120,7 @@ function NavbarContent() {
           </div>
 
           {/* Department Quick Switcher */}
-          {pathname !== '/' && pathname !== '/settings' && departments.length > 0 && (
+          {uiSettings.showDeptSwitcher && pathname !== '/' && pathname !== '/settings' && departments.length > 0 && (
             <div className="relative flex items-center">
               <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-700/80 hover:border-slate-600 rounded-xl px-3 py-1.5 text-xs text-slate-200 transition-all shadow-inner">
                 <Building2 className="w-3.5 h-3.5 text-blue-400 shrink-0" />
@@ -90,26 +141,214 @@ function NavbarContent() {
             </div>
           )}
 
-          {/* Navigation Links */}
-          <div className="flex overflow-x-auto scrollbar-none">
-            <div className="flex items-baseline space-x-1 sm:space-x-2 md:space-x-3">
-              {links.map((link) => {
-                const isActive = pathname === link.href || (link.href !== '/' && pathname.startsWith(link.href));
-                return (
-                  <Link
-                    key={link.href}
-                    href={getHref(link.href)}
-                    className={`whitespace-nowrap px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-200 ${
-                      isActive
-                        ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
-                        : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
-                    }`}
-                  >
-                    {link.label}
-                  </Link>
-                );
-              })}
+          {/* Right Section: Show UI Dropdown Button + Navigation Links */}
+          <div className="flex items-center gap-2 sm:gap-3">
+            
+            {/* Show UI Controls Dropdown */}
+            <div className="relative" ref={menuRef}>
+              <button
+                type="button"
+                onClick={() => setIsShowUiOpen(!isShowUiOpen)}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer shadow-xs ${
+                  isShowUiOpen
+                    ? 'bg-blue-600 border-blue-500 text-white shadow-md shadow-blue-500/25'
+                    : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-700/80 hover:border-slate-600'
+                }`}
+                title="Customize which UI sections are visible"
+              >
+                <Eye size={14} className={isShowUiOpen ? 'text-white' : 'text-blue-400'} />
+                <span>Show UI</span>
+                <ChevronDown size={12} className={`transition-transform duration-200 ${isShowUiOpen ? 'rotate-180 text-white' : 'text-slate-400'}`} />
+              </button>
+
+              {/* Show UI Popover Modal / Menu */}
+              {isShowUiOpen && (
+                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl p-5 z-50 animate-in fade-in zoom-in-95 duration-150 text-white flex flex-col gap-4">
+                  
+                  {/* Header */}
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 bg-blue-500/20 text-blue-400 rounded-lg">
+                        <Layers size={16} />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-black text-white">Customize Visible UI</h3>
+                        <p className="text-[11px] text-slate-400">Uncheck to hide sections across the app</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setIsShowUiOpen(false)}
+                      className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+
+                  {/* Checkbox Items */}
+                  <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                    
+                    {/* 1. Waiting Queue Sidebar */}
+                    <label className="flex items-start gap-3 p-2.5 rounded-2xl bg-slate-950/60 hover:bg-slate-950 border border-slate-800/80 hover:border-slate-700 cursor-pointer transition-colors group">
+                      <input
+                        type="checkbox"
+                        checked={uiSettings.showQueueSidebar}
+                        onChange={() => handleToggle('showQueueSidebar')}
+                        className="mt-0.5 w-4 h-4 rounded text-blue-600 bg-slate-900 border-slate-700 focus:ring-blue-500 focus:ring-offset-slate-900 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <p className="text-xs font-bold text-white group-hover:text-blue-300 transition-colors flex items-center gap-1.5">
+                          <Users size={13} className="text-blue-400" />
+                          Waiting Line Queue Sidebar
+                        </p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          Show the left waiting line queue and drag-and-drop panel in Doctor Room. Uncheck for full-screen room cards.
+                        </p>
+                      </div>
+                    </label>
+
+                    {/* 2. Room Staged Queues */}
+                    <label className="flex items-start gap-3 p-2.5 rounded-2xl bg-slate-950/60 hover:bg-slate-950 border border-slate-800/80 hover:border-slate-700 cursor-pointer transition-colors group">
+                      <input
+                        type="checkbox"
+                        checked={uiSettings.showRoomStagedQueue}
+                        onChange={() => handleToggle('showRoomStagedQueue')}
+                        className="mt-0.5 w-4 h-4 rounded text-blue-600 bg-slate-900 border-slate-700 focus:ring-blue-500 focus:ring-offset-slate-900 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <p className="text-xs font-bold text-white group-hover:text-blue-300 transition-colors flex items-center gap-1.5">
+                          <LayoutGrid size={13} className="text-indigo-400" />
+                          Room Staged Patient Queues
+                        </p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          Show the dedicated upcoming patient staging strip inside consultation room cards.
+                        </p>
+                      </div>
+                    </label>
+
+                    {/* 3. Auto-Call Controls */}
+                    <label className="flex items-start gap-3 p-2.5 rounded-2xl bg-slate-950/60 hover:bg-slate-950 border border-slate-800/80 hover:border-slate-700 cursor-pointer transition-colors group">
+                      <input
+                        type="checkbox"
+                        checked={uiSettings.showAutoCallToggle}
+                        onChange={() => handleToggle('showAutoCallToggle')}
+                        className="mt-0.5 w-4 h-4 rounded text-blue-600 bg-slate-900 border-slate-700 focus:ring-blue-500 focus:ring-offset-slate-900 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <p className="text-xs font-bold text-white group-hover:text-blue-300 transition-colors flex items-center gap-1.5">
+                          <Zap size={13} className="text-emerald-400" />
+                          Auto-Call ⚡ Toggle Buttons
+                        </p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          Show the Auto-Call switch button on consultation room headers.
+                        </p>
+                      </div>
+                    </label>
+
+                    {/* 4. Doctor Names & Badges */}
+                    <label className="flex items-start gap-3 p-2.5 rounded-2xl bg-slate-950/60 hover:bg-slate-950 border border-slate-800/80 hover:border-slate-700 cursor-pointer transition-colors group">
+                      <input
+                        type="checkbox"
+                        checked={uiSettings.showDoctorNames}
+                        onChange={() => handleToggle('showDoctorNames')}
+                        className="mt-0.5 w-4 h-4 rounded text-blue-600 bg-slate-900 border-slate-700 focus:ring-blue-500 focus:ring-offset-slate-900 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <p className="text-xs font-bold text-white group-hover:text-blue-300 transition-colors flex items-center gap-1.5">
+                          <Stethoscope size={13} className="text-blue-400" />
+                          Doctor Names &amp; Badges
+                        </p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          Show assigned doctor names underneath room numbers.
+                        </p>
+                      </div>
+                    </label>
+
+                    {/* 5. Header Quick Actions & Metrics */}
+                    <label className="flex items-start gap-3 p-2.5 rounded-2xl bg-slate-950/60 hover:bg-slate-950 border border-slate-800/80 hover:border-slate-700 cursor-pointer transition-colors group">
+                      <input
+                        type="checkbox"
+                        checked={uiSettings.showQuickActions}
+                        onChange={() => handleToggle('showQuickActions')}
+                        className="mt-0.5 w-4 h-4 rounded text-blue-600 bg-slate-900 border-slate-700 focus:ring-blue-500 focus:ring-offset-slate-900 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <p className="text-xs font-bold text-white group-hover:text-blue-300 transition-colors flex items-center gap-1.5">
+                          <Sparkles size={13} className="text-amber-400" />
+                          Header Actions &amp; Pass (+N) Pill
+                        </p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          Show the Pass (+N) config pill and OPD Metrics button in room header.
+                        </p>
+                      </div>
+                    </label>
+
+                    {/* 6. Department Switcher */}
+                    <label className="flex items-start gap-3 p-2.5 rounded-2xl bg-slate-950/60 hover:bg-slate-950 border border-slate-800/80 hover:border-slate-700 cursor-pointer transition-colors group">
+                      <input
+                        type="checkbox"
+                        checked={uiSettings.showDeptSwitcher}
+                        onChange={() => handleToggle('showDeptSwitcher')}
+                        className="mt-0.5 w-4 h-4 rounded text-blue-600 bg-slate-900 border-slate-700 focus:ring-blue-500 focus:ring-offset-slate-900 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <p className="text-xs font-bold text-white group-hover:text-blue-300 transition-colors flex items-center gap-1.5">
+                          <Building2 size={13} className="text-cyan-400" />
+                          Navbar Department Switcher
+                        </p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          Show the active department selector dropdown in the top navbar.
+                        </p>
+                      </div>
+                    </label>
+
+                  </div>
+
+                  {/* Footer */}
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-800 text-xs">
+                    <button
+                      type="button"
+                      onClick={handleResetAll}
+                      className="text-slate-400 hover:text-white flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <RotateCcw size={12} />
+                      <span>Reset All</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsShowUiOpen(false)}
+                      className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold transition-colors cursor-pointer"
+                    >
+                      Done
+                    </button>
+                  </div>
+
+                </div>
+              )}
             </div>
+
+            {/* Navigation Links */}
+            <div className="flex overflow-x-auto scrollbar-none">
+              <div className="flex items-baseline space-x-1 sm:space-x-2 md:space-x-3">
+                {links.map((link) => {
+                  const isActive = pathname === link.href || (link.href !== '/' && pathname.startsWith(link.href));
+                  return (
+                    <Link
+                      key={link.href}
+                      href={getHref(link.href)}
+                      className={`whitespace-nowrap px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-200 ${
+                        isActive
+                          ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                          : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
+                      }`}
+                    >
+                      {link.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+
           </div>
 
         </div>
