@@ -1,431 +1,479 @@
 "use client";
-import React, { useState, useEffect, useCallback, useTransition } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useTransition } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import { Search, Calendar, AlertCircle, Languages } from 'lucide-react';
+import { getTokenStatus, type TokenStatusResponse, type TokenStatusValue } from '../../lib/api';
+import { useNetwork } from '../NetworkProvider';
 import {
-  Search, Clock, AlertTriangle, CheckCircle2, User,
-  Calendar, RefreshCw, Building2, MapPin, Sparkles, CheckCircle, AlertCircle, ArrowRight
-} from 'lucide-react';
-import { getTokenStatus } from '../../lib/api';
+  t, getTodayString, formatDateDisplay, getPatientLang, setPatientLang, isPatientLang,
+  PATIENT_LANGS, LANG_LABELS, LANG_NAMES, type PatientLang,
+} from '../../lib/patientI18n';
+import {
+  isAlertsEnabled, isVoiceEnabled, setVoiceEnabled,
+  enableAlerts, disableAlerts, probeCapabilities, notifyTurn, notifyAlmostThere, testAlert,
+  type AlertCapabilities,
+} from '../../lib/patientAlerts';
+import StatusCard from './StatusCard';
+import QueueStrip from './QueueStrip';
+import AlertOptIn from './AlertOptIn';
 
-function getTodayString(): string {
-  try {
-    return new Intl.DateTimeFormat('en-CA').format(new Date());
-  } catch {
-    return new Date().toISOString().split('T')[0];
-  }
+/** Patients this close to the front get a heads-up to walk back to the waiting area. */
+const ALMOST_THERE_THRESHOLD = 2;
+
+/** Slowest cadence a backgrounded tab is polled at, and only when alerts are on. */
+const HIDDEN_POLL_MS = 15_000;
+
+type FetchMode = 'initial' | 'manual' | 'background';
+
+/**
+ * How often to re-check, given how close the patient is to being seen.
+ *
+ * The previous version polled every 10s regardless. That is too slow for someone who is
+ * next and far too fast for someone with thirty people ahead — and this route is the most
+ * frequently executed query in the system, so the difference is not academic.
+ */
+function basePollDelayMs(status: TokenStatusValue, patientsAhead: number): number {
+  // A doctor can re-call an absent or skipped token — queue/next accepts a token
+  // identifier and does not filter on status — so these screens must keep listening
+  // rather than freeze forever, just slowly.
+  if (status === 'ABSENT' || status === 'SKIPPED') return 60_000;
+  if (status === 'CALLED' || status === 'IN_PROGRESS') return 10_000;
+  if (patientsAhead <= ALMOST_THERE_THRESHOLD) return 5_000;
+  if (patientsAhead <= 10) return 10_000;
+  return 20_000;
 }
 
-function formatDateDisplay(dateStr: string): string {
-  try {
-    if (!dateStr) return '';
-    const [y, m, d] = dateStr.split('-').map(Number);
-    const dateObj = new Date(Date.UTC(y, m - 1, d));
-    const todayStr = getTodayString();
-    const isToday = dateStr === todayStr;
-    const formatted = dateObj.toLocaleDateString('en-GB', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-      timeZone: 'UTC',
-    });
-    return isToday ? `Today (${formatted})` : formatted;
-  } catch {
-    return dateStr;
-  }
+/** Returns null when polling should stop entirely. */
+function pollDelayMs(
+  status: TokenStatusValue | null,
+  patientsAhead: number,
+  hidden: boolean,
+  alertsEnabled: boolean,
+): number | null {
+  if (!status || status === 'COMPLETED') return null;
+
+  const base = basePollDelayMs(status, patientsAhead);
+  if (!hidden) return base;
+  // A hidden tab with no alerts to deliver has no reason to keep a patient's phone busy.
+  // With alerts on it holds a slow beat so the notification can still fire — mobile
+  // browsers throttle background timers hard, so that is best-effort by nature.
+  return alertsEnabled ? Math.max(base, HIDDEN_POLL_MS) : null;
 }
 
 export default function PatientTracker() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [, startTransition] = useTransition();
+  const { isOffline } = useNetwork();
 
+  const todayStr = getTodayString();
   const initialTokenParam = searchParams.get('token') || '';
-  const initialDateParam = searchParams.get('date') || getTodayString();
+  const initialDateParam = searchParams.get('date') || todayStr;
+  const langParam = searchParams.get('lang');
 
+  const [lang, setLang] = useState<PatientLang>('en');
   const [tokenInput, setTokenInput] = useState(initialTokenParam);
   const [dateInput, setDateInput] = useState(initialDateParam);
   const [activeToken, setActiveToken] = useState('');
   const [activeDate, setActiveDate] = useState('');
-  const [statusData, setStatusData] = useState<any>(null);
+  const [statusData, setStatusData] = useState<TokenStatusResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [pollFailing, setPollFailing] = useState(false);
+  const [nowTs, setNowTs] = useState(() => Date.now());
 
-  const todayStr = getTodayString();
+  const [alertsOn, setAlertsOn] = useState(false);
+  const [voiceOn, setVoiceOn] = useState(false);
+  const [capabilities, setCapabilities] = useState<AlertCapabilities | null>(null);
 
-  const fetchStatus = useCallback(async (token: string, date: string, isManualRefresh = false) => {
-    if (!token.trim()) return;
-    if (isManualRefresh) {
-      setIsRefreshing(true);
-    } else {
-      setIsLoading(true);
-    }
-    setError('');
+  const prevStatusRef = useRef<TokenStatusValue | null>(null);
+  const almostThereFiredRef = useRef(false);
+  const pollGenerationRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
-    const cleanToken = token.trim().toUpperCase();
-    const cleanDate = date.trim() || todayStr;
+  // localStorage is client-only, so the stored language and alert preferences are picked
+  // up after mount rather than during the first render.
+  useEffect(() => {
+    setLang(isPatientLang(langParam) ? langParam : getPatientLang());
+    setAlertsOn(isAlertsEnabled());
+    setVoiceOn(isVoiceEnabled());
+    setCapabilities(probeCapabilities());
+  }, [langParam]);
 
-    try {
-      const data = await getTokenStatus(cleanToken, cleanDate);
-      setStatusData(data);
-      setActiveToken(cleanToken);
-      setActiveDate(cleanDate);
-      setLastUpdated(new Date());
-    } catch (err: any) {
-      console.error('Failed to fetch token status:', err);
-      setError(`Token "${cleanToken}" not found for ${formatDateDisplay(cleanDate)}. Please verify your token number or select the date when your token was generated.`);
-      setStatusData(null);
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
-  }, [todayStr]);
+  useEffect(() => {
+    document.documentElement.lang = lang;
+  }, [lang]);
 
-  // Initial load if query parameters are present
+  const changeLang = (next: PatientLang) => {
+    setLang(next);
+    setPatientLang(next);
+  };
+
+  const fetchStatus = useCallback(
+    async (token: string, date: string, mode: FetchMode) => {
+      if (!token.trim()) return;
+
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      if (mode === 'initial') setIsLoading(true);
+      else setIsRefreshing(true);
+      if (mode !== 'background') setError('');
+
+      const cleanToken = token.trim().toUpperCase();
+      const cleanDate = date.trim() || getTodayString();
+
+      try {
+        const data = await getTokenStatus(cleanToken, cleanDate, controller.signal);
+        setStatusData(data);
+        setActiveToken(cleanToken);
+        setActiveDate(cleanDate);
+        setLastUpdated(new Date());
+        setPollFailing(false);
+        setError('');
+      } catch (err: any) {
+        if (err?.name === 'AbortError') return;
+
+        // A dropped background poll is a connectivity blip, not a missing token. Wiping
+        // the card here — which the previous version did — replaced a patient's live
+        // status with "token not found" on a single flaky tick of hospital wifi.
+        if (mode === 'background') {
+          setPollFailing(true);
+          return;
+        }
+
+        console.error('Failed to fetch token status:', err);
+        setError(t(lang, 'notFound', {
+          token: cleanToken,
+          date: formatDateDisplay(cleanDate, lang),
+        }));
+        setStatusData(null);
+      } finally {
+        // Only the request that is still current may clear the spinners. A superseded
+        // request (the patient hit Refresh while a poll was in flight) settles second and
+        // would otherwise switch the spinner off while its replacement is still running.
+        if (abortRef.current === controller) {
+          abortRef.current = null;
+          if (mode === 'initial') setIsLoading(false);
+          else setIsRefreshing(false);
+        }
+      }
+    },
+    [lang],
+  );
+
+  // Deep link from the printed token slip's QR code.
   useEffect(() => {
     if (initialTokenParam) {
-      fetchStatus(initialTokenParam, initialDateParam);
+      void fetchStatus(initialTokenParam, initialDateParam, 'initial');
     }
-  }, [initialTokenParam, initialDateParam, fetchStatus]);
+    // Deliberately not re-running when `fetchStatus` changes: it depends on `lang`, and
+    // switching language must not re-trigger the initial lookup.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialTokenParam, initialDateParam]);
+
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (tokenInput.trim()) {
-      const cleanToken = tokenInput.trim().toUpperCase();
-      const cleanDate = dateInput.trim() || todayStr;
+    if (!tokenInput.trim()) return;
 
-      // Update URL query parameters seamlessly
-      startTransition(() => {
-        const params = new URLSearchParams();
-        params.set('token', cleanToken);
-        if (cleanDate) params.set('date', cleanDate);
-        router.replace(`?${params.toString()}`, { scroll: false });
-      });
+    const cleanToken = tokenInput.trim().toUpperCase();
+    const cleanDate = dateInput.trim() || todayStr;
 
-      fetchStatus(cleanToken, cleanDate);
-    }
+    startTransition(() => {
+      const params = new URLSearchParams({ token: cleanToken, date: cleanDate });
+      router.replace(`?${params.toString()}`, { scroll: false });
+    });
+
+    void fetchStatus(cleanToken, cleanDate, 'initial');
   };
 
-  const handleSetToday = () => {
-    setDateInput(todayStr);
-  };
-
-  // Poll for updates every 10 seconds if a token is active and waiting or called
+  // A new token is a new queue: drop the previous token's alert latches so nothing
+  // carries over.
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (activeToken && (statusData?.status === 'WAITING' || statusData?.status === 'CALLED')) {
-      interval = setInterval(() => {
-        fetchStatus(activeToken, activeDate || todayStr, true);
-      }, 10000);
+    prevStatusRef.current = null;
+    almostThereFiredRef.current = false;
+  }, [activeToken, activeDate]);
+
+  const status = statusData?.status ?? null;
+  const patientsAhead = statusData?.patientsAhead ?? 0;
+
+  // Alerts fire on transitions only, latched in refs, so a repeated poll reporting the
+  // same call cannot alert twice.
+  useEffect(() => {
+    if (!statusData) return;
+
+    const previous = prevStatusRef.current;
+    const current = statusData.status;
+    prevStatusRef.current = current;
+
+    if (!alertsOn) return;
+
+    const isCalled = current === 'CALLED' || current === 'IN_PROGRESS';
+    const wasCalled = previous === 'CALLED' || previous === 'IN_PROGRESS';
+
+    // `previous === null` is the first observation of this token. The card already says
+    // it loudly on screen, and the patient is by definition looking at it.
+    if (isCalled && !wasCalled && previous !== null) {
+      void notifyTurn({
+        tokenNumber: statusData.tokenNumber,
+        roomNumber: statusData.roomNumber,
+        lang,
+        speak: voiceOn,
+      });
+      return;
     }
-    return () => {
-      if (interval) clearInterval(interval);
+
+    if (
+      current === 'WAITING' &&
+      statusData.patientsAhead <= ALMOST_THERE_THRESHOLD &&
+      !almostThereFiredRef.current
+    ) {
+      almostThereFiredRef.current = true;
+      void notifyAlmostThere(statusData.tokenNumber, statusData.patientsAhead, lang);
+    }
+  }, [statusData, alertsOn, voiceOn, lang]);
+
+  // Self-rescheduling poll: the next request is only queued once the previous one has
+  // settled, so a slow response (a sleeping Neon instance can take seconds to wake)
+  // cannot stack requests faster than they drain. Same approach as useQueueStore.
+  useEffect(() => {
+    if (!activeToken || !status) return;
+
+    const generation = ++pollGenerationRef.current;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const schedule = () => {
+      const delay = pollDelayMs(status, patientsAhead, document.hidden, alertsOn);
+      if (delay === null) return;
+      timer = setTimeout(() => void run(), delay);
     };
-  }, [activeToken, activeDate, statusData?.status, todayStr, fetchStatus]);
+
+    const run = async () => {
+      if (generation !== pollGenerationRef.current) return;
+      await fetchStatus(activeToken, activeDate || todayStr, 'background');
+      if (generation !== pollGenerationRef.current) return;
+      schedule();
+    };
+
+    // Returning to the tab should show current data at once, and restarts the chain if it
+    // stopped while hidden.
+    const onVisibility = () => {
+      if (document.hidden) return;
+      if (timer) clearTimeout(timer);
+      void run();
+    };
+
+    schedule();
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      // Retires any in-flight tick: it sees the changed generation and stops rescheduling.
+      pollGenerationRef.current++;
+      if (timer) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [activeToken, activeDate, status, patientsAhead, alertsOn, todayStr, fetchStatus]);
+
+  // Drives the "last updated N min ago" line while polls are failing.
+  useEffect(() => {
+    if (!statusData) return;
+    const interval = setInterval(() => setNowTs(Date.now()), 30_000);
+    return () => clearInterval(interval);
+  }, [statusData]);
+
+  const handleEnableAlerts = async () => {
+    // Switch the card over at once. Waiting on the chime and the permission prompt would
+    // leave the button looking dead for as long as the patient takes to answer.
+    setAlertsOn(true);
+    setCapabilities(await enableAlerts());
+  };
+
+  const handleDisableAlerts = () => {
+    disableAlerts();
+    setAlertsOn(false);
+  };
+
+  const handleToggleVoice = (next: boolean) => {
+    setVoiceEnabled(next);
+    setVoiceOn(next);
+  };
+
+  const isStale = pollFailing || isOffline;
+  const staleMins = lastUpdated ? Math.floor((nowTs - lastUpdated.getTime()) / 60_000) : 0;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 via-slate-100 to-slate-200 flex flex-col items-center p-4 sm:p-6 font-sans selection:bg-blue-500/30">
       <div className="w-full max-w-lg mt-4 sm:mt-8">
 
-        {/* Hospital Branding & Header */}
         <div className="text-center mb-6">
-          <div className="inline-flex items-center gap-2 bg-blue-50 border border-blue-200/80 px-3.5 py-1.5 rounded-full mb-3 shadow-xs">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span className="text-xs font-bold text-blue-900 tracking-wider uppercase">AIIMS Kalyani OPD</span>
+          <div className="inline-flex items-center gap-2 bg-blue-50 border border-blue-200/80 px-3.5 py-1.5 rounded-full mb-3">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 motion-safe:animate-pulse" />
+            <span className="text-xs font-bold text-blue-900 tracking-wider uppercase">
+              {t(lang, 'brand')}
+            </span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">Patient Queue Tracker</h1>
-          <p className="text-slate-500 text-xs sm:text-sm mt-1.5">Check your live queue position and estimated waiting time</p>
+
+          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+            {t(lang, 'title')}
+          </h1>
+          <p className="text-slate-600 text-sm mt-1.5">{t(lang, 'subtitle')}</p>
+
+          <div
+            className="mt-4 inline-flex items-center gap-1 bg-white border border-slate-200 rounded-full p-1 shadow-sm"
+            role="group"
+            aria-label={t(lang, 'languageLabel')}
+          >
+            <Languages size={15} className="text-slate-400 ml-2 mr-0.5 shrink-0" />
+            {PATIENT_LANGS.map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => changeLang(option)}
+                aria-pressed={lang === option}
+                aria-label={LANG_NAMES[option]}
+                className={`min-w-[52px] min-h-[36px] px-3 rounded-full text-sm font-bold transition-all ${
+                  lang === option
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                {LANG_LABELS[option]}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* Input Form */}
-        <div className="bg-white p-5 sm:p-6 rounded-3xl shadow-xl shadow-slate-200/60 border border-slate-100/80 mb-6 transition-all">
+        <div className="bg-white p-5 sm:p-6 rounded-3xl shadow-xl shadow-slate-200/60 border border-slate-100/80 mb-6">
           <form onSubmit={handleSubmit} className="space-y-4">
-            
-            {/* Token Number Input */}
             <div>
-              <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">
-                Token Number
+              <label
+                htmlFor="patient-token"
+                className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5"
+              >
+                {t(lang, 'tokenLabel')}
               </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={tokenInput}
-                  onChange={(e) => setTokenInput(e.target.value)}
-                  placeholder="e.g. MED-001 or OP-045"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3.5 text-slate-900 font-black text-lg focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all uppercase placeholder:text-slate-400 placeholder:font-normal"
-                  required
-                />
-              </div>
+              <input
+                id="patient-token"
+                type="text"
+                value={tokenInput}
+                onChange={(e) => setTokenInput(e.target.value)}
+                placeholder={t(lang, 'tokenPlaceholder')}
+                autoComplete="off"
+                autoCapitalize="characters"
+                className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3.5 text-slate-900 font-black text-lg focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all uppercase placeholder:text-slate-400 placeholder:font-normal placeholder:normal-case"
+                required
+              />
             </div>
 
-            {/* Date Input with Quick Today Toggle */}
             <div>
-              <div className="flex justify-between items-center mb-1.5">
-                <label className="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
+              <div className="flex justify-between items-center mb-1.5 gap-2">
+                <label
+                  htmlFor="patient-date"
+                  className="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5"
+                >
                   <Calendar size={14} className="text-slate-400" />
-                  Service Date
+                  {t(lang, 'dateLabel')}
                 </label>
                 {dateInput !== todayStr && (
                   <button
                     type="button"
-                    onClick={handleSetToday}
-                    className="text-xs font-bold text-blue-600 hover:text-blue-700 hover:underline"
+                    onClick={() => setDateInput(todayStr)}
+                    className="text-xs font-bold text-blue-600 hover:text-blue-700 hover:underline py-1"
                   >
-                    Reset to Today
+                    {t(lang, 'resetToday')}
                   </button>
                 )}
               </div>
               <div className="flex gap-2">
                 <input
+                  id="patient-date"
                   type="date"
                   value={dateInput}
                   onChange={(e) => setDateInput(e.target.value)}
-                  className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-slate-800 font-semibold text-sm focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
+                  className="flex-1 min-w-0 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-slate-800 font-semibold text-sm focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
                   required
                 />
                 <button
                   type="button"
-                  onClick={handleSetToday}
-                  className={`px-4 py-3 rounded-2xl text-xs font-bold transition-all border ${
+                  onClick={() => setDateInput(todayStr)}
+                  className={`shrink-0 px-4 min-h-[48px] rounded-2xl text-xs font-bold transition-all border ${
                     dateInput === todayStr
                       ? 'bg-blue-50 border-blue-200 text-blue-700'
                       : 'bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-700'
                   }`}
                 >
-                  Today
+                  {t(lang, 'today')}
                 </button>
               </div>
-              <p className="text-[11px] text-slate-400 mt-1.5">
-                Tokens reset daily at 00:00. Select the exact date your token was issued.
-              </p>
+              <p className="text-xs text-slate-500 mt-1.5">{t(lang, 'dateHint')}</p>
             </div>
 
-            {/* Submit Button */}
             <button
               type="submit"
               disabled={isLoading || !tokenInput.trim()}
-              className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-2xl py-4 font-bold shadow-lg shadow-blue-600/25 transition-all active:scale-[0.99] disabled:opacity-50 flex items-center justify-center gap-2"
+              className="w-full min-h-[52px] bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-2xl py-4 font-bold shadow-lg shadow-blue-600/25 transition-all active:scale-[0.99] disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {isLoading ? (
                 <>
                   <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <span>Searching Live Queue...</span>
+                  <span>{t(lang, 'searching')}</span>
                 </>
               ) : (
                 <>
                   <Search size={18} />
-                  <span>Track Token Status</span>
+                  <span>{t(lang, 'trackButton')}</span>
                 </>
               )}
             </button>
           </form>
 
-          {/* Error Message */}
           {error && (
-            <div className="mt-4 p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-start gap-3 text-rose-800 text-sm">
+            <div
+              role="alert"
+              className="mt-4 p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-start gap-3 text-rose-800 text-sm"
+            >
               <AlertCircle className="shrink-0 mt-0.5 text-rose-600" size={18} />
               <p className="leading-snug font-medium">{error}</p>
             </div>
           )}
         </div>
 
-        {/* Live Status Display Card */}
         {statusData && (
-          <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/70 border border-slate-100 overflow-hidden transition-all animate-in fade-in slide-in-from-bottom-2 duration-300">
-            
-            {/* Card Header with Status Theme */}
-            <div className={`p-6 text-center text-white relative overflow-hidden ${
-              statusData.status === 'WAITING'
-                ? 'bg-gradient-to-br from-blue-600 via-indigo-600 to-blue-700'
-                : statusData.status === 'CALLED'
-                ? 'bg-gradient-to-br from-emerald-600 via-teal-600 to-emerald-700'
-                : statusData.status === 'COMPLETED'
-                ? 'bg-gradient-to-br from-slate-700 via-slate-800 to-slate-900'
-                : 'bg-gradient-to-br from-amber-600 via-orange-600 to-amber-700'
-            }`}>
-              {/* Background ambient glow */}
-              <div className="absolute -top-12 -right-12 w-36 h-36 bg-white/10 rounded-full blur-2xl pointer-events-none" />
-              
-              <div className="flex justify-between items-center text-white/80 text-xs font-bold uppercase tracking-wider mb-2">
-                <span className="flex items-center gap-1">
-                  <Calendar size={13} />
-                  {formatDateDisplay(activeDate || todayStr)}
-                </span>
-                {statusData.priority && statusData.priority !== 'NORMAL' && (
-                  <span className="bg-white/20 backdrop-blur-md px-2.5 py-0.5 rounded-full text-[11px] font-black text-amber-200">
-                    ★ {statusData.priority}
-                  </span>
-                )}
+          <StatusCard
+            lang={lang}
+            data={statusData}
+            activeDate={activeDate || todayStr}
+            lastUpdated={lastUpdated}
+            isRefreshing={isRefreshing}
+            isStale={isStale}
+            staleMins={staleMins}
+            onRefresh={() => void fetchStatus(activeToken, activeDate || todayStr, 'manual')}
+            waitingExtras={
+              <div className="space-y-4">
+                <QueueStrip lang={lang} data={statusData} />
+                <AlertOptIn
+                  lang={lang}
+                  enabled={alertsOn}
+                  voice={voiceOn}
+                  capabilities={capabilities}
+                  onEnable={() => void handleEnableAlerts()}
+                  onDisable={handleDisableAlerts}
+                  onToggleVoice={handleToggleVoice}
+                  onTest={() => void testAlert(lang)}
+                />
               </div>
-
-              <p className="text-white/80 text-xs font-bold uppercase tracking-widest mt-1">Your Token</p>
-              <h2 className="text-5xl sm:text-6xl font-black tracking-tight drop-shadow-md my-1">
-                {statusData.tokenNumber}
-              </h2>
-
-              {/* Status Badge */}
-              <div className="mt-3 inline-flex items-center gap-2 bg-white/20 border border-white/20 px-4 py-1.5 rounded-full backdrop-blur-md font-bold text-sm shadow-xs">
-                {statusData.status === 'WAITING' && (
-                  <>
-                    <span className="w-2 h-2 rounded-full bg-amber-300 animate-ping"></span>
-                    <Clock size={16} /> In Queue (Waiting)
-                  </>
-                )}
-                {statusData.status === 'CALLED' && (
-                  <>
-                    <span className="w-2 h-2 rounded-full bg-white animate-bounce"></span>
-                    <CheckCircle2 size={16} /> Currently Serving
-                  </>
-                )}
-                {statusData.status === 'COMPLETED' && (
-                  <>
-                    <CheckCircle size={16} /> Consultation Completed
-                  </>
-                )}
-                {statusData.status === 'ABSENT' && (
-                  <>
-                    <AlertTriangle size={16} /> Marked Absent
-                  </>
-                )}
-                {statusData.status === 'SKIPPED' && (
-                  <>
-                    <AlertTriangle size={16} /> Skipped
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Status Details Body */}
-            <div className="p-6 space-y-5">
-              
-              {/* Department & Current Room/Serving Summary */}
-              <div className="bg-slate-50 rounded-2xl p-4 sm:p-5 border border-slate-100 grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-slate-400 text-[11px] font-bold uppercase tracking-wider flex items-center gap-1 mb-1">
-                    <Building2 size={12} /> Department
-                  </p>
-                  <p className="font-bold text-slate-800 text-sm sm:text-base leading-tight">
-                    {statusData.departmentName}
-                  </p>
-                  {statusData.roomNumber && (
-                    <p className="text-xs text-slate-500 font-medium mt-0.5">
-                      Room {statusData.roomNumber}
-                    </p>
-                  )}
-                </div>
-                <div className="text-right">
-                  <p className="text-slate-400 text-[11px] font-bold uppercase tracking-wider mb-1">
-                    Serving Now
-                  </p>
-                  <p className="font-black text-lg sm:text-xl text-blue-600 tracking-tight">
-                    {statusData.currentlyServing && statusData.currentlyServing.length > 0
-                      ? statusData.currentlyServing.join(', ')
-                      : 'None'}
-                  </p>
-                </div>
-              </div>
-
-              {/* Waiting Stats: Patients Ahead + Estimated Time */}
-              {statusData.status === 'WAITING' && (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-blue-50/70 rounded-2xl p-4 sm:p-5 border border-blue-100 text-center">
-                      <h4 className="text-3xl sm:text-4xl font-black text-blue-600 mb-1">
-                        {statusData.patientsAhead}
-                      </h4>
-                      <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">
-                        {statusData.patientsAhead === 1 ? 'Patient Ahead' : 'Patients Ahead'}
-                      </p>
-                    </div>
-                    <div className="bg-amber-50/70 rounded-2xl p-4 sm:p-5 border border-amber-200/80 text-center">
-                      <h4 className="text-3xl sm:text-4xl font-black text-amber-700 mb-1">
-                        ~{statusData.estimatedWaitTimeMins}
-                      </h4>
-                      <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">
-                        Estimated Mins
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Proximity Notice */}
-                  <div className="bg-amber-50/90 border border-amber-200 rounded-2xl p-4 flex gap-3 text-amber-900">
-                    <AlertTriangle className="shrink-0 text-amber-700 mt-0.5" size={18} />
-                    <p className="text-xs sm:text-sm font-medium leading-relaxed">
-                      Estimated wait time is an approximation. Please stay near <strong>{statusData.departmentName}</strong> waiting area as consultation times vary.
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Called State: Actionable Call to Proceed */}
-              {statusData.status === 'CALLED' && (
-                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-6 text-center text-emerald-900 shadow-xs animate-pulse">
-                  <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-3 text-emerald-700">
-                    <User size={26} />
-                  </div>
-                  <h3 className="font-black text-xl mb-1 text-emerald-800">It's your turn now!</h3>
-                  <p className="text-sm text-emerald-700">
-                    Please proceed immediately to{' '}
-                    <strong className="text-emerald-900 font-black underline">
-                      Room {statusData.roomNumber || 'assigned OPD room'}
-                    </strong>
-                    .
-                  </p>
-                </div>
-              )}
-
-              {/* Completed State */}
-              {statusData.status === 'COMPLETED' && (
-                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 text-center text-slate-700">
-                  <CheckCircle2 className="mx-auto mb-2 text-emerald-600" size={28} />
-                  <h3 className="font-bold text-base text-slate-800">Consultation Completed</h3>
-                  <p className="text-xs text-slate-500 mt-1">
-                    This token consultation has been concluded for {formatDateDisplay(activeDate || todayStr)}.
-                  </p>
-                </div>
-              )}
-
-              {/* Absent or Skipped State */}
-              {(statusData.status === 'ABSENT' || statusData.status === 'SKIPPED') && (
-                <div className="bg-rose-50 border border-rose-200 rounded-2xl p-5 text-center text-rose-800">
-                  <AlertTriangle className="mx-auto mb-2 text-rose-600" size={28} />
-                  <h3 className="font-bold text-base">Token Missed / On Hold</h3>
-                  <p className="text-xs text-rose-700 mt-1">
-                    Your token was called and was marked {statusData.status.toLowerCase()}. Please contact the registration counter or nursing desk.
-                  </p>
-                </div>
-              )}
-
-              {/* Live Polling & Manual Refresh Bar */}
-              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-blue-500 animate-ping" />
-                  <span>
-                    {lastUpdated
-                      ? `Updated ${lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
-                      : 'Live tracking active'}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => fetchStatus(activeToken, activeDate || todayStr, true)}
-                  disabled={isRefreshing}
-                  className="text-blue-600 hover:text-blue-700 font-bold flex items-center gap-1 hover:underline"
-                >
-                  <RefreshCw size={13} className={isRefreshing ? 'animate-spin' : ''} />
-                  <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
-                </button>
-              </div>
-
-            </div>
-          </div>
+            }
+          />
         )}
 
-        {/* Information & Help Footer */}
-        <div className="mt-8 text-center text-slate-400 text-xs space-y-1">
-          <p>AIIMS Kalyani OPD Automated Queue System</p>
-          <p>For queue queries or assistance, please visit the central OPD reception.</p>
+        <div className="mt-8 text-center text-slate-500 text-xs space-y-1">
+          <p>{t(lang, 'footerSystem')}</p>
+          <p>{t(lang, 'footerHelp')}</p>
         </div>
 
       </div>

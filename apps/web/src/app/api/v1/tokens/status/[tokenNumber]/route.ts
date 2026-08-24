@@ -1,9 +1,18 @@
 import { db } from '@/lib/db';
 import { ok, notFound, route } from '@/server/http';
 import { serviceDateFor } from '@/server/tokens/tokenNumber';
+import {
+  getServiceRate,
+  estimateWaitMins,
+  resolvePerPatientMins,
+  MIN_RELIABLE_SAMPLE,
+} from '@/server/queue/serviceRate';
 import type { TokenPriority } from '@/generated/prisma/enums';
 
 export const dynamic = 'force-dynamic';
+
+/** How many of the people immediately in front of the caller the response names. */
+const AHEAD_PREVIEW_LIMIT = 5;
 
 /**
  * Which priorities outrank each one. Replaces the weight table the old in-memory filter
@@ -68,10 +77,12 @@ export const GET = route(async (_request: Request, { params }: { params: Promise
   // Counted in the database rather than fetched and filtered in JS. Both counts and the
   // called-list query are independent, so they go out together: one round-trip phase
   // instead of three sequential ones.
-  const [calledTokens, aheadByPriority, aheadByArrival] = await Promise.all([
+  const [
+    calledTokens, aheadByPriority, aheadByArrival, aheadPreviewRaw, initiallyAhead, serviceRate,
+  ] = await Promise.all([
     db.token.findMany({
       where: { ...dateInDepartment, status: 'CALLED' },
-      select: { tokenNumber: true },
+      select: { tokenNumber: true, roomNumber: true },
     }),
     isWaiting && HIGHER_PRIORITIES[token.priority].length > 0
       ? db.token.count({
@@ -94,12 +105,38 @@ export const GET = route(async (_request: Request, { params }: { params: Promise
           },
         })
       : 0,
+    // The handful of people immediately in front of the caller, so the page can show the
+    // queue rather than only a count. Service order is [priority desc, issuedAt asc], so
+    // the nearest neighbours sit at the *end* of it — this reads that order backwards and
+    // takes the first few, then flips them back below.
+    isWaiting
+      ? db.token.findMany({
+          where: {
+            ...dateInDepartment,
+            status: 'WAITING',
+            OR: [
+              { priority: { in: HIGHER_PRIORITIES[token.priority] } },
+              { priority: token.priority, issuedAt: { lt: token.issuedAt } },
+            ],
+          },
+          orderBy: [{ priority: 'asc' }, { issuedAt: 'desc' }],
+          take: AHEAD_PREVIEW_LIMIT,
+          select: { tokenNumber: true, priority: true },
+        })
+      : ([] as { tokenNumber: string; priority: TokenPriority }[]),
+    // Everyone issued before this token today, whatever became of them. This is the
+    // denominator for "how far through the queue am I", and unlike a count taken when the
+    // page opened it does not reset every time the patient reloads.
+    db.token.count({
+      where: { ...dateInDepartment, issuedAt: { lt: token.issuedAt } },
+    }),
+    getServiceRate(token.departmentId, token.serviceDate),
   ]);
 
   const currentlyServing = calledTokens.map((t) => t.tokenNumber);
   const patientsAhead = aheadByPriority + aheadByArrival;
   const estimatedWaitTimeMins = isWaiting
-    ? patientsAhead * 5 + (currentlyServing.length > 0 ? 5 : 0)
+    ? estimateWaitMins(patientsAhead, serviceRate, currentlyServing.length > 0)
     : 0;
 
   return ok({
@@ -108,10 +145,32 @@ export const GET = route(async (_request: Request, { params }: { params: Promise
     priority: token.priority,
     serviceDate: token.serviceDate,
     issuedAt: token.issuedAt,
+    departmentId: token.departmentId,
     departmentName: token.department?.name || 'Department',
     roomNumber: token.roomNumber || token.doctor?.roomNumber || null,
     currentlyServing,
+    // Same tokens as `currentlyServing`, paired with where to find them. Kept alongside
+    // rather than replacing it: the offline mirror and the existing UI both read the
+    // flat list.
+    servingByRoom: calledTokens.map((t) => ({
+      tokenNumber: t.tokenNumber,
+      roomNumber: t.roomNumber || null,
+    })),
     patientsAhead: isWaiting ? patientsAhead : 0,
+    initiallyAhead,
+    // Reversed back into service order: front of the queue first, caller's immediate
+    // predecessor last.
+    aheadTokens: aheadPreviewRaw
+      .map((t) => (t.priority === 'EMERGENCY' ? `${t.tokenNumber} 🚨` : t.tokenNumber))
+      .reverse(),
     estimatedWaitTimeMins: isWaiting ? estimatedWaitTimeMins : 0,
+    // Lets the page explain the estimate instead of asserting it, and soften the wording
+    // when the day is too young for the average to mean anything.
+    etaBasis: {
+      avgConsultMins: resolvePerPatientMins(serviceRate),
+      activeRooms: serviceRate.activeRooms,
+      sampleSize: serviceRate.sampleSize,
+      isReliable: serviceRate.sampleSize >= MIN_RELIABLE_SAMPLE,
+    },
   });
 });

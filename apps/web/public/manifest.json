@@ -23,5 +23,25 @@
       "purpose": "any maskable"
     }
   ],
-  "categories": ["medical", "health", "productivity", "utilities"]
+  "categories": [
+    "medical",
+    "health",
+    "productivity",
+    "utilities"
+  ],
+  "shortcuts": [
+    {
+      "name": "Patient Queue Tracker",
+      "short_name": "My Token",
+      "description": "Track your OPD token position and waiting time",
+      "url": "/patient",
+      "icons": [
+        {
+          "src": "/icons/icon-192x192.svg",
+          "sizes": "192x192",
+          "type": "image/svg+xml"
+        }
+      ]
+    }
+  ]
 }

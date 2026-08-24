@@ -61,11 +61,56 @@ export async function markTokenAction(
   return response.json();
 }
 
-export async function getTokenStatus(tokenNumber: string, date?: string) {
+export type TokenStatusValue = 'WAITING' | 'CALLED' | 'IN_PROGRESS' | 'COMPLETED' | 'SKIPPED' | 'ABSENT';
+export type TokenPriorityValue = 'NORMAL' | 'SENIOR' | 'EMERGENCY';
+
+/**
+ * Shape returned by both `/tokens/status/:tokenNumber` and its offline mirror
+ * (`getLocalTokenStatus` in ./localStore). The two must stay in step — the patient page
+ * cannot tell which one answered it.
+ */
+export interface TokenStatusResponse {
+  tokenNumber: string;
+  status: TokenStatusValue;
+  priority: TokenPriorityValue;
+  serviceDate: string;
+  issuedAt: string;
+  departmentId: string;
+  departmentName: string;
+  roomNumber: string | null;
+  /** Token numbers currently being consulted anywhere in the department. */
+  currentlyServing: string[];
+  /** The same tokens, paired with the room to walk to. */
+  servingByRoom: { tokenNumber: string; roomNumber: string | null }[];
+  patientsAhead: number;
+  /**
+   * How many were issued before this token today, regardless of what became of them.
+   * The denominator for queue progress — stable across reloads, unlike a count taken
+   * when the page happened to be opened.
+   */
+  initiallyAhead: number;
+  /** Up to five tokens immediately in front of this one, in service order. */
+  aheadTokens: string[];
+  estimatedWaitTimeMins: number;
+  /** What the estimate was derived from, so the UI can explain or hedge it. */
+  etaBasis: {
+    avgConsultMins: number;
+    activeRooms: number;
+    sampleSize: number;
+    isReliable: boolean;
+  };
+}
+
+export async function getTokenStatus(
+  tokenNumber: string,
+  date?: string,
+  signal?: AbortSignal,
+): Promise<TokenStatusResponse> {
   const query = date ? `?date=${encodeURIComponent(date)}` : '';
   const response = await fetchWithOfflineSync(`${API_BASE_URL}/tokens/status/${encodeURIComponent(tokenNumber)}${query}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json' },
+    signal,
   });
   if (!response.ok) throw new Error('Failed to fetch token status');
   return response.json();

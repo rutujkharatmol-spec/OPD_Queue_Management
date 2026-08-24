@@ -268,7 +268,13 @@ export async function fetchWithOfflineSync(url: string | URL, options: RequestIn
 
     // Anything else — success, or a 4xx the client should see — passes straight through.
     return response;
-  } catch {
+  } catch (error) {
+    // A caller that abandoned its own request is not an outage. Without this, a poller
+    // that aborts a stale tick gets a synthetic local-store response back and treats it
+    // as fresh server data.
+    if (options.signal?.aborted || (error instanceof Error && error.name === 'AbortError')) {
+      throw error;
+    }
     // Network / DNS failure or server down
     return handleWithLocalStore(targetUrl, method, options);
   }

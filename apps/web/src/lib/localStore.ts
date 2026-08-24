@@ -646,23 +646,51 @@ export function getLocalTokenStatus(tokenNumber: string, dateStr?: string) {
   const myIssuedAt = new Date(token.issuedAt).getTime();
 
   const currentlyServing: string[] = [];
+  const servingByRoom: { tokenNumber: string; roomNumber: string | null }[] = [];
+  // The people in front of the caller, kept so the offline screen can show the same
+  // queue preview the server sends. Sorted into service order after the sweep.
+  const ahead: { tokenNumber: string; priority: string; weight: number; issuedAt: number }[] = [];
+  const activeRooms = new Set<string>();
   let patientsAhead = 0;
+  // Everyone issued before this token, whatever became of them — the denominator for
+  // "how far through the queue am I".
+  let initiallyAhead = 0;
 
   for (const t of tokens) {
     if (t.departmentId !== token.departmentId || t.serviceDate !== tokenDate) continue;
 
+    if (new Date(t.issuedAt).getTime() < myIssuedAt) initiallyAhead++;
+
     if (t.status === 'CALLED') {
       currentlyServing.push(t.tokenNumber);
+      servingByRoom.push({ tokenNumber: t.tokenNumber, roomNumber: t.roomNumber || null });
+      if (t.roomNumber) activeRooms.add(t.roomNumber);
     } else if (isWaiting && t.status === 'WAITING') {
       const tWeight = PRIORITY_ORDER[t.priority] || 1;
-      if (tWeight > myWeight || (tWeight === myWeight && new Date(t.issuedAt).getTime() < myIssuedAt)) {
+      const tIssuedAt = new Date(t.issuedAt).getTime();
+      if (tWeight > myWeight || (tWeight === myWeight && tIssuedAt < myIssuedAt)) {
         patientsAhead++;
+        ahead.push({ tokenNumber: t.tokenNumber, priority: t.priority, weight: tWeight, issuedAt: tIssuedAt });
       }
+    } else if (t.status === 'COMPLETED' && t.roomNumber) {
+      activeRooms.add(t.roomNumber);
     }
   }
 
+  // Service order: highest priority first, then earliest issued. The caller's immediate
+  // predecessors are the tail of that, which is what the preview shows.
+  ahead.sort((a, b) => (b.weight - a.weight) || (a.issuedAt - b.issuedAt));
+  const aheadTokens = ahead
+    .slice(-5)
+    .map((t) => (t.priority === 'EMERGENCY' ? `${t.tokenNumber} 🚨` : t.tokenNumber));
+
+  // No timing history is mirrored locally, so this stays on the flat default rather than
+  // inventing an average. `sampleSize: 0` tells the UI to say so.
+  const perPatientMins = 5;
+  const roomCount = Math.max(1, activeRooms.size);
   const estimatedWaitTimeMins = isWaiting
-    ? patientsAhead * 5 + (currentlyServing.length > 0 ? 5 : 0)
+    ? Math.ceil(patientsAhead / roomCount) * perPatientMins +
+      (currentlyServing.length > 0 ? Math.round(perPatientMins / 2) : 0)
     : 0;
 
   return {
@@ -671,11 +699,21 @@ export function getLocalTokenStatus(tokenNumber: string, dateStr?: string) {
     priority: token.priority,
     serviceDate: token.serviceDate,
     issuedAt: token.issuedAt,
+    departmentId: token.departmentId,
     departmentName,
     roomNumber: token.roomNumber || null,
     currentlyServing,
+    servingByRoom,
     patientsAhead: token.status === 'WAITING' ? patientsAhead : 0,
+    initiallyAhead,
+    aheadTokens: token.status === 'WAITING' ? aheadTokens : [],
     estimatedWaitTimeMins: token.status === 'WAITING' ? estimatedWaitTimeMins : 0,
+    etaBasis: {
+      avgConsultMins: perPatientMins,
+      activeRooms: roomCount,
+      sampleSize: 0,
+      isReliable: false,
+    },
   };
 }
 
