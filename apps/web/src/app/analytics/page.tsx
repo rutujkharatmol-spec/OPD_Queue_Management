@@ -14,7 +14,12 @@ import { useDepartmentStore } from '../../store/useDepartmentStore';
 function AnalyticsContent() {
   const searchParams = useSearchParams();
   const initialDeptId = searchParams.get('deptId');
-  const { selectedDeptId, departments, setSelectedDeptId, loadDepartments, getEffectiveDeptId } = useDepartmentStore();
+  // Narrow selectors: destructuring the hook subscribes to every store field.
+  const selectedDeptId = useDepartmentStore((state) => state.selectedDeptId);
+  const departments = useDepartmentStore((state) => state.departments);
+  const setSelectedDeptId = useDepartmentStore((state) => state.setSelectedDeptId);
+  const loadDepartments = useDepartmentStore((state) => state.loadDepartments);
+  const getEffectiveDeptId = useDepartmentStore((state) => state.getEffectiveDeptId);
 
   const deptId = getEffectiveDeptId(initialDeptId);
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);

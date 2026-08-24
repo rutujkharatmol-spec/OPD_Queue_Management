@@ -22,7 +22,13 @@ function NavbarContent() {
   const router = useRouter();
 
   const urlDeptId = searchParams.get('deptId');
-  const { selectedDeptId, departments, setSelectedDeptId, loadDepartments, getEffectiveDeptId } = useDepartmentStore();
+  // Narrow selectors: the navbar is mounted on every screen, so subscribing it to the
+  // whole store re-rendered it on any store write at all.
+  const selectedDeptId = useDepartmentStore((state) => state.selectedDeptId);
+  const departments = useDepartmentStore((state) => state.departments);
+  const setSelectedDeptId = useDepartmentStore((state) => state.setSelectedDeptId);
+  const loadDepartments = useDepartmentStore((state) => state.loadDepartments);
+  const getEffectiveDeptId = useDepartmentStore((state) => state.getEffectiveDeptId);
 
   const activeDeptId = getEffectiveDeptId(urlDeptId);
 

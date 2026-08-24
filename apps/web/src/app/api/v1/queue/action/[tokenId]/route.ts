@@ -13,14 +13,21 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
   if (!body.action) return badRequest('action is required.');
 
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tokenId);
+
+  // Only the three columns below are read, and the response returns the *updated* row,
+  // not this one. The previous `include: { patient: true, department: true }` joined and
+  // shipped both rows in full on every Complete / Absent / Pass click and then dropped
+  // them on the floor.
+  const TOKEN_LOOKUP_SELECT = { id: true, departmentId: true, serviceDate: true } as const;
+
   const token = isUuid
     ? await db.token.findUnique({
         where: { id: tokenId },
-        include: { patient: true, department: true },
+        select: TOKEN_LOOKUP_SELECT,
       })
     : await db.token.findFirst({
         where: { tokenNumber: tokenId, deletedAt: null },
-        include: { patient: true, department: true },
+        select: TOKEN_LOOKUP_SELECT,
       });
 
   if (!token) return notFound('Token not found.');
@@ -56,6 +63,8 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
       },
       orderBy: { issuedAt: 'asc' },
       take: passCount + 1,
+      // Only the timestamp is read below.
+      select: { issuedAt: true },
     });
 
     // If there are waiting tokens, place this token after the Nth one

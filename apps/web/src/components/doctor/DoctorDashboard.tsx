@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import {
   Home, Users, LogOut, CheckCircle, Clock, PauseCircle,
@@ -90,6 +90,72 @@ export default function DoctorDashboard() {
   const [editingRoomId, setEditingRoomId] = useState<string | null>(null);
   const [editRoomNumber, setEditRoomNumber] = useState('');
   const [editDoctorName, setEditDoctorName] = useState('');
+
+  /**
+   * Which room a waiting token is staged for, indexed once per change.
+   *
+   * The sidebar asked this question per waiting token, and answering it walked every
+   * room's staged list and re-normalised every entry — O(waiting x staged) string
+   * allocations on each of the 24 renders a minute the queue poll can produce. One
+   * pass over the staged lists builds the whole index instead.
+   */
+  const stagedRoomByToken = useMemo(() => {
+    const index = new Map<string, string>();
+    for (const room of Object.keys(roomStagedQueues)) {
+      for (const staged of roomStagedQueues[room] || []) {
+        const clean = staged.replace(' 🚨', '').trim();
+        // First room wins, matching the original `for…return` scan order.
+        if (!index.has(clean)) index.set(clean, room);
+      }
+    }
+    return index;
+  }, [roomStagedQueues]);
+
+  /** Active patient per room, so each room card is a lookup rather than a linear scan. */
+  const activeByRoom = useMemo(() => {
+    const index = new Map<string, any>();
+    for (const token of queueData.activeTokens || []) {
+      // First match wins, exactly as `Array.prototype.find` did.
+      if (!index.has(token.room)) index.set(token.room, token);
+    }
+    return index;
+  }, [queueData.activeTokens]);
+
+  /**
+   * Deferred UI resets, tracked so they can be cancelled.
+   *
+   * Every one of these timers used to outlive the component and fire a state update on
+   * an unmounted tree. The toast also keeps a single slot, so a second message is no
+   * longer cut short by the first message's expiry.
+   */
+  const timersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const later = useCallback((fn: () => void, ms: number) => {
+    const id = setTimeout(() => {
+      timersRef.current.delete(id);
+      fn();
+    }, ms);
+    timersRef.current.add(id);
+  }, []);
+
+  const showToast = useCallback((message: string, ms: number) => {
+    setToastMessage(message);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => {
+      toastTimerRef.current = null;
+      setToastMessage(null);
+    }, ms);
+  }, []);
+
+  useEffect(() => {
+    const timers = timersRef.current;
+    return () => {
+      timers.forEach((id) => clearTimeout(id));
+      timers.clear();
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
 
   const refreshRoomSettings = useCallback(() => {
     setRoomStagedQueues(getAllRoomStagedQueues(deptId));
@@ -190,8 +256,7 @@ export default function DoctorDashboard() {
       // If a specific/staged token was called, remove it from the staged queue
       if (cleanToken) {
         removeTokenFromRoomQueue(deptId, roomNumber, cleanToken);
-        setToastMessage(`Patient ${cleanToken} called into Room ${roomNumber}!`);
-        setTimeout(() => setToastMessage(null), 3500);
+        showToast(`Patient ${cleanToken} called into Room ${roomNumber}!`, 3500);
       }
       refreshRoomSettings();
       await useQueueStore.getState().fetchQueue(deptId);
@@ -208,7 +273,7 @@ export default function DoctorDashboard() {
     try {
       await recallPatient(deptId, roomNumber);
       setRecallSuccessRoom(roomNumber);
-      setTimeout(() => setRecallSuccessRoom(null), 2500);
+      later(() => setRecallSuccessRoom(null), 2500);
       await useQueueStore.getState().fetchQueue(deptId);
     } catch (err) {
       console.error('Failed to recall patient:', err);
@@ -225,7 +290,7 @@ export default function DoctorDashboard() {
 
       // Auto-Call trigger: automatically call next patient if enabled for this room
       if (roomNumber && autoCallRooms[roomNumber]) {
-        setTimeout(() => {
+        later(() => {
           handleCallNext(roomNumber);
         }, 750);
       }
@@ -239,15 +304,13 @@ export default function DoctorDashboard() {
     const newState = !autoCallRooms[roomNumber];
     setAutoCallRoom(deptId, roomNumber, newState);
     setAutoCallRooms((prev) => ({ ...prev, [roomNumber]: newState }));
-    setToastMessage(`Auto-Call for Room ${roomNumber} is now ${newState ? 'ENABLED ⚡' : 'DISABLED'}`);
-    setTimeout(() => setToastMessage(null), 3000);
+    showToast(`Auto-Call for Room ${roomNumber} is now ${newState ? 'ENABLED ⚡' : 'DISABLED'}`, 3000);
   };
 
   const handleAddPatientToRoomQueue = (roomNumber: string, token: string) => {
     addTokenToRoomQueue(deptId, roomNumber, token);
     refreshRoomSettings();
-    setToastMessage(`Patient ${token} added to Room ${roomNumber} queue!`);
-    setTimeout(() => setToastMessage(null), 3000);
+    showToast(`Patient ${token} added to Room ${roomNumber} queue!`, 3000);
   };
 
   const handleRemoveFromRoomQueue = (roomNumber: string, token: string) => {
@@ -268,7 +331,7 @@ export default function DoctorDashboard() {
     setPassCount(valid);
     setPassInputVal(String(valid));
     setPassSuccessMessage(`Queue pass count set to +${valid}`);
-    setTimeout(() => setPassSuccessMessage(null), 3000);
+    later(() => setPassSuccessMessage(null), 3000);
   };
 
   const handleResetPassCount = () => {
@@ -276,19 +339,12 @@ export default function DoctorDashboard() {
     setPassCount(DEFAULT_PASS_COUNT);
     setPassInputVal(String(DEFAULT_PASS_COUNT));
     setPassSuccessMessage(`Reset back to default (+${DEFAULT_PASS_COUNT})`);
-    setTimeout(() => setPassSuccessMessage(null), 3000);
+    later(() => setPassSuccessMessage(null), 3000);
   };
 
-  // Helper to find which room a token is staged for
-  const getStagedRoomForToken = (tokenStr: string): string | null => {
-    const clean = tokenStr.replace(' 🚨', '').trim();
-    for (const [room, list] of Object.entries(roomStagedQueues)) {
-      if ((list || []).some((t) => t.replace(' 🚨', '').trim() === clean)) {
-        return room;
-      }
-    }
-    return null;
-  };
+  // Which room a token is staged for — an index lookup, see `stagedRoomByToken` above.
+  const getStagedRoomForToken = (tokenStr: string): string | null =>
+    stagedRoomByToken.get(tokenStr.replace(' 🚨', '').trim()) ?? null;
 
   return (
     <div className="flex flex-col lg:flex-row min-h-screen w-full bg-slate-100 font-sans">
@@ -367,7 +423,10 @@ export default function DoctorDashboard() {
 
               return (
                 <div
-                  key={idx}
+                  // Keyed by token, not index: when the head of the queue is called, an
+                  // index key makes React rewrite every remaining row instead of
+                  // dropping one and reusing the rest.
+                  key={tokenStr}
                   draggable={true}
                   onDragStart={(e) => {
                     e.dataTransfer.setData('text/plain', tokenStr);
@@ -553,7 +612,7 @@ export default function DoctorDashboard() {
                 const isRecalling = recallingRoom === room.roomNumber;
                 const isRecallSuccess = recallSuccessRoom === room.roomNumber;
                 const isOver = dragOverRoom === room.roomNumber;
-                const activePatient = queueData.activeTokens?.find((t: any) => t.room === room.roomNumber);
+                const activePatient = activeByRoom.get(room.roomNumber);
                 const isAutoCallOn = Boolean(autoCallRooms[room.roomNumber]);
                 const stagedList = roomStagedQueues[room.roomNumber] || [];
 

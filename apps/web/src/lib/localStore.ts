@@ -618,16 +618,26 @@ export function localSearchTokens(query: string, departmentId?: string): LocalTo
     .map((entry) => entry.token);
 }
 
-export function getLocalTokenStatus(tokenNumber: string) {
+export function getLocalTokenStatus(tokenNumber: string, dateStr?: string) {
   const tokens = getLocalTokens();
   const depts = getLocalDepartments();
-  const today = getTodayString();
+  const targetDate = dateStr || getTodayString();
+  const normToken = (tokenNumber || '').trim().toLowerCase();
 
-  const token = tokens.find(t => t.tokenNumber === tokenNumber);
+  // Find token matching tokenNumber and date (or latest token if date not specified)
+  const token =
+    tokens.find((t) => (t.tokenNumber || '').toLowerCase() === normToken && t.serviceDate === targetDate) ||
+    (!dateStr
+      ? tokens
+          .filter((t) => (t.tokenNumber || '').toLowerCase() === normToken)
+          .sort((a, b) => new Date(b.issuedAt).getTime() - new Date(a.issuedAt).getTime())[0]
+      : null);
+
   if (!token) return null;
 
-  const dept = depts.find(d => d.id === token.departmentId);
+  const dept = depts.find((d) => d.id === token.departmentId);
   const departmentName = dept?.name || 'Department';
+  const tokenDate = token.serviceDate || targetDate;
 
   // Single pass: collect who is being served and count who is ahead at the same time.
   // The caller's own issuedAt is parsed once here rather than once per comparison.
@@ -639,7 +649,7 @@ export function getLocalTokenStatus(tokenNumber: string) {
   let patientsAhead = 0;
 
   for (const t of tokens) {
-    if (t.departmentId !== token.departmentId || t.serviceDate !== today) continue;
+    if (t.departmentId !== token.departmentId || t.serviceDate !== tokenDate) continue;
 
     if (t.status === 'CALLED') {
       currentlyServing.push(t.tokenNumber);
@@ -659,6 +669,8 @@ export function getLocalTokenStatus(tokenNumber: string) {
     tokenNumber: token.tokenNumber,
     status: token.status,
     priority: token.priority,
+    serviceDate: token.serviceDate,
+    issuedAt: token.issuedAt,
     departmentName,
     roomNumber: token.roomNumber || null,
     currentlyServing,

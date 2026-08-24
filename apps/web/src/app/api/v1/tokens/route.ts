@@ -23,7 +23,11 @@ export const POST = route(async (request: Request) => {
 
   if (!body.departmentId) return badRequest('A department is required to issue a token.');
 
-  const department = await db.department.findUnique({ where: { id: body.departmentId } });
+  // The four columns the rest of this handler reads.
+  const department = await db.department.findUnique({
+    where: { id: body.departmentId },
+    select: { id: true, name: true, code: true, deletedAt: true },
+  });
 
   // The NestJS version silently fell back to a department with code 'MED' when the id
   // did not resolve, so a bad id quietly issued a token for the wrong clinic. Better to

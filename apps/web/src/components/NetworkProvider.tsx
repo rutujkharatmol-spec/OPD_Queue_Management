@@ -1,7 +1,7 @@
 // src/components/NetworkProvider.tsx
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { getOfflineQueue, processOfflineQueue } from '../lib/offlineSync';
 import { WifiOff, RefreshCw, CheckCircle2, AlertTriangle } from 'lucide-react';
 
@@ -28,6 +28,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   const [pendingCount, setPendingCount] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const hideMessageTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Refresh current queue length
   const updatePendingCount = useCallback(() => {
@@ -56,12 +57,20 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       setSyncMessage('Sync failed. Will retry automatically.');
     } finally {
       setIsSyncing(false);
-      // Auto-hide success message after 4 seconds
-      setTimeout(() => {
+      // Auto-hide success message after 4 seconds. Tracked in a ref so a sync that
+      // finishes just before a navigation does not leave a timer running against an
+      // unmounted provider, and so back-to-back syncs do not stack hide timers.
+      if (hideMessageTimer.current) clearTimeout(hideMessageTimer.current);
+      hideMessageTimer.current = setTimeout(() => {
+        hideMessageTimer.current = null;
         setSyncMessage(null);
       }, 4000);
     }
   }, [updatePendingCount]);
+
+  useEffect(() => () => {
+    if (hideMessageTimer.current) clearTimeout(hideMessageTimer.current);
+  }, []);
 
   useEffect(() => {
     // Initial status

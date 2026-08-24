@@ -22,7 +22,10 @@ import {
 } from '../../lib/authStore';
 
 export default function SettingsPage() {
-  const { departments, loadDepartments } = useDepartmentStore();
+  // Narrow selectors: destructuring the hook subscribes this page to every store field,
+  // so an unrelated department switch elsewhere re-rendered the whole settings screen.
+  const departments = useDepartmentStore((state) => state.departments);
+  const loadDepartments = useDepartmentStore((state) => state.loadDepartments);
 
   // App Update State
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);

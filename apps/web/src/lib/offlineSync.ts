@@ -44,11 +44,27 @@ function serializeHeaders(headers?: HeadersInit): Record<string, string> {
   return { ...headers };
 }
 
+/**
+ * Last parsed queue, validated against the raw string it came from.
+ *
+ * `NetworkProvider` re-reads this key every 12 seconds on every open screen, purely to
+ * compare `length` against zero, and a long offline session can leave hundreds of
+ * queued mutations in it. Re-parsing that array on each check is wasted work while the
+ * queue is unchanged — and it is unchanged on almost every check. A write from another
+ * tab changes the raw string, so the comparison catches it and re-parses.
+ */
+let queueCache: { raw: string; value: QueuedRequest[] } | null = null;
+
 export function getOfflineQueue(): QueuedRequest[] {
   if (typeof window === 'undefined') return [];
   try {
-    const queue = localStorage.getItem(OFFLINE_QUEUE_KEY);
-    return queue ? JSON.parse(queue) : [];
+    const raw = localStorage.getItem(OFFLINE_QUEUE_KEY);
+    if (!raw) return [];
+    if (queueCache && queueCache.raw === raw) return queueCache.value;
+
+    const value = JSON.parse(raw) as QueuedRequest[];
+    queueCache = { raw, value };
+    return value;
   } catch (error) {
     console.error('[OfflineSync] Failed to read queue from localStorage:', error);
     return [];
@@ -58,7 +74,9 @@ export function getOfflineQueue(): QueuedRequest[] {
 export function setOfflineQueue(queue: QueuedRequest[]): void {
   if (typeof window === 'undefined') return;
   try {
-    localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+    const raw = JSON.stringify(queue);
+    localStorage.setItem(OFFLINE_QUEUE_KEY, raw);
+    queueCache = { raw, value: queue };
     window.dispatchEvent(new CustomEvent('offline-queue-updated', { detail: { count: queue.length } }));
   } catch (error) {
     console.error('[OfflineSync] Failed to write queue to localStorage:', error);
@@ -177,7 +195,8 @@ function handleWithLocalStore(url: string, method: string, options: RequestInit)
   }
   if (pathname.includes('/tokens/status/') && method === 'GET') {
     const tokenNum = pathname.split('/tokens/status/')[1]?.split('?')[0] || '';
-    const data = getLocalTokenStatus(decodeURIComponent(tokenNum));
+    const date = searchParams.get('date') || undefined;
+    const data = getLocalTokenStatus(decodeURIComponent(tokenNum), date);
     if (!data) return jsonResponse({ message: 'Token not found' }, 404);
     return jsonResponse(data, 200);
   }

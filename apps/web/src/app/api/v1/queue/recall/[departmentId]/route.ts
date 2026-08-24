@@ -27,7 +27,10 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
       deletedAt: null,
     },
     orderBy: { calledAt: 'desc' },
-    include: { patient: true, department: true, doctor: true },
+    // Only the id is used, to target the update below — which re-reads the row with the
+    // relations the response actually needs. Joining patient, department and doctor here
+    // as well fetched all three twice per recall.
+    select: { id: true },
   });
 
   if (!activeToken) {

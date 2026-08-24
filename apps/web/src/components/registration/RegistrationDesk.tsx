@@ -14,7 +14,12 @@ import { useDepartmentStore } from '../../store/useDepartmentStore';
 export default function RegistrationDesk() {
   const searchParams = useSearchParams();
   const requestedDeptId = searchParams.get('deptId');
-  const { selectedDeptId, departments, setSelectedDeptId, loadDepartments, getEffectiveDeptId } = useDepartmentStore();
+  // Narrow selectors: destructuring the hook subscribes to every store field.
+  const selectedDeptId = useDepartmentStore((state) => state.selectedDeptId);
+  const departments = useDepartmentStore((state) => state.departments);
+  const setSelectedDeptId = useDepartmentStore((state) => state.setSelectedDeptId);
+  const loadDepartments = useDepartmentStore((state) => state.loadDepartments);
+  const getEffectiveDeptId = useDepartmentStore((state) => state.getEffectiveDeptId);
 
   const deptId = getEffectiveDeptId(requestedDeptId);
   const currentDept = departments.find((d) => d.id === deptId);
@@ -130,7 +135,8 @@ export default function RegistrationDesk() {
     window.print();
   };
 
-  const qrUrl = generatedToken ? `${appOrigin}/patient?token=${generatedToken}` : '';
+  const todayDateStr = new Intl.DateTimeFormat('en-CA').format(new Date());
+  const qrUrl = generatedToken ? `${appOrigin}/patient?token=${generatedToken}&date=${todayDateStr}` : '';
 
   return (
     <div className="flex h-screen w-full bg-slate-100 font-sans overflow-hidden print:overflow-visible print:bg-white print:h-auto">

@@ -17,7 +17,12 @@ function HomeContent() {
   const router = useRouter();
   const urlDeptId = searchParams.get('deptId');
 
-  const { selectedDeptId, departments, setSelectedDeptId, loadDepartments } = useDepartmentStore();
+  // Narrow selectors: destructuring the hook subscribes to every store field, including
+  // ones this screen never reads.
+  const selectedDeptId = useDepartmentStore((state) => state.selectedDeptId);
+  const departments = useDepartmentStore((state) => state.departments);
+  const setSelectedDeptId = useDepartmentStore((state) => state.setSelectedDeptId);
+  const loadDepartments = useDepartmentStore((state) => state.loadDepartments);
 
   const [isAddingDept, setIsAddingDept] = useState(false);
   const [newDeptName, setNewDeptName] = useState('');

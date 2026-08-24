@@ -47,7 +47,10 @@ export class TokensController {
   @ApiOperation({ summary: 'Get status and estimated wait time for a specific token' })
   @ApiResponse({ status: 200, description: 'Returns token status.' })
   @ApiResponse({ status: 404, description: 'Token not found.' })
-  async getTokenStatus(@Param('tokenNumber') tokenNumber: string) {
-    return this.tokensService.getTokenStatus(tokenNumber);
+  async getTokenStatus(
+    @Param('tokenNumber') tokenNumber: string,
+    @Query('date') date?: string,
+  ) {
+    return this.tokensService.getTokenStatus(tokenNumber, date);
   }
 }

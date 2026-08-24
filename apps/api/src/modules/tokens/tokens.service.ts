@@ -169,21 +169,35 @@ export class TokensService {
     });
   }
 
-  async getTokenStatus(tokenNumber: string) {
+  async getTokenStatus(tokenNumber: string, dateStr?: string) {
+    const targetDate = dateStr ? new Date(dateStr) : new Date();
+    const startOfDay = new Date(targetDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(targetDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
     const token = await this.tokenRepository.findOne({
-      where: { tokenNumber },
+      where: {
+        tokenNumber,
+        issuedAt: Between(startOfDay, endOfDay),
+      },
       relations: ['doctor', 'department'],
+      order: { issuedAt: 'DESC' },
     });
 
     if (!token) {
-      throw new NotFoundException('Token not found');
+      throw new NotFoundException('Token not found for selected date');
     }
 
     const doctorId = token.doctor.id;
 
-    // Get currently serving token(s) for this doctor
+    // Get currently serving token(s) for this doctor on this date
     const currentlyServing = await this.tokenRepository.find({
-      where: { doctor: { id: doctorId }, status: TokenStatus.CALLED },
+      where: {
+        doctor: { id: doctorId },
+        status: TokenStatus.CALLED,
+        issuedAt: Between(startOfDay, endOfDay),
+      },
       select: ['tokenNumber', 'roomNumber'],
     });
 
@@ -191,9 +205,13 @@ export class TokensService {
     let estimatedWaitTimeMins = 0;
 
     if (token.status === TokenStatus.WAITING) {
-      // Find all waiting tokens for this doctor
+      // Find all waiting tokens for this doctor on this date
       const waitingQueue = await this.tokenRepository.find({
-        where: { doctor: { id: doctorId }, status: TokenStatus.WAITING },
+        where: {
+          doctor: { id: doctorId },
+          status: TokenStatus.WAITING,
+          issuedAt: Between(startOfDay, endOfDay),
+        },
       });
 
       // Count how many are ahead of THIS token
@@ -220,6 +238,7 @@ export class TokensService {
       tokenNumber: token.tokenNumber,
       status: token.status,
       priority: token.priority,
+      issuedAt: token.issuedAt,
       departmentName: token.department?.name || 'Department',
       roomNumber: token.roomNumber || token.doctor?.roomNumber,
       currentlyServing: currentlyServing.map(t => t.tokenNumber),

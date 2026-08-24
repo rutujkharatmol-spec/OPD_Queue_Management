@@ -61,8 +61,9 @@ export async function markTokenAction(
   return response.json();
 }
 
-export async function getTokenStatus(tokenNumber: string) {
-  const response = await fetchWithOfflineSync(`${API_BASE_URL}/tokens/status/${tokenNumber}`, {
+export async function getTokenStatus(tokenNumber: string, date?: string) {
+  const query = date ? `?date=${encodeURIComponent(date)}` : '';
+  const response = await fetchWithOfflineSync(`${API_BASE_URL}/tokens/status/${encodeURIComponent(tokenNumber)}${query}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json' },
   });

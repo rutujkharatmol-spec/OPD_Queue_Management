@@ -22,12 +22,34 @@ interface DepartmentStore {
 
 const STORAGE_KEY = 'opd_selected_department_id';
 
+/**
+ * Signature of the department list currently in the store.
+ *
+ * Kept at module scope so it is never itself a subscribable value, exactly as
+ * `useQueueStore` keeps its payload signatures.
+ */
+let lastDepartmentSignature = '';
+
+/** Cheaper than `JSON.stringify` and covers every field any screen renders. */
+function departmentSignature(depts: Department[]): string {
+  let signature = '';
+  for (const d of depts) {
+    signature += `${d.id}|${d.name}|${d.code}|${d.description ?? ''}|${d.isActive ?? ''}`;
+  }
+  return signature;
+}
+
 export const useDepartmentStore = create<DepartmentStore>((set, get) => ({
   selectedDeptId: typeof window !== 'undefined' ? (localStorage.getItem(STORAGE_KEY) || '') : '',
   departments: [],
   isLoaded: false,
   setSelectedDeptId: (id: string) => {
     if (!id) return;
+    // Re-selecting the department already in effect is a no-op. Every screen calls
+    // `loadDepartments` on mount, which lands here, so without this a navigation wrote
+    // localStorage, dispatched an event and pushed a store update — waking every
+    // subscriber — to store the value that was already there.
+    if (id === get().selectedDeptId) return;
     if (typeof window !== 'undefined') {
       localStorage.setItem(STORAGE_KEY, id);
       window.dispatchEvent(new CustomEvent('opd-dept-changed', { detail: { departmentId: id } }));
@@ -54,7 +76,18 @@ export const useDepartmentStore = create<DepartmentStore>((set, get) => ({
   loadDepartments: async (urlDeptId?: string | null) => {
     try {
       const depts = await getDepartments();
-      set({ departments: depts, isLoaded: true });
+
+      // Storing an equal-but-new array would hand every subscriber a changed reference
+      // and re-render the navbar, the dashboard and the board. Departments change when
+      // an admin edits them, not on the several `loadDepartments` calls each page
+      // mount fires, so compare before publishing. `getDepartments` returns freshly
+      // parsed JSON, so a shallow field compare is enough — and it is the same trick
+      // `useQueueStore` uses for the live queue.
+      const signature = departmentSignature(depts);
+      if (signature !== lastDepartmentSignature || !get().isLoaded) {
+        lastDepartmentSignature = signature;
+        set({ departments: depts, isLoaded: true });
+      }
 
       const currentStored = typeof window !== 'undefined' ? (localStorage.getItem(STORAGE_KEY) || '') : '';
       let targetId = '';

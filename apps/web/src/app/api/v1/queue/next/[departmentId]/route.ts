@@ -16,7 +16,11 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
   }
 
   const roomNumber = body.roomNumber.trim();
-  const department = await db.department.findUnique({ where: { id: departmentId } });
+  // Existence check only — nothing below reads a department column.
+  const department = await db.department.findUnique({
+    where: { id: departmentId },
+    select: { id: true },
+  });
   if (!department) return notFound('Department not found.');
 
   const serviceDate = serviceDateFor();
