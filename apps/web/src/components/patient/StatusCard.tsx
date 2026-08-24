@@ -18,6 +18,7 @@ interface Props {
   /** True while background polls are failing or the device is offline. */
   isStale: boolean;
   staleMins: number;
+  isRecalled?: boolean;
   onRefresh: () => void;
   /** Queue strip and alert opt-in, slotted into the WAITING body by the page. */
   waitingExtras?: React.ReactNode;
@@ -42,7 +43,7 @@ const HEADER_THEME: Record<TokenStatusValue, string> = {
 };
 
 export default function StatusCard({
-  lang, data, activeDate, lastUpdated, isRefreshing, isStale, staleMins, onRefresh, waitingExtras,
+  lang, data, activeDate, lastUpdated, isRefreshing, isStale, staleMins, isRecalled, onRefresh, waitingExtras,
 }: Props) {
   const { status, etaBasis } = data;
   const isWaiting = status === 'WAITING';
@@ -50,7 +51,9 @@ export default function StatusCard({
   const isMissed = status === 'ABSENT' || status === 'SKIPPED';
 
   return (
-    <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/70 border border-slate-100 overflow-hidden motion-safe:animate-fade-in-up">
+    <div className={`bg-white rounded-3xl shadow-xl shadow-slate-200/70 border overflow-hidden motion-safe:animate-fade-in-up transition-all ${
+      isRecalled ? 'ring-4 ring-amber-400 border-amber-300' : 'border-slate-100'
+    }`}>
 
       <div className={`p-6 text-center text-white relative overflow-hidden ${HEADER_THEME[status]}`}>
         <div className="absolute -top-12 -right-12 w-36 h-36 bg-white/10 rounded-full blur-2xl pointer-events-none" />
@@ -160,16 +163,24 @@ export default function StatusCard({
         )}
 
         {isCalled && (
-          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-6 text-center text-emerald-900 motion-safe:animate-pulse">
-            <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-3 text-emerald-700">
-              <User size={26} />
+          <div className="space-y-3">
+            {isRecalled && (
+              <div className="bg-amber-500 text-white font-bold p-3.5 rounded-2xl text-center shadow-lg shadow-amber-500/25 flex items-center justify-center gap-2 animate-bounce">
+                <span className="text-xl">🔔</span>
+                <span className="text-sm sm:text-base">{t(lang, 'recalledBanner')}</span>
+              </div>
+            )}
+            <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-6 text-center text-emerald-900 motion-safe:animate-pulse">
+              <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-3 text-emerald-700">
+                <User size={26} />
+              </div>
+              <h3 className="font-black text-xl mb-1 text-emerald-800">{t(lang, 'yourTurn')}</h3>
+              <p className="text-sm text-emerald-700 font-semibold">
+                {data.roomNumber
+                  ? t(lang, 'proceedTo', { room: data.roomNumber })
+                  : t(lang, 'proceedToUnassigned')}
+              </p>
             </div>
-            <h3 className="font-black text-xl mb-1 text-emerald-800">{t(lang, 'yourTurn')}</h3>
-            <p className="text-sm text-emerald-700 font-semibold">
-              {data.roomNumber
-                ? t(lang, 'proceedTo', { room: data.roomNumber })
-                : t(lang, 'proceedToUnassigned')}
-            </p>
           </div>
         )}
 

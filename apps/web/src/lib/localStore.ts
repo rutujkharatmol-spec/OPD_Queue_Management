@@ -699,6 +699,8 @@ export function getLocalTokenStatus(tokenNumber: string, dateStr?: string) {
     priority: token.priority,
     serviceDate: token.serviceDate,
     issuedAt: token.issuedAt,
+    calledAt: token.calledAt ? new Date(token.calledAt).getTime() : null,
+    recalledAt: token.recalledAt ? new Date(token.recalledAt).getTime() : null,
     departmentId: token.departmentId,
     departmentName,
     roomNumber: token.roomNumber || null,

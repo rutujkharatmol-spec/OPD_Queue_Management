@@ -111,6 +111,10 @@ const EN = {
   notifTurnTitle: "It's your turn — {token}",
   notifTurnBody: 'Please proceed to Room {room}',
   notifTurnBodyNoRoom: 'Please proceed to the OPD room',
+  notifRecallTitle: 'Recall: Token {token}',
+  notifRecallBody: 'Doctor in Room {room} is recalling your token. Please proceed immediately.',
+  notifRecallBodyNoRoom: 'Doctor is recalling your token. Please proceed to the room immediately.',
+  recalledBanner: 'Doctor is recalling your token now!',
   notifSoonTitle: "You're almost up — {token}",
   notifSoonBody: '{n} ahead of you. Please come to the waiting area.',
 
@@ -196,9 +200,13 @@ const HI: Record<StringKey, string> = {
   alertsDisable: 'बंद करें',
   voiceLabel: 'आवाज़ में घोषणा भी करें',
 
-  notifTurnTitle: 'आपकी बारी — {token}',
+  notifTurnTitle: 'आपकी बारी आ गई — {token}',
   notifTurnBody: 'कृपया कमरा {room} में जाएँ',
   notifTurnBodyNoRoom: 'कृपया ओपीडी कमरे में जाएँ',
+  notifRecallTitle: 'रीकॉल: टोकन {token}',
+  notifRecallBody: 'कमरा नंबर {room} के डॉक्टर आपको दोबारा बुला रहे हैं। कृपया तुरंत जाएँ।',
+  notifRecallBodyNoRoom: 'डॉक्टर आपको दोबारा बुला रहे हैं। कृपया तुरंत ओपीडी कमरे में जाएँ।',
+  recalledBanner: 'डॉक्टर आपको दोबारा बुला रहे हैं! कृपया तुरंत जाएँ।',
   notifSoonTitle: 'आपकी बारी पास है — {token}',
   notifSoonBody: 'आपसे आगे {n} मरीज़। कृपया प्रतीक्षा क्षेत्र में आ जाएँ।',
 
@@ -283,6 +291,10 @@ const BN: Record<StringKey, string> = {
   notifTurnTitle: 'আপনার পালা — {token}',
   notifTurnBody: 'অনুগ্রহ করে রুম {room}-এ যান',
   notifTurnBodyNoRoom: 'অনুগ্রহ করে ওপিডি রুমে যান',
+  notifRecallTitle: 'রিকল: টোকেন {token}',
+  notifRecallBody: 'রুম নম্বর {room}-এর ডাক্তার আপনাকে পুনরায় ডাকছেন। অনুগ্রহ করে অবিলম্বে যান।',
+  notifRecallBodyNoRoom: 'ডাক্তার আপনাকে পুনরায় ডাকছেন। অনুগ্রহ করে অবিলম্বে যান।',
+  recalledBanner: 'ডাক্তার আপনাকে পুনরায় ডাকছেন! অনুগ্রহ করে অবিলম্বে যান।',
   notifSoonTitle: 'প্রায় আপনার পালা — {token}',
   notifSoonBody: 'আপনার আগে {n} জন। অনুগ্রহ করে অপেক্ষা এলাকায় আসুন।',
 

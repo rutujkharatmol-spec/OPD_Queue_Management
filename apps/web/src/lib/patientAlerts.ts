@@ -2,18 +2,16 @@ import { playHospitalChime, announcePatientCall, stopAudioAnnouncement } from '.
 import { t, toAudioLang, type PatientLang } from './patientI18n';
 
 /**
- * Getting a waiting patient's attention when their token is called.
+ * Getting a waiting patient's attention when their token is called or recalled.
  *
  * The tracker could always *show* the turn, but only if the patient happened to be looking
  * at the screen — which in an OPD waiting hall they are not. This layers the alert
- * channels a phone actually has on top of the existing announcement engine, so the page
- * can be opened once and pocketed.
- *
- * Every channel is optional and probed rather than assumed: this system is often served
- * over plain HTTP on a hospital LAN, where notifications are unavailable outright.
+ * channels a phone actually has (audio keep-alive, wake lock, system notifications,
+ * vibration, and media session controls on lock screen) so the page can be opened once,
+ * phone locked or pocketed, and the call/recall will still play audio aloud just like TV!
  */
 export type AlertCapabilities = {
-  /** Web Audio chime. Works everywhere once unlocked by a user gesture. */
+  /** Web Audio chime and speech. Works everywhere once unlocked by a user gesture. */
   sound: boolean;
   /** `navigator.vibrate`. Present on Android; absent on iOS Safari and on desktop. */
   vibration: boolean;
@@ -30,6 +28,65 @@ export type AlertCapabilities = {
 
 const ENABLED_KEY = 'opd_patient_alerts';
 const VOICE_KEY = 'opd_patient_alert_voice';
+
+// Silent 1-second audio loop (base64 WAV) to keep the mobile browser's audio pipeline
+// active in the background and prevent OS timer throttling when screen is locked/off.
+const SILENT_AUDIO_URI = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+
+let backgroundAudioElement: HTMLAudioElement | null = null;
+let wakeLockSentinel: any = null;
+
+export async function requestWakeLock(): Promise<void> {
+  if (typeof navigator !== 'undefined' && 'wakeLock' in navigator) {
+    try {
+      wakeLockSentinel = await (navigator as any).wakeLock.request('screen');
+      wakeLockSentinel.addEventListener('release', () => {
+        wakeLockSentinel = null;
+      });
+    } catch {}
+  }
+}
+
+export function releaseWakeLock(): void {
+  if (wakeLockSentinel) {
+    try {
+      wakeLockSentinel.release();
+    } catch {}
+    wakeLockSentinel = null;
+  }
+}
+
+/**
+ * Starts continuous background audio keep-alive and requests wake-lock.
+ *
+ * This marks the browser tab as an active Media Session, ensuring:
+ * 1. Mobile browsers do NOT throttle background poll timers when the phone screen is off/locked.
+ * 2. Background audio (hospital chime and spoken announcement) can play through the speaker even with phone locked!
+ */
+export function startBackgroundAudioKeepAlive(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (!backgroundAudioElement) {
+      const audio = new Audio(SILENT_AUDIO_URI);
+      audio.loop = true;
+      audio.volume = 0.01;
+      backgroundAudioElement = audio;
+    }
+    backgroundAudioElement.play().catch(() => {});
+    void requestWakeLock();
+  } catch {}
+}
+
+export function stopBackgroundAudioKeepAlive(): void {
+  if (backgroundAudioElement) {
+    try {
+      backgroundAudioElement.pause();
+      backgroundAudioElement.currentTime = 0;
+    } catch {}
+    backgroundAudioElement = null;
+  }
+  releaseWakeLock();
+}
 
 function readFlag(key: string, fallback: boolean): boolean {
   if (typeof window === 'undefined') return fallback;
@@ -48,11 +105,11 @@ function writeFlag(key: string, value: boolean): void {
   } catch {}
 }
 
-export const isAlertsEnabled = () => readFlag(ENABLED_KEY, false);
+export const isAlertsEnabled = () => readFlag(ENABLED_KEY, true);
 export const setAlertsEnabled = (value: boolean) => writeFlag(ENABLED_KEY, value);
 
-/** Speaking the call aloud is off by default — a waiting hall is not the place for surprise audio. */
-export const isVoiceEnabled = () => readFlag(VOICE_KEY, false);
+/** Speaking the call aloud is enabled by default to match TV announcement experience. */
+export const isVoiceEnabled = () => readFlag(VOICE_KEY, true);
 export const setVoiceEnabled = (value: boolean) => writeFlag(VOICE_KEY, value);
 
 function hasNotificationApi(): boolean {
@@ -85,10 +142,6 @@ export function probeCapabilities(): AlertCapabilities {
 
 /**
  * Resolves either way after `ms`.
- *
- * Both steps of enabling can stall indefinitely through no fault of ours: an
- * AudioContext on a device with no output, and a permission prompt the patient simply
- * never answers. Neither may be allowed to leave the button hanging.
  */
 function withTimeout(promise: Promise<unknown>, ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -104,24 +157,18 @@ function withTimeout(promise: Promise<unknown>, ms: number): Promise<void> {
 
 /**
  * Turns alerts on. **Must be called from a user gesture** — both the AudioContext unlock
- * and `Notification.requestPermission` are gated on one, and a browser that has never seen
- * a tap will silently refuse to play the chime later.
- *
- * The preference is committed *before* either step, so the UI can switch over immediately;
- * the returned capabilities describe what actually ended up working, so the page can
- * describe real behaviour rather than promise a notification that will never arrive.
+ * and `Notification.requestPermission` are gated on one.
  */
 export async function enableAlerts(): Promise<AlertCapabilities> {
   setAlertsEnabled(true);
+  startBackgroundAudioKeepAlive();
 
-  // Playing the chime here does double duty: it resumes the suspended AudioContext inside
-  // the gesture, and it confirms to the patient that sound works.
+  // Playing the chime here resumes the AudioContext inside the gesture,
+  // confirming sound works and unlocking browser audio playback permissions.
   await withTimeout(playHospitalChime(), 1_500);
 
   if (hasNotificationApi() && window.isSecureContext && Notification.permission === 'default') {
     try {
-      // An unanswered prompt must not block the result. The patient can leave it sitting
-      // there; capabilities are re-probed on the next enable or page load.
       await withTimeout(Promise.resolve(Notification.requestPermission()), 20_000);
     } catch {}
   }
@@ -131,6 +178,7 @@ export async function enableAlerts(): Promise<AlertCapabilities> {
 
 export function disableAlerts(): void {
   setAlertsEnabled(false);
+  stopBackgroundAudioKeepAlive();
   stopAudioAnnouncement();
 }
 
@@ -141,23 +189,37 @@ function vibrate(pattern: number | number[]): void {
 }
 
 /**
- * Shows a system notification, if one is possible.
- *
- * `tag` collapses repeats: a poll that re-reports the same call replaces the existing
- * notification rather than stacking a second one.
+ * Shows a system notification (via Service Worker if active, or Notification API).
  */
-function notify(title: string, body: string, tag: string, sticky: boolean): void {
+async function notify(title: string, body: string, tag: string, sticky: boolean): Promise<void> {
   const caps = probeCapabilities();
   if (!caps.notifications) return;
 
   try {
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      const reg = await navigator.serviceWorker.ready;
+      if (reg && reg.showNotification) {
+        await reg.showNotification(title, {
+          body,
+          tag,
+          icon: '/icons/icon-192x192.svg',
+          badge: '/icons/icon-192x192.svg',
+          requireInteraction: sticky,
+          vibrate: [300, 100, 300, 100, 600],
+          data: { url: '/patient' },
+        } as any);
+        return;
+      }
+    }
+
     const notification = new Notification(title, {
       body,
       tag,
       icon: '/icons/icon-192x192.svg',
       badge: '/icons/icon-192x192.svg',
       requireInteraction: sticky,
-    });
+      vibrate: [300, 100, 300, 100, 600],
+    } as any);
     notification.onclick = () => {
       try {
         window.focus();
@@ -172,44 +234,78 @@ export type TurnAlert = {
   roomNumber: string | null;
   lang: PatientLang;
   speak: boolean;
+  isRecall?: boolean;
 };
 
-/** The patient's token has just been called. The loudest alert the device allows. */
-export async function notifyTurn({ tokenNumber, roomNumber, lang, speak }: TurnAlert): Promise<void> {
-  vibrate([200, 100, 200, 100, 400]);
+/**
+ * The patient's token has been called or recalled.
+ * Plays hospital chime + speech announcement (just like TV), vibrates device,
+ * displays lock-screen media session info, and posts high-priority notification.
+ */
+export async function notifyTurn({
+  tokenNumber,
+  roomNumber,
+  lang,
+  speak = true,
+  isRecall = false,
+}: TurnAlert): Promise<void> {
+  // Heavy vibration pattern to wake up phone in pocket: [300ms, 100ms, 300ms, 100ms, 600ms]
+  vibrate([300, 100, 300, 100, 600]);
 
-  notify(
-    t(lang, 'notifTurnTitle', { token: tokenNumber }),
-    roomNumber
-      ? t(lang, 'notifTurnBody', { room: roomNumber })
-      : t(lang, 'notifTurnBodyNoRoom'),
-    `opd-turn-${tokenNumber}`,
-    true,
-  );
+  const title = isRecall
+    ? t(lang, 'notifRecallTitle', { token: tokenNumber })
+    : t(lang, 'notifTurnTitle', { token: tokenNumber });
 
-  try {
-    if (speak) {
-      // announcePatientCall opens with the same chime, so this is not a missing sound.
-      await announcePatientCall({
-        tokenNumber,
-        roomNumber: roomNumber || '',
-        lang: toAudioLang(lang),
+  const body = roomNumber
+    ? isRecall
+      ? t(lang, 'notifRecallBody', { room: roomNumber })
+      : t(lang, 'notifTurnBody', { room: roomNumber })
+    : isRecall
+      ? t(lang, 'notifRecallBodyNoRoom')
+      : t(lang, 'notifTurnBodyNoRoom');
+
+  // 1. Show notification on phone
+  void notify(title, body, `opd-turn-${tokenNumber}-${isRecall ? Date.now() : 'call'}`, true);
+
+  // 2. Set Lock Screen Media Metadata so the turn shows on phone lock screen
+  if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: isRecall ? `🔔 RECALL: Token ${tokenNumber}` : `🔔 YOUR TURN: Token ${tokenNumber}`,
+        artist: roomNumber ? `Proceed to Room ${roomNumber}` : `AIIMS Kalyani OPD`,
+        album: `AIIMS Kalyani OPD Queue Tracker`,
+        artwork: [
+          { src: '/icons/icon-192x192.svg', sizes: '192x192', type: 'image/svg+xml' },
+          { src: '/icons/icon-512x512.svg', sizes: '512x512', type: 'image/svg+xml' },
+        ],
       });
-    } else {
+    } catch {}
+  }
+
+  // 3. Play Hospital Chime + Speech Announcement (just like TV)
+  try {
+    await announcePatientCall({
+      tokenNumber,
+      roomNumber: roomNumber || '',
+      lang: toAudioLang(lang),
+    });
+  } catch (err) {
+    console.error('Audio announcement failed, falling back to hospital chime:', err);
+    try {
       await playHospitalChime();
-    }
-  } catch {}
+    } catch {}
+  }
 }
 
-/** Two or fewer people left in front — time to walk back to the waiting area. */
+/** Two or fewer people left in front — heads-up to walk back to waiting area. */
 export async function notifyAlmostThere(
   tokenNumber: string,
   patientsAhead: number,
   lang: PatientLang,
 ): Promise<void> {
-  vibrate([120, 80, 120]);
+  vibrate([150, 100, 150]);
 
-  notify(
+  void notify(
     t(lang, 'notifSoonTitle', { token: tokenNumber }),
     t(lang, 'notifSoonBody', { n: patientsAhead }),
     `opd-soon-${tokenNumber}`,
@@ -221,11 +317,17 @@ export async function notifyAlmostThere(
   } catch {}
 }
 
-/** Lets the patient confirm, before it matters, that they will actually notice the alert. */
+/** Lets the patient test audio and vibration. */
 export async function testAlert(lang: PatientLang): Promise<void> {
   vibrate([200, 100, 200]);
-  notify(t(lang, 'alertsOn'), t(lang, 'alertsBody'), 'opd-test', false);
+  void notify(t(lang, 'alertsOn'), t(lang, 'alertsBody'), 'opd-test', false);
   try {
+    await announcePatientCall({
+      tokenNumber: 'A-001',
+      roomNumber: '101',
+      lang: toAudioLang(lang),
+    });
+  } catch {
     await playHospitalChime();
-  } catch {}
+  }
 }

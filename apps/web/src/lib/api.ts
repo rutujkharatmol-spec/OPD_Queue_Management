@@ -75,6 +75,8 @@ export interface TokenStatusResponse {
   priority: TokenPriorityValue;
   serviceDate: string;
   issuedAt: string;
+  calledAt?: number | string | null;
+  recalledAt?: number | string | null;
   departmentId: string;
   departmentName: string;
   roomNumber: string | null;

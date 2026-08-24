@@ -11,6 +11,7 @@ import {
 import {
   isAlertsEnabled, isVoiceEnabled, setVoiceEnabled,
   enableAlerts, disableAlerts, probeCapabilities, notifyTurn, notifyAlmostThere, testAlert,
+  startBackgroundAudioKeepAlive,
   type AlertCapabilities,
 } from '../../lib/patientAlerts';
 import StatusCard from './StatusCard';
@@ -20,27 +21,18 @@ import AlertOptIn from './AlertOptIn';
 /** Patients this close to the front get a heads-up to walk back to the waiting area. */
 const ALMOST_THERE_THRESHOLD = 2;
 
-/** Slowest cadence a backgrounded tab is polled at, and only when alerts are on. */
-const HIDDEN_POLL_MS = 15_000;
-
 type FetchMode = 'initial' | 'manual' | 'background';
 
 /**
  * How often to re-check, given how close the patient is to being seen.
- *
- * The previous version polled every 10s regardless. That is too slow for someone who is
- * next and far too fast for someone with thirty people ahead — and this route is the most
- * frequently executed query in the system, so the difference is not academic.
+ * Fast polling (3s) when called so doctor recall is detected almost instantaneously.
  */
 function basePollDelayMs(status: TokenStatusValue, patientsAhead: number): number {
-  // A doctor can re-call an absent or skipped token — queue/next accepts a token
-  // identifier and does not filter on status — so these screens must keep listening
-  // rather than freeze forever, just slowly.
-  if (status === 'ABSENT' || status === 'SKIPPED') return 60_000;
-  if (status === 'CALLED' || status === 'IN_PROGRESS') return 10_000;
-  if (patientsAhead <= ALMOST_THERE_THRESHOLD) return 5_000;
-  if (patientsAhead <= 10) return 10_000;
-  return 20_000;
+  if (status === 'ABSENT' || status === 'SKIPPED') return 45_000;
+  if (status === 'CALLED' || status === 'IN_PROGRESS') return 3_000;
+  if (patientsAhead <= ALMOST_THERE_THRESHOLD) return 4_000;
+  if (patientsAhead <= 10) return 8_000;
+  return 15_000;
 }
 
 /** Returns null when polling should stop entirely. */
@@ -54,10 +46,9 @@ function pollDelayMs(
 
   const base = basePollDelayMs(status, patientsAhead);
   if (!hidden) return base;
-  // A hidden tab with no alerts to deliver has no reason to keep a patient's phone busy.
-  // With alerts on it holds a slow beat so the notification can still fire — mobile
-  // browsers throttle background timers hard, so that is best-effort by nature.
-  return alertsEnabled ? Math.max(base, HIDDEN_POLL_MS) : null;
+  // With background audio keep-alive active, the mobile browser allows continuous audio
+  // and timers so background recall and turn sound can fire even when screen is locked/off.
+  return alertsEnabled ? Math.max(base, 4_000) : null;
 }
 
 export default function PatientTracker() {
@@ -83,12 +74,15 @@ export default function PatientTracker() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [pollFailing, setPollFailing] = useState(false);
   const [nowTs, setNowTs] = useState(() => Date.now());
+  const [isRecalled, setIsRecalled] = useState(false);
 
-  const [alertsOn, setAlertsOn] = useState(false);
-  const [voiceOn, setVoiceOn] = useState(false);
+  const [alertsOn, setAlertsOn] = useState(true);
+  const [voiceOn, setVoiceOn] = useState(true);
   const [capabilities, setCapabilities] = useState<AlertCapabilities | null>(null);
 
   const prevStatusRef = useRef<TokenStatusValue | null>(null);
+  const prevCalledAtRef = useRef<string | number | null>(null);
+  const prevRecalledAtRef = useRef<string | number | null>(null);
   const almostThereFiredRef = useRef(false);
   const pollGenerationRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
@@ -137,9 +131,7 @@ export default function PatientTracker() {
       } catch (err: any) {
         if (err?.name === 'AbortError') return;
 
-        // A dropped background poll is a connectivity blip, not a missing token. Wiping
-        // the card here — which the previous version did — replaced a patient's live
-        // status with "token not found" on a single flaky tick of hospital wifi.
+        // A dropped background poll is a connectivity blip, not a missing token.
         if (mode === 'background') {
           setPollFailing(true);
           return;
@@ -152,9 +144,6 @@ export default function PatientTracker() {
         }));
         setStatusData(null);
       } finally {
-        // Only the request that is still current may clear the spinners. A superseded
-        // request (the patient hit Refresh while a poll was in flight) settles second and
-        // would otherwise switch the spinner off while its replacement is still running.
         if (abortRef.current === controller) {
           abortRef.current = null;
           if (mode === 'initial') setIsLoading(false);
@@ -170,8 +159,6 @@ export default function PatientTracker() {
     if (initialTokenParam) {
       void fetchStatus(initialTokenParam, initialDateParam, 'initial');
     }
-    // Deliberately not re-running when `fetchStatus` changes: it depends on `lang`, and
-    // switching language must not re-trigger the initial lookup.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialTokenParam, initialDateParam]);
 
@@ -180,6 +167,10 @@ export default function PatientTracker() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!tokenInput.trim()) return;
+
+    // Start background audio session on user interaction to ensure browser allows sound
+    // when screen is turned off or in pocket.
+    startBackgroundAudioKeepAlive();
 
     const cleanToken = tokenInput.trim().toUpperCase();
     const cleanDate = dateInput.trim() || todayStr;
@@ -192,44 +183,75 @@ export default function PatientTracker() {
     void fetchStatus(cleanToken, cleanDate, 'initial');
   };
 
-  // A new token is a new queue: drop the previous token's alert latches so nothing
-  // carries over.
+  // A new token is a new queue: reset alert latches
   useEffect(() => {
     prevStatusRef.current = null;
+    prevCalledAtRef.current = null;
+    prevRecalledAtRef.current = null;
     almostThereFiredRef.current = false;
+    setIsRecalled(false);
   }, [activeToken, activeDate]);
 
   const status = statusData?.status ?? null;
   const patientsAhead = statusData?.patientsAhead ?? 0;
 
-  // Alerts fire on transitions only, latched in refs, so a repeated poll reporting the
-  // same call cannot alert twice.
+  // Alerts fire on call and recall transitions (chime + speech sound just like TV)
   useEffect(() => {
     if (!statusData) return;
 
-    const previous = prevStatusRef.current;
-    const current = statusData.status;
-    prevStatusRef.current = current;
+    const previousStatus = prevStatusRef.current;
+    const currentStatus = statusData.status;
+    prevStatusRef.current = currentStatus;
+
+    const currentCalledAt = statusData.calledAt ? String(statusData.calledAt) : null;
+    const currentRecalledAt = statusData.recalledAt ? String(statusData.recalledAt) : null;
+    const previousCalledAt = prevCalledAtRef.current;
+    const previousRecalledAt = prevRecalledAtRef.current;
+
+    prevCalledAtRef.current = currentCalledAt;
+    prevRecalledAtRef.current = currentRecalledAt;
 
     if (!alertsOn) return;
 
-    const isCalled = current === 'CALLED' || current === 'IN_PROGRESS';
-    const wasCalled = previous === 'CALLED' || previous === 'IN_PROGRESS';
+    const isCalled = currentStatus === 'CALLED' || currentStatus === 'IN_PROGRESS';
+    const wasCalled = previousStatus === 'CALLED' || previousStatus === 'IN_PROGRESS';
 
-    // `previous === null` is the first observation of this token. The card already says
-    // it loudly on screen, and the patient is by definition looking at it.
-    if (isCalled && !wasCalled && previous !== null) {
+    const isNewCall = isCalled && (!wasCalled || (currentCalledAt && previousCalledAt && currentCalledAt !== previousCalledAt));
+
+    // Doctor pressed Recall on room in DoctorDashboard
+    const isRecall = Boolean(
+      isCalled &&
+      currentRecalledAt &&
+      previousRecalledAt !== null &&
+      currentRecalledAt !== previousRecalledAt
+    );
+
+    if (isRecall) {
+      setIsRecalled(true);
+      const timer = setTimeout(() => setIsRecalled(false), 8_000);
       void notifyTurn({
         tokenNumber: statusData.tokenNumber,
         roomNumber: statusData.roomNumber,
         lang,
         speak: voiceOn,
+        isRecall: true,
+      });
+      return () => clearTimeout(timer);
+    }
+
+    if (isNewCall && previousStatus !== null) {
+      void notifyTurn({
+        tokenNumber: statusData.tokenNumber,
+        roomNumber: statusData.roomNumber,
+        lang,
+        speak: voiceOn,
+        isRecall: false,
       });
       return;
     }
 
     if (
-      current === 'WAITING' &&
+      currentStatus === 'WAITING' &&
       statusData.patientsAhead <= ALMOST_THERE_THRESHOLD &&
       !almostThereFiredRef.current
     ) {
@@ -238,9 +260,7 @@ export default function PatientTracker() {
     }
   }, [statusData, alertsOn, voiceOn, lang]);
 
-  // Self-rescheduling poll: the next request is only queued once the previous one has
-  // settled, so a slow response (a sleeping Neon instance can take seconds to wake)
-  // cannot stack requests faster than they drain. Same approach as useQueueStore.
+  // Self-rescheduling poll loop
   useEffect(() => {
     if (!activeToken || !status) return;
 
@@ -260,8 +280,6 @@ export default function PatientTracker() {
       schedule();
     };
 
-    // Returning to the tab should show current data at once, and restarts the chain if it
-    // stopped while hidden.
     const onVisibility = () => {
       if (document.hidden) return;
       if (timer) clearTimeout(timer);
@@ -272,7 +290,6 @@ export default function PatientTracker() {
     document.addEventListener('visibilitychange', onVisibility);
 
     return () => {
-      // Retires any in-flight tick: it sees the changed generation and stops rescheduling.
       pollGenerationRef.current++;
       if (timer) clearTimeout(timer);
       document.removeEventListener('visibilitychange', onVisibility);
@@ -287,8 +304,6 @@ export default function PatientTracker() {
   }, [statusData]);
 
   const handleEnableAlerts = async () => {
-    // Switch the card over at once. Waiting on the chime and the permission prompt would
-    // leave the button looking dead for as long as the patient takes to answer.
     setAlertsOn(true);
     setCapabilities(await enableAlerts());
   };
@@ -321,30 +336,34 @@ export default function PatientTracker() {
           <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
             {t(lang, 'title')}
           </h1>
-          <p className="text-slate-600 text-sm mt-1.5">{t(lang, 'subtitle')}</p>
+          <p className="text-slate-500 text-xs sm:text-sm mt-1.5">{t(lang, 'subtitle')}</p>
 
           <div
-            className="mt-4 inline-flex items-center gap-1 bg-white border border-slate-200 rounded-full p-1 shadow-sm"
-            role="group"
+            role="radiogroup"
             aria-label={t(lang, 'languageLabel')}
+            className="mt-4 inline-flex items-center gap-1 p-1 bg-white border border-slate-200 rounded-full shadow-xs"
           >
-            <Languages size={15} className="text-slate-400 ml-2 mr-0.5 shrink-0" />
-            {PATIENT_LANGS.map((option) => (
-              <button
-                key={option}
-                type="button"
-                onClick={() => changeLang(option)}
-                aria-pressed={lang === option}
-                aria-label={LANG_NAMES[option]}
-                className={`min-w-[52px] min-h-[36px] px-3 rounded-full text-sm font-bold transition-all ${
-                  lang === option
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                {LANG_LABELS[option]}
-              </button>
-            ))}
+            <Languages size={14} className="text-slate-400 ml-2 mr-1 shrink-0" aria-hidden="true" />
+            {PATIENT_LANGS.map((code) => {
+              const selected = lang === code;
+              return (
+                <button
+                  key={code}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  aria-label={LANG_NAMES[code]}
+                  onClick={() => changeLang(code)}
+                  className={`min-h-[36px] px-3.5 rounded-full text-xs font-bold transition-all ${
+                    selected
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  {LANG_LABELS[code]}
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -363,15 +382,13 @@ export default function PatientTracker() {
                 value={tokenInput}
                 onChange={(e) => setTokenInput(e.target.value)}
                 placeholder={t(lang, 'tokenPlaceholder')}
-                autoComplete="off"
-                autoCapitalize="characters"
-                className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3.5 text-slate-900 font-black text-lg focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all uppercase placeholder:text-slate-400 placeholder:font-normal placeholder:normal-case"
+                className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3.5 text-slate-900 font-black text-lg focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all uppercase placeholder:text-slate-400 placeholder:font-normal"
                 required
               />
             </div>
 
             <div>
-              <div className="flex justify-between items-center mb-1.5 gap-2">
+              <div className="flex justify-between items-center mb-1.5">
                 <label
                   htmlFor="patient-date"
                   className="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5"
@@ -452,6 +469,7 @@ export default function PatientTracker() {
             isRefreshing={isRefreshing}
             isStale={isStale}
             staleMins={staleMins}
+            isRecalled={isRecalled}
             onRefresh={() => void fetchStatus(activeToken, activeDate || todayStr, 'manual')}
             waitingExtras={
               <div className="space-y-4">
