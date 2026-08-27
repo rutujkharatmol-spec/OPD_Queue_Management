@@ -179,14 +179,27 @@ export default function DoctorDashboard() {
     const handleQueuesUpdated = () => refreshRoomSettings();
     const handleUiUpdated = () => setUiSettings(getUiVisibilitySettings());
 
+    // Cross-tab sync: the `storage` event fires when *another* tab writes to
+    // localStorage. The Registration Desk staging bulk tokens into a room queue
+    // updates localStorage but its CustomEvent only reaches listeners in the
+    // same tab.  Listening for `storage` lets the Doctor Dashboard (typically
+    // open in a second tab) pick up those changes immediately.
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key && (e.key.startsWith('opd_room_staged_queue_') || e.key.startsWith('opd_auto_call_rooms_'))) {
+        refreshRoomSettings();
+      }
+    };
+
     window.addEventListener('room-queues-updated', handleQueuesUpdated);
     window.addEventListener('auto-call-updated', handleQueuesUpdated);
     window.addEventListener('opd-ui-visibility-updated', handleUiUpdated);
+    window.addEventListener('storage', handleStorageChange);
 
     return () => {
       window.removeEventListener('room-queues-updated', handleQueuesUpdated);
       window.removeEventListener('auto-call-updated', handleQueuesUpdated);
       window.removeEventListener('opd-ui-visibility-updated', handleUiUpdated);
+      window.removeEventListener('storage', handleStorageChange);
     };
   }, [requestedDeptId, loadDepartments, deptId, refreshRoomSettings]);
 
