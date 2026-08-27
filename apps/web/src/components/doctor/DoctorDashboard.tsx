@@ -6,11 +6,11 @@ import {
   PhoneOff, AlertTriangle, UserPlus, Settings, Bell, BarChart2, Stethoscope, ArrowRight,
   Plus, Trash2, Edit2, Check, X, Building2, SkipForward, Sliders, RotateCcw, Minus,
   CheckCircle2, GripVertical, UserCheck, CornerDownRight, Sparkles, Zap, ListOrdered,
-  Play, ShieldCheck, Eye, Layers, LayoutGrid, ArrowRightLeft, ArrowLeftCircle, Undo2
+  Play, ShieldCheck, Eye, Layers, LayoutGrid, ArrowRightLeft, ArrowLeftCircle, Undo2, Search
 } from 'lucide-react';
 import {
   API_BASE_URL, callNextPatient, markTokenAction, recallPatient,
-  getRooms, createRoom, updateRoom, deleteRoom
+  getRooms, createRoom, updateRoom, deleteRoom, searchTokens
 } from '../../lib/api';
 import { useQueueStore } from '../../store/useQueueStore';
 import { useSearchParams } from 'next/navigation';
@@ -94,6 +94,42 @@ export default function DoctorDashboard() {
   const [editingRoomId, setEditingRoomId] = useState<string | null>(null);
   const [editRoomNumber, setEditRoomNumber] = useState('');
   const [editDoctorName, setEditDoctorName] = useState('');
+
+  // Search Token in Doctor Dashboard
+  const [tokenSearchQuery, setTokenSearchQuery] = useState('');
+  const [dbSearchResults, setDbSearchResults] = useState<any[]>([]);
+  const [isSearchingDb, setIsSearchingDb] = useState(false);
+
+  /** Filtered waiting line tokens based on search query */
+  const filteredNextTokens = useMemo(() => {
+    const query = tokenSearchQuery.trim().toLowerCase();
+    if (!query) return queueData.nextTokens || [];
+    return (queueData.nextTokens || []).filter((t) => {
+      const clean = t.replace(' 🚨', '').trim().toLowerCase();
+      return clean.includes(query);
+    });
+  }, [queueData.nextTokens, tokenSearchQuery]);
+
+  /** Async lookup from database if searching for tokens / patients */
+  useEffect(() => {
+    const query = tokenSearchQuery.trim();
+    if (!query || query.length < 1) {
+      setDbSearchResults([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setIsSearchingDb(true);
+      try {
+        const results = await searchTokens(query, deptId);
+        setDbSearchResults(Array.isArray(results) ? results : []);
+      } catch {
+        setDbSearchResults([]);
+      } finally {
+        setIsSearchingDb(false);
+      }
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [tokenSearchQuery, deptId]);
 
   /**
    * Which room a waiting token is staged for, indexed once per change.
@@ -533,6 +569,47 @@ export default function DoctorDashboard() {
             </div>
           </div>
 
+          {/* Token Search Bar */}
+          <div className="p-3 bg-slate-900 border-b border-slate-800">
+            <div className="relative flex items-center">
+              <Search size={15} className="absolute left-3 text-slate-400 pointer-events-none" />
+              <input
+                type="text"
+                value={tokenSearchQuery}
+                onChange={(e) => setTokenSearchQuery(e.target.value)}
+                placeholder="Search token # (e.g. 5, PED-01)..."
+                className="w-full bg-slate-950 border border-slate-700/90 rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-mono tracking-wide"
+              />
+              {tokenSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setTokenSearchQuery('')}
+                  className="absolute right-2.5 text-slate-400 hover:text-white p-1 rounded-md transition-colors cursor-pointer"
+                  title="Clear search"
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+
+            {tokenSearchQuery.trim() && (
+              <div className="flex items-center justify-between mt-2 px-1 text-[11px]">
+                <span className="text-slate-400">
+                  {filteredNextTokens.length > 0 ? (
+                    <>
+                      Found <strong className="text-blue-400">{filteredNextTokens.length}</strong> in line
+                    </>
+                  ) : (
+                    <span className="text-amber-300">0 in waiting line</span>
+                  )}
+                </span>
+                <span className="text-[10px] text-blue-300 font-black uppercase tracking-wider bg-blue-950 border border-blue-800/80 px-2 py-0.5 rounded-md flex items-center gap-1">
+                  <GripVertical size={10} /> Drag to Room
+                </span>
+              </div>
+            )}
+          </div>
+
           {/* Drag Return Drop Target / Hint Banner */}
           {draggingToken ? (
             <div
@@ -572,7 +649,8 @@ export default function DoctorDashboard() {
           ) : null}
 
           <div className="flex-1 overflow-y-auto p-4 bg-slate-50 space-y-3">
-            {queueData.nextTokens.map((tokenStr, idx) => {
+            {/* Filtered Waiting Tokens */}
+            {filteredNextTokens.map((tokenStr, idx) => {
               const isEmergency = tokenStr.includes('🚨');
               const token = tokenStr.replace(' 🚨', '');
               const isThisDragging = draggingToken === tokenStr;
@@ -580,9 +658,6 @@ export default function DoctorDashboard() {
 
               return (
                 <div
-                  // Keyed by token, not index: when the head of the queue is called, an
-                  // index key makes React rewrite every remaining row instead of
-                  // dropping one and reusing the rest.
                   key={tokenStr}
                   draggable={true}
                   onDragStart={(e) => {
@@ -659,7 +734,118 @@ export default function DoctorDashboard() {
               );
             })}
 
-            {queueData.nextTokens.length === 0 && (
+            {/* Additional Database Search Matches (if searching and token not already displayed in line) */}
+            {tokenSearchQuery.trim() && dbSearchResults.length > 0 && (
+              <div className="pt-2 border-t border-slate-200 space-y-2">
+                <div className="px-1 flex items-center justify-between text-[11px] font-bold text-slate-500">
+                  <span>Registered Patients Matching Search ({dbSearchResults.length})</span>
+                  <span className="text-[10px] text-blue-600 font-black">Draggable ➔</span>
+                </div>
+                {dbSearchResults
+                  .filter((st) => !filteredNextTokens.some((ft) => ft.replace(' 🚨', '').trim().toLowerCase() === st.tokenNumber?.toLowerCase()))
+                  .map((st) => (
+                    <div
+                      key={st.id || st.tokenNumber}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData('text/plain', st.tokenNumber);
+                        e.dataTransfer.effectAllowed = 'move';
+                        setDraggingToken(st.tokenNumber);
+                      }}
+                      onDragEnd={() => {
+                        setDraggingToken(null);
+                        setDragOverRoom(null);
+                        setDragOverZone(null);
+                      }}
+                      className="p-3 rounded-2xl border-2 border-blue-300 bg-white hover:bg-blue-50/50 shadow-xs cursor-grab active:cursor-grabbing select-none transition-all group"
+                      title={`Drag token ${st.tokenNumber} to any room to call or stage`}
+                    >
+                      <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-2">
+                          <GripVertical size={15} className="text-blue-500 group-hover:text-blue-700 transition-colors" />
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-base font-black text-slate-900 font-mono">{st.tokenNumber}</span>
+                              {st.patient && (
+                                <span className="text-xs font-bold text-slate-700 truncate max-w-[130px]">
+                                  {st.patient.firstName} {st.patient.lastName || ''}
+                                </span>
+                              )}
+                            </div>
+                            {st.patient?.uhid && (
+                              <span className="text-[10px] text-slate-400 block font-mono">UHID: {st.patient.uhid}</span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                            st.status === 'WAITING'
+                              ? 'bg-amber-100 text-amber-800'
+                              : st.status === 'CALLED'
+                                ? 'bg-blue-100 text-blue-800'
+                                : 'bg-slate-100 text-slate-600'
+                          }`}>
+                            {st.status || 'TOKEN'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setQuickAssignToken(st.tokenNumber)}
+                            className="p-1 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
+                            title="Assign to Room"
+                          >
+                            <CornerDownRight size={13} />
+                          </button>
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-blue-600 font-semibold mt-1 flex items-center gap-1">
+                        <span>Drag to any room to Call or Stage</span>
+                      </p>
+                    </div>
+                  ))}
+              </div>
+            )}
+
+            {/* Direct Token Draggable Card (if searched token not in line) */}
+            {filteredNextTokens.length === 0 && tokenSearchQuery.trim() && dbSearchResults.length === 0 && (
+              <div className="p-4 rounded-2xl bg-white border-2 border-dashed border-blue-300 text-center space-y-3 shadow-xs">
+                <p className="text-xs font-bold text-slate-700">
+                  Search Token: <span className="font-mono font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded">"{tokenSearchQuery.trim()}"</span>
+                </p>
+                <div
+                  draggable
+                  onDragStart={(e) => {
+                    const clean = tokenSearchQuery.trim().toUpperCase();
+                    e.dataTransfer.setData('text/plain', clean);
+                    e.dataTransfer.effectAllowed = 'move';
+                    setDraggingToken(clean);
+                  }}
+                  onDragEnd={() => {
+                    setDraggingToken(null);
+                    setDragOverRoom(null);
+                    setDragOverZone(null);
+                  }}
+                  className="p-3.5 rounded-xl border-2 border-blue-600 bg-gradient-to-r from-blue-50 via-white to-blue-50 shadow-md cursor-grab active:cursor-grabbing hover:shadow-lg transition-all text-left group select-none"
+                  title="Drag this token directly into any room to call or stage"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <GripVertical size={16} className="text-blue-600" />
+                      <span className="text-lg font-black text-slate-900 font-mono">{tokenSearchQuery.trim().toUpperCase()}</span>
+                    </div>
+                    <span className="text-[10px] font-black bg-blue-600 text-white px-2 py-0.5 rounded-md">
+                      Direct Token
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-blue-700 font-bold mt-1.5 flex items-center gap-1">
+                    <Sparkles size={12} className="text-blue-600" />
+                    <span>Drag this card into any room to Call or Stage ➔</span>
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {queueData.nextTokens.length === 0 && !tokenSearchQuery.trim() && (
               <div className="h-full flex flex-col items-center justify-center text-slate-400 py-16 text-center">
                 <CheckCircle size={44} className="mb-3 text-emerald-500 opacity-60" />
                 <p className="font-bold text-slate-700">Waiting Line Clear</p>

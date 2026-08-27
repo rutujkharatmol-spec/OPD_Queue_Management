@@ -215,23 +215,21 @@ export default function RegistrationDesk() {
         setGeneratedTokenData(formattedTokens[0]);
         setSelectedTokenIndex(0);
 
-        // Auto-stage to room queue.
-        // For bulk mode, distribute across all rooms even when the target is
-        // 'GENERAL' — the whole point of bulk creation is to populate doctor
-        // queues.  Tokens that stay in the general line are invisible to a
-        // doctor who only watches their room's staged queue.
-        const tokenNums = formattedTokens.map((t: any) => t.tokenNumber);
-        if (targetRoom === 'DISTRIBUTE' || (targetRoom === 'GENERAL' && availableRooms.length > 0)) {
-          if (availableRooms.length > 0) {
+        // Auto-stage to room queue only when the user explicitly picks a
+        // specific room or 'DISTRIBUTE'.  'GENERAL' keeps tokens in the
+        // waiting line for any doctor to pull.
+        if (targetRoom && targetRoom !== 'GENERAL') {
+          const tokenNums = formattedTokens.map((t: any) => t.tokenNumber);
+          if (targetRoom === 'DISTRIBUTE' && availableRooms.length > 0) {
             availableRooms.forEach((r, rIdx) => {
               const roomToks = tokenNums.filter((_: string, idx: number) => idx % availableRooms.length === rIdx);
               if (roomToks.length > 0) {
                 addMultipleTokensToRoomQueue(deptId, r.roomNumber, roomToks);
               }
             });
+          } else {
+            addMultipleTokensToRoomQueue(deptId, targetRoom, tokenNums);
           }
-        } else if (targetRoom && targetRoom !== 'GENERAL') {
-          addMultipleTokensToRoomQueue(deptId, targetRoom, tokenNums);
         }
 
         // Refresh the queue store immediately
