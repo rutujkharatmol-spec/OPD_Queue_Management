@@ -31,16 +31,48 @@ export function serviceDateFor(when: Date = new Date()): Date {
 }
 
 /**
+ * Reserves a batch of sequential numbers for a department on a given day in a single atomic query.
+ */
+export async function reserveTokenNumbers(
+  db: Db,
+  departmentId: string,
+  departmentCode: string,
+  serviceDate: Date,
+  count: number = 1
+): Promise<{ tokenNumbers: string[]; startSequence: number }> {
+  const increment = Math.max(1, count);
+  const rows = await db.$queryRaw<{ last_number: number }[]>(Prisma.sql`
+    INSERT INTO token_counters (department_id, service_date, last_number)
+    VALUES (
+      ${departmentId}::uuid,
+      ${serviceDate}::date,
+      COALESCE((
+        SELECT MAX((regexp_match(token_number, '(\\d+)$'))[1]::int)
+        FROM tokens
+        WHERE department_id = ${departmentId}::uuid
+          AND service_date = ${serviceDate}::date
+      ), 0) + ${increment}
+    )
+    ON CONFLICT (department_id, service_date)
+    DO UPDATE SET last_number = token_counters.last_number + ${increment}
+    RETURNING last_number
+  `);
+
+  const lastNumber = Number(rows[0].last_number);
+  const startSequence = lastNumber - increment + 1;
+  const tokenNumbers: string[] = [];
+  for (let i = 0; i < increment; i++) {
+    tokenNumbers.push(`${startSequence + i}`);
+  }
+
+  return {
+    tokenNumbers,
+    startSequence,
+  };
+}
+
+/**
  * Reserves the next sequential number for a department on a given day.
- *
- * The increment and the read happen in one statement, so concurrent registration
- * desks are serialised by Postgres on the counter row: the second caller blocks on
- * the first's row lock and then reads the already-incremented value. This replaces a
- * count-then-add-one that raced under READ COMMITTED and could hand two patients the
- * same number.
- *
- * Call inside the same transaction that writes the token, so an abandoned token does
- * not leave a consumed number behind.
  */
 export async function reserveTokenNumber(
   db: Db,
@@ -48,31 +80,9 @@ export async function reserveTokenNumber(
   departmentCode: string,
   serviceDate: Date
 ): Promise<{ tokenNumber: string; sequence: number }> {
-  const rows = await db.$queryRaw<{ last_number: number }[]>(Prisma.sql`
-    INSERT INTO token_counters (department_id, service_date, last_number)
-    VALUES (
-      ${departmentId}::uuid,
-      ${serviceDate}::date,
-      -- Seed from tokens already on record rather than starting at 1. A counter row is
-      -- created the first time a department issues on a given day, which includes the
-      -- first issue after adopting a database that already holds tokens (the Neon
-      -- cutover) — starting at 1 there would collide with existing numbers.
-      COALESCE((
-        SELECT MAX((regexp_match(token_number, '(\\d+)$'))[1]::int)
-        FROM tokens
-        WHERE department_id = ${departmentId}::uuid
-          AND service_date = ${serviceDate}::date
-      ), 0) + 1
-    )
-    ON CONFLICT (department_id, service_date)
-    DO UPDATE SET last_number = token_counters.last_number + 1
-    RETURNING last_number
-  `);
-
-  const sequence = Number(rows[0].last_number);
-
+  const { tokenNumbers, startSequence } = await reserveTokenNumbers(db, departmentId, departmentCode, serviceDate, 1);
   return {
-    sequence,
-    tokenNumber: `${sequence}`,
+    sequence: startSequence,
+    tokenNumber: tokenNumbers[0],
   };
 }

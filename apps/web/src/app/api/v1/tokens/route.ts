@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { ok, badRequest, notFound, route, readJson } from '@/server/http';
-import { reserveTokenNumber, serviceDateFor } from '@/server/tokens/tokenNumber';
+import { reserveTokenNumber, reserveTokenNumbers, serviceDateFor } from '@/server/tokens/tokenNumber';
 
 export const dynamic = 'force-dynamic';
 
@@ -66,101 +66,119 @@ export const POST = route(async (request: Request) => {
     }
   }
 
-  const result = await db.$transaction(async (tx) => {
-    // Every department needs a doctor to attach tokens to.
-    let doctorId = body.doctorId ?? null;
+  const result = await db.$transaction(
+    async (tx) => {
+      // Every department needs a doctor to attach tokens to.
+      let doctorId = body.doctorId ?? null;
 
-    if (doctorId) {
-      const named = await tx.doctor.findUnique({ where: { id: doctorId } });
-      if (!named) doctorId = null;
-    }
+      if (doctorId) {
+        const named = await tx.doctor.findUnique({ where: { id: doctorId } });
+        if (!named) doctorId = null;
+      }
 
-    if (!doctorId) {
-      const existing = await tx.doctor.findFirst({ where: { departmentId: department.id } });
-      doctorId =
-        existing?.id ??
-        (
-          await tx.doctor.create({
+      if (!doctorId) {
+        const existing = await tx.doctor.findFirst({ where: { departmentId: department.id } });
+        doctorId =
+          existing?.id ??
+          (
+            await tx.doctor.create({
+              data: {
+                name: `Doctor for ${department.name}`,
+                roomNumber: '101',
+                departmentId: department.id,
+              },
+            })
+          ).id;
+      }
+
+      // Pre-calculate how many automatic token numbers are needed
+      let autoCount = 0;
+      for (let i = 0; i < requestedCount; i++) {
+        const pItem = body.patients?.[i] || {};
+        const itemCustomToken = (pItem.customTokenNumber || (i === 0 && requestedCount === 1 ? customToken : undefined))?.trim();
+        if (!itemCustomToken) autoCount++;
+      }
+
+      // Allocate all required sequence numbers in a single atomic SQL query
+      let reservedList: string[] = [];
+      if (autoCount > 0) {
+        const reserved = await reserveTokenNumbers(tx, department.id, department.code, serviceDate, autoCount);
+        reservedList = reserved.tokenNumbers;
+      }
+
+      let autoIdx = 0;
+      const createdTokens = [];
+
+      for (let i = 0; i < requestedCount; i++) {
+        const pItem = body.patients?.[i] || {};
+        const itemUhid = pItem.uhid?.trim() || (i === 0 ? uhid : null);
+        const itemPhone = pItem.phone?.trim() || (i === 0 ? usablePhone : '') || '';
+        const itemPriority = pItem.priority ?? priority;
+        const itemCustomToken = (pItem.customTokenNumber || (i === 0 && requestedCount === 1 ? customToken : undefined))?.trim();
+
+        const defaultFirstName = body.firstName?.trim()
+          ? (requestedCount > 1 ? `${body.firstName.trim()} (#${i + 1})` : body.firstName.trim())
+          : (requestedCount > 1 ? `Walk-in Patient #${i + 1}` : 'Patient');
+
+        const itemFirstName = pItem.firstName?.trim() || defaultFirstName;
+        const itemLastName = pItem.lastName?.trim() || body.lastName?.trim() || '';
+
+        // Identify or create patient
+        let patient =
+          (itemUhid ? await tx.patient.findFirst({ where: { uhid: itemUhid } }) : null) ??
+          (i === 0 && body.patientId ? await tx.patient.findUnique({ where: { id: body.patientId } }) : null) ??
+          (itemPhone && itemPhone !== PLACEHOLDER_PHONE ? await tx.patient.findFirst({ where: { phone: itemPhone } }) : null);
+
+        if (patient) {
+          patient = await tx.patient.update({
+            where: { id: patient.id },
             data: {
-              name: `Doctor for ${department.name}`,
-              roomNumber: '101',
-              departmentId: department.id,
+              ...(itemUhid && { uhid: itemUhid }),
+              ...(itemFirstName && { firstName: itemFirstName }),
+              ...(itemLastName && { lastName: itemLastName }),
+              ...(itemPhone && itemPhone !== PLACEHOLDER_PHONE && { phone: itemPhone }),
             },
-          })
-        ).id;
-    }
+          });
+        } else {
+          patient = await tx.patient.create({
+            data: {
+              ...(i === 0 && body.patientId && { id: body.patientId }),
+              uhid: itemUhid,
+              firstName: itemFirstName,
+              lastName: itemLastName,
+              phone: itemPhone || '',
+            },
+          });
+        }
 
-    const createdTokens = [];
+        let tokenNumber: string;
+        if (itemCustomToken) {
+          tokenNumber = itemCustomToken;
+        } else {
+          tokenNumber = reservedList[autoIdx++];
+        }
 
-    for (let i = 0; i < requestedCount; i++) {
-      const pItem = body.patients?.[i] || {};
-      const itemUhid = pItem.uhid?.trim() || (i === 0 ? uhid : null);
-      const itemPhone = pItem.phone?.trim() || (i === 0 ? usablePhone : '') || '';
-      const itemPriority = pItem.priority ?? priority;
-      const itemCustomToken = (pItem.customTokenNumber || (i === 0 && requestedCount === 1 ? customToken : undefined))?.trim();
-
-      const defaultFirstName = body.firstName?.trim()
-        ? (requestedCount > 1 ? `${body.firstName.trim()} (#${i + 1})` : body.firstName.trim())
-        : (requestedCount > 1 ? `Walk-in Patient #${i + 1}` : 'Patient');
-
-      const itemFirstName = pItem.firstName?.trim() || defaultFirstName;
-      const itemLastName = pItem.lastName?.trim() || body.lastName?.trim() || '';
-
-      // Identify or create patient
-      let patient =
-        (itemUhid ? await tx.patient.findFirst({ where: { uhid: itemUhid } }) : null) ??
-        (i === 0 && body.patientId ? await tx.patient.findUnique({ where: { id: body.patientId } }) : null) ??
-        (itemPhone && itemPhone !== PLACEHOLDER_PHONE ? await tx.patient.findFirst({ where: { phone: itemPhone } }) : null);
-
-      if (patient) {
-        patient = await tx.patient.update({
-          where: { id: patient.id },
+        const created = await tx.token.create({
           data: {
-            ...(itemUhid && { uhid: itemUhid }),
-            ...(itemFirstName && { firstName: itemFirstName }),
-            ...(itemLastName && { lastName: itemLastName }),
-            ...(itemPhone && itemPhone !== PLACEHOLDER_PHONE && { phone: itemPhone }),
+            tokenNumber,
+            serviceDate,
+            priority: itemPriority,
+            status: 'WAITING',
+            issuedAt: new Date(Date.now() + i * 50), // slightly offset for deterministic FIFO
+            departmentId: department.id,
+            patientId: patient.id,
+            doctorId,
           },
+          include: { patient: true, doctor: true, department: true },
         });
-      } else {
-        patient = await tx.patient.create({
-          data: {
-            ...(i === 0 && body.patientId && { id: body.patientId }),
-            uhid: itemUhid,
-            firstName: itemFirstName,
-            lastName: itemLastName,
-            phone: itemPhone || '',
-          },
-        });
+
+        createdTokens.push(created);
       }
 
-      let tokenNumber: string;
-      if (itemCustomToken) {
-        tokenNumber = itemCustomToken;
-      } else {
-        const reserved = await reserveTokenNumber(tx, department.id, department.code, serviceDate);
-        tokenNumber = reserved.tokenNumber;
-      }
-
-      const created = await tx.token.create({
-        data: {
-          tokenNumber,
-          serviceDate,
-          priority: itemPriority,
-          status: 'WAITING',
-          issuedAt: new Date(Date.now() + i * 50), // slightly offset for deterministic FIFO
-          departmentId: department.id,
-          patientId: patient.id,
-          doctorId,
-        },
-        include: { patient: true, doctor: true, department: true },
-      });
-
-      createdTokens.push(created);
-    }
-
-    return createdTokens;
-  });
+      return createdTokens;
+    },
+    { maxWait: 15000, timeout: 60000 }
+  );
 
   if (requestedCount === 1) {
     const single = result[0];
