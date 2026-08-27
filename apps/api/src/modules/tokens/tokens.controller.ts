@@ -23,7 +23,8 @@ export class TokensController {
         lastName: dto.lastName,
         phone: dto.phone,
         uhid: dto.uhid
-      }
+      },
+      dto.customTokenNumber || dto.tokenNumber
     );
   }
 

@@ -179,12 +179,17 @@ function handleWithLocalStore(url: string, method: string, options: RequestInit)
 
   // 3. TOKENS
   if (pathname.endsWith('/tokens') && method === 'POST') {
-    const data = createLocalToken(parsedBody.departmentId || '660e8400-e29b-41d4-a716-446655440000', parsedBody.priority || 'NORMAL', {
-      firstName: parsedBody.firstName,
-      lastName: parsedBody.lastName,
-      phone: parsedBody.phone,
-      uhid: parsedBody.uhid,
-    });
+    const data = createLocalToken(
+      parsedBody.departmentId || '660e8400-e29b-41d4-a716-446655440000',
+      parsedBody.priority || 'NORMAL',
+      {
+        firstName: parsedBody.firstName,
+        lastName: parsedBody.lastName,
+        phone: parsedBody.phone,
+        uhid: parsedBody.uhid,
+      },
+      parsedBody.customTokenNumber || parsedBody.tokenNumber
+    );
     return jsonResponse(data, 201);
   }
   if (pathname.includes('/tokens/search') && method === 'GET') {

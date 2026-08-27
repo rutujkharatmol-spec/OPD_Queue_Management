@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   Menu, X, PlusCircle, Search, Printer, CheckCircle2,
-  Building2, ArrowRightLeft, AlertCircle, HeartPulse, User, Phone, FileText, QrCode
+  Building2, ArrowRightLeft, AlertCircle, HeartPulse, User, Phone, FileText, QrCode, Hash
 } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { QRCodeSVG } from 'qrcode.react';
@@ -33,6 +33,7 @@ export default function RegistrationDesk() {
     name: '',
     phone: '',
   });
+  const [customTokenNumber, setCustomTokenNumber] = useState('');
   const [priority, setPriority] = useState<'NORMAL' | 'SENIOR' | 'EMERGENCY'>('NORMAL');
 
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
@@ -71,13 +72,21 @@ export default function RegistrationDesk() {
       const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
       const phone = patientData.phone.trim();
       const uhid = patientData.uhid.trim();
+      const cleanCustomToken = customTokenNumber.trim();
 
-      const token = await generateToken(deptId, randomPatientId, dummyDoctorId, priority, {
-        firstName: firstName,
-        lastName: lastName,
-        phone: phone,
-        uhid: uhid || undefined
-      });
+      const token = await generateToken(
+        deptId,
+        randomPatientId,
+        dummyDoctorId,
+        priority,
+        {
+          firstName: firstName,
+          lastName: lastName,
+          phone: phone,
+          uhid: uhid || undefined
+        },
+        cleanCustomToken || undefined
+      );
 
       const now = new Date();
       setGeneratedToken(token.tokenNumber);
@@ -91,9 +100,11 @@ export default function RegistrationDesk() {
         date: now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
         issuedAt: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       });
-    } catch (err) {
+      // Clear custom token for next entry
+      setCustomTokenNumber('');
+    } catch (err: any) {
       console.error(err);
-      alert('Failed to generate token. Ensure API is running.');
+      alert(err.message || 'Failed to generate token. Ensure API is running.');
     } finally {
       setIsGenerating(false);
     }
@@ -358,6 +369,25 @@ export default function RegistrationDesk() {
                           placeholder="UHID-XXXXXX (Optional)"
                         />
                       </div>
+                    </div>
+
+                    {/* Custom Token Number Input */}
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center justify-between">
+                        <span className="flex items-center gap-2">
+                          <Hash size={16} className="text-slate-400" /> Custom Token Number (Optional)
+                        </span>
+                        <span className="text-[11px] font-medium text-slate-500 bg-slate-200/60 px-2 py-0.5 rounded-md">
+                          Auto-generated if blank
+                        </span>
+                      </label>
+                      <input
+                        type="text"
+                        value={customTokenNumber}
+                        onChange={e => setCustomTokenNumber(e.target.value.toUpperCase())}
+                        className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-800 focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-mono font-bold tracking-wider placeholder:font-normal placeholder:font-sans placeholder:tracking-normal"
+                        placeholder={`E.g. ${currentDept?.code || 'MED'}-042, A-101, 105 (Auto if blank)`}
+                      />
                     </div>
                   </div>
 

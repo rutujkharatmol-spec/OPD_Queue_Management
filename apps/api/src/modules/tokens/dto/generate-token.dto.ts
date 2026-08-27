@@ -41,4 +41,14 @@ export class GenerateTokenDto {
   @IsOptional()
   @IsString()
   uhid?: string;
+
+  @ApiPropertyOptional({ description: 'Custom token number override' })
+  @IsOptional()
+  @IsString()
+  customTokenNumber?: string;
+
+  @ApiPropertyOptional({ description: 'Alias for custom token number' })
+  @IsOptional()
+  @IsString()
+  tokenNumber?: string;
 }

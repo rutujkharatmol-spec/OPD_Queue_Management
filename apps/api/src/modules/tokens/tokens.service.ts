@@ -27,7 +27,8 @@ export class TokensService {
     departmentId?: string,
     doctorId?: string,
     priority: TokenPriority = TokenPriority.NORMAL,
-    patientData?: { firstName?: string; lastName?: string; phone?: string; uhid?: string }
+    patientData?: { firstName?: string; lastName?: string; phone?: string; uhid?: string },
+    customTokenNumber?: string
   ): Promise<Token> {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -93,21 +94,34 @@ export class TokensService {
         await queryRunner.manager.save(patient);
       }
 
-      // 2. Generate Daily Sequence Number (resets to 001 every day per department)
+      // 2. Generate Daily Sequence Number or use custom token number
       const startOfDay = new Date();
       startOfDay.setHours(0, 0, 0, 0);
       const endOfDay = new Date();
       endOfDay.setHours(23, 59, 59, 999);
 
-      const todayTokensCount = await queryRunner.manager.count(Token, {
-        where: {
-          department: { id: departmentId },
-          issuedAt: Between(startOfDay, endOfDay),
-        },
-      });
-
-      const nextNumber = todayTokensCount + 1;
-      const tokenNumber = `${department.code}-${String(nextNumber).padStart(3, '0')}`;
+      let tokenNumber = customTokenNumber?.trim();
+      if (tokenNumber) {
+        const existing = await queryRunner.manager.findOne(Token, {
+          where: {
+            tokenNumber,
+            department: { id: departmentId },
+            issuedAt: Between(startOfDay, endOfDay),
+          },
+        });
+        if (existing) {
+          throw new BadRequestException(`Token "${tokenNumber}" is already in use for ${department.name} today.`);
+        }
+      } else {
+        const todayTokensCount = await queryRunner.manager.count(Token, {
+          where: {
+            department: { id: departmentId },
+            issuedAt: Between(startOfDay, endOfDay),
+          },
+        });
+        const nextNumber = todayTokensCount + 1;
+        tokenNumber = `${department.code}-${String(nextNumber).padStart(3, '0')}`;
+      }
 
       // 3. Create Token
       const token = queryRunner.manager.create(Token, {

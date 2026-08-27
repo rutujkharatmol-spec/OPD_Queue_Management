@@ -13,6 +13,8 @@ type Body = {
   lastName?: string;
   phone?: string;
   uhid?: string;
+  customTokenNumber?: string;
+  tokenNumber?: string;
 };
 
 // Registration sends this when the desk has no real number on file.
@@ -41,6 +43,21 @@ export const POST = route(async (request: Request) => {
   const usablePhone = phone && phone !== PLACEHOLDER_PHONE ? phone : null;
   const priority = body.priority ?? 'NORMAL';
   const serviceDate = serviceDateFor();
+  const customToken = (body.customTokenNumber || body.tokenNumber)?.trim();
+
+  // If a custom token number is provided, verify it is not already used in this department today
+  if (customToken) {
+    const existing = await db.token.findFirst({
+      where: {
+        departmentId: department.id,
+        serviceDate,
+        tokenNumber: customToken,
+      },
+    });
+    if (existing) {
+      return badRequest(`Token "${customToken}" is already in use for ${department.name} today.`);
+    }
+  }
 
   const token = await db.$transaction(async (tx) => {
     // Every department needs a doctor to attach tokens to. Registration does not pick
@@ -103,7 +120,13 @@ export const POST = route(async (request: Request) => {
     // Inside the transaction on purpose: the counter row stays locked until commit, so
     // concurrent desks serialise here, and a token that fails to insert does not burn
     // a number.
-    const { tokenNumber } = await reserveTokenNumber(tx, department.id, department.code, serviceDate);
+    let tokenNumber: string;
+    if (customToken) {
+      tokenNumber = customToken;
+    } else {
+      const reserved = await reserveTokenNumber(tx, department.id, department.code, serviceDate);
+      tokenNumber = reserved.tokenNumber;
+    }
 
     return tx.token.create({
       data: {

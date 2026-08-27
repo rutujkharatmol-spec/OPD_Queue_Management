@@ -11,8 +11,10 @@ export async function generateToken(
   patientId?: string,
   doctorId?: string,
   priority: string = 'NORMAL',
-  patientData?: { firstName?: string; lastName?: string; phone?: string; uhid?: string; }
+  patientData?: { firstName?: string; lastName?: string; phone?: string; uhid?: string; },
+  customTokenNumber?: string
 ) {
+  const cleanCustomToken = customTokenNumber?.trim() || undefined;
   const response = await fetchWithOfflineSync(`${API_BASE_URL}/tokens`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -21,13 +23,20 @@ export async function generateToken(
       departmentId,
       doctorId,
       priority,
+      customTokenNumber: cleanCustomToken,
+      tokenNumber: cleanCustomToken,
       ...(patientData || {})
     }),
   });
   if (!response.ok) {
     const text = await response.text();
     console.error(`generateToken failed: ${response.status} ${response.statusText} - ${text}`);
-    throw new Error('Failed to generate token');
+    let errorMessage = 'Failed to generate token';
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed.message) errorMessage = parsed.message;
+    } catch {}
+    throw new Error(errorMessage);
   }
   return response.json();
 }

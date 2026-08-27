@@ -335,7 +335,8 @@ export function saveLocalTokens(tokens: LocalToken[]): void {
 export function createLocalToken(
   departmentId: string,
   priority: 'NORMAL' | 'SENIOR' | 'EMERGENCY' = 'NORMAL',
-  patientData?: { firstName?: string; lastName?: string; phone?: string; uhid?: string }
+  patientData?: { firstName?: string; lastName?: string; phone?: string; uhid?: string },
+  customTokenNumber?: string
 ): LocalToken {
   const tokens = getLocalTokens();
   const depts = getLocalDepartments();
@@ -343,14 +344,15 @@ export function createLocalToken(
   const targetDeptId = dept.id;
 
   const today = getTodayString();
-  // Counted directly: the old version built a throwaway array of matching tokens only
-  // to read its length.
-  let issuedToday = 0;
-  for (const t of tokens) {
-    if (t.departmentId === targetDeptId && t.serviceDate === today) issuedToday++;
+  let tokenNumber = customTokenNumber?.trim();
+  if (!tokenNumber) {
+    let issuedToday = 0;
+    for (const t of tokens) {
+      if (t.departmentId === targetDeptId && t.serviceDate === today) issuedToday++;
+    }
+    const sequence = issuedToday + 1;
+    tokenNumber = `${dept.code}-${String(sequence).padStart(3, '0')}`;
   }
-  const sequence = issuedToday + 1;
-  const tokenNumber = `${dept.code}-${String(sequence).padStart(3, '0')}`;
 
   const cleanFirstName = patientData?.firstName?.trim() || 'Patient';
   const cleanLastName = patientData?.lastName?.trim() || '';
