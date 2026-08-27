@@ -31,7 +31,7 @@ export default function TvDisplay() {
   const initializeWebSocket = useQueueStore((state) => state.initializeWebSocket);
   const queueData = useQueueStore((state) => state.liveQueues[deptId]) || EMPTY_QUEUE;
   const [pulseScale, setPulseScale] = useState(false);
-  const [isDark, setIsDark] = useState(true); // Default to sleek dark mode for TV screens
+  const [isDark, setIsDark] = useState(false); // Default to clean, high-contrast light mode for TV screens
   const [isFullscreen, setIsFullscreen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -119,12 +119,24 @@ export default function TvDisplay() {
 
   useEffect(() => {
     try {
+      const savedTheme = localStorage.getItem('tv_theme');
+      if (savedTheme === 'dark') setIsDark(true);
+      else if (savedTheme === 'light') setIsDark(false);
+
       const savedGender = localStorage.getItem('tv_voice_gender') as VoiceGender;
       if (savedGender === 'female' || savedGender === 'male') setVoiceGender(savedGender);
       const savedLang = localStorage.getItem('tv_audio_lang') as AudioLang;
       if (savedLang) setAudioLang(savedLang);
     } catch {}
   }, []);
+
+  const handleToggleTheme = () => {
+    const nextVal = !isDark;
+    setIsDark(nextVal);
+    try {
+      localStorage.setItem('tv_theme', nextVal ? 'dark' : 'light');
+    } catch {}
+  };
 
   const handleSetVoiceGender = (gender: VoiceGender) => {
     setVoiceGender(gender);
@@ -337,9 +349,9 @@ export default function TvDisplay() {
 
                 {/* Theme Toggle Button */}
                 <button
-                  onClick={() => setIsDark(!isDark)}
+                  onClick={handleToggleTheme}
                   className="p-2.5 bg-slate-100 dark:bg-black/60 backdrop-blur-md rounded-xl shadow-sm border border-slate-200 dark:border-white/10 hover:bg-slate-200 dark:hover:bg-black/80 transition-all text-slate-600 dark:text-slate-300 cursor-pointer"
-                  title="Toggle Theme"
+                  title="Toggle Light / Dark Theme"
                 >
                   {isDark ? <Sun size={16} /> : <Moon size={16} />}
                 </button>
