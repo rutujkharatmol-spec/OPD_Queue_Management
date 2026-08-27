@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import {
   API_BASE_URL, callNextPatient, markTokenAction, recallPatient,
-  getRooms, createRoom, updateRoom, deleteRoom, searchTokens
+  getRooms, createRoom, updateRoom, deleteRoom, searchTokens, generateToken
 } from '../../lib/api';
 import { useQueueStore } from '../../store/useQueueStore';
 import { useSearchParams } from 'next/navigation';
@@ -298,6 +298,37 @@ export default function DoctorDashboard() {
     }
   };
 
+  /** Ensures a token exists in the database before calling or queuing it */
+  const ensureTokenCreated = async (tokenNumber: string, priority: 'NORMAL' | 'SENIOR' | 'EMERGENCY' = 'NORMAL') => {
+    const clean = tokenNumber.replace(' 🚨', '').trim();
+    if (!clean) return clean;
+
+    const inWaiting = (queueData.nextTokens || []).some(
+      (t) => t.replace(' 🚨', '').trim().toLowerCase() === clean.toLowerCase()
+    );
+    const inActive = (queueData.activeTokens || []).some(
+      (t) => t.token.trim().toLowerCase() === clean.toLowerCase()
+    );
+
+    if (inWaiting || inActive) return clean;
+
+    try {
+      await generateToken(
+        deptId,
+        undefined,
+        undefined,
+        priority,
+        { firstName: `Patient #${clean}` },
+        clean,
+        1
+      );
+      await useQueueStore.getState().fetchQueue(deptId);
+    } catch (err: any) {
+      console.log('Token created or already existed:', err?.message);
+    }
+    return clean;
+  };
+
   const handleCallNext = async (roomNumber: string, specificToken?: string) => {
     setCallingRoom(roomNumber);
     try {
@@ -305,6 +336,10 @@ export default function DoctorDashboard() {
       const currentStaged = roomStagedQueues[roomNumber] || [];
       const tokenToCall = specificToken || (currentStaged.length > 0 ? currentStaged[0] : undefined);
       const cleanToken = tokenToCall ? tokenToCall.replace(' 🚨', '').trim() : undefined;
+
+      if (cleanToken) {
+        await ensureTokenCreated(cleanToken);
+      }
 
       const called = await callNextPatient(deptId, roomNumber, cleanToken);
       
@@ -418,10 +453,14 @@ export default function DoctorDashboard() {
     showToast(`Auto-Call for Room ${roomNumber} is now ${newState ? 'ENABLED ⚡' : 'DISABLED'}`, 3000);
   };
 
-  const handleAddPatientToRoomQueue = (roomNumber: string, token: string) => {
-    addTokenToRoomQueue(deptId, roomNumber, token);
+  const handleAddPatientToRoomQueue = async (roomNumber: string, token: string) => {
+    const clean = token.replace(' 🚨', '').trim();
+    if (clean) {
+      await ensureTokenCreated(clean);
+    }
+    addTokenToRoomQueue(deptId, roomNumber, clean || token);
     refreshRoomSettings();
-    showToast(`Patient ${token} added to Room ${roomNumber} queue!`, 3000);
+    showToast(`Patient ${clean || token} added to Room ${roomNumber} queue!`, 3000);
   };
 
   const handleRemoveFromRoomQueue = (roomNumber: string, token: string) => {
@@ -806,12 +845,19 @@ export default function DoctorDashboard() {
               </div>
             )}
 
-            {/* Direct Token Draggable Card (if searched token not in line) */}
+            {/* Direct Token Create & Assign Card (if searched token not currently in line) */}
             {filteredNextTokens.length === 0 && tokenSearchQuery.trim() && dbSearchResults.length === 0 && (
-              <div className="p-4 rounded-2xl bg-white border-2 border-dashed border-blue-300 text-center space-y-3 shadow-xs">
-                <p className="text-xs font-bold text-slate-700">
-                  Search Token: <span className="font-mono font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded">"{tokenSearchQuery.trim()}"</span>
-                </p>
+              <div className="p-4 rounded-2xl bg-white border-2 border-dashed border-blue-400 text-center space-y-3 shadow-xs animate-in fade-in">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700">
+                    Token: <span className="font-mono font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded">"{tokenSearchQuery.trim().toUpperCase()}"</span>
+                  </span>
+                  <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
+                    Not in waiting line
+                  </span>
+                </div>
+
+                {/* Draggable Card */}
                 <div
                   draggable
                   onDragStart={(e) => {
@@ -825,23 +871,99 @@ export default function DoctorDashboard() {
                     setDragOverRoom(null);
                     setDragOverZone(null);
                   }}
-                  className="p-3.5 rounded-xl border-2 border-blue-600 bg-gradient-to-r from-blue-50 via-white to-blue-50 shadow-md cursor-grab active:cursor-grabbing hover:shadow-lg transition-all text-left group select-none"
-                  title="Drag this token directly into any room to call or stage"
+                  className="p-3.5 rounded-xl border-2 border-blue-600 bg-gradient-to-r from-blue-50 via-white to-indigo-50 shadow-md cursor-grab active:cursor-grabbing hover:shadow-lg transition-all text-left group select-none"
+                  title="Drag this token directly into any room to auto-create and assign"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <GripVertical size={16} className="text-blue-600" />
+                      <GripVertical size={16} className="text-blue-600 group-hover:text-blue-800 transition-colors" />
                       <span className="text-lg font-black text-slate-900 font-mono">{tokenSearchQuery.trim().toUpperCase()}</span>
                     </div>
-                    <span className="text-[10px] font-black bg-blue-600 text-white px-2 py-0.5 rounded-md">
-                      Direct Token
+                    <span className="text-[10px] font-black bg-blue-600 text-white px-2 py-0.5 rounded-md shadow-2xs">
+                      Draggable Card
                     </span>
                   </div>
                   <p className="text-[11px] text-blue-700 font-bold mt-1.5 flex items-center gap-1">
                     <Sparkles size={12} className="text-blue-600" />
-                    <span>Drag this card into any room to Call or Stage ➔</span>
+                    <span>Drag into any room to Auto-Create &amp; Assign ➔</span>
                   </p>
                 </div>
+
+                {/* Quick Action Buttons */}
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const clean = tokenSearchQuery.trim().toUpperCase();
+                      await ensureTokenCreated(clean);
+                      setTokenSearchQuery('');
+                      showToast(`Token #${clean} created and added to waiting line!`, 3500);
+                    }}
+                    className="py-2 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                    title="Create this token and put it in general waiting line"
+                  >
+                    <Plus size={13} />
+                    <span>Create in Line</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const clean = tokenSearchQuery.trim().toUpperCase();
+                      setQuickAssignToken(clean);
+                    }}
+                    className="py-2 px-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                    title="Assign to a specific room"
+                  >
+                    <CornerDownRight size={13} />
+                    <span>Assign Room...</span>
+                  </button>
+                </div>
+
+                {/* Quick Room Direct Action Shortcuts */}
+                {rooms.length > 0 && (
+                  <div className="pt-2 border-t border-slate-100 space-y-1.5 text-left">
+                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Quick Room Action:</p>
+                    <div className="space-y-1.5">
+                      {rooms.map((r) => (
+                        <div key={r.id} className="flex items-center justify-between p-2 bg-slate-50 border border-slate-200 rounded-xl">
+                          <div>
+                            <span className="text-xs font-black text-slate-800">Room {r.roomNumber}</span>
+                            {r.doctorName && <p className="text-[10px] text-slate-400 truncate max-w-[90px]">{r.doctorName}</p>}
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const clean = tokenSearchQuery.trim().toUpperCase();
+                                await ensureTokenCreated(clean);
+                                handleCallNext(r.roomNumber, clean);
+                                setTokenSearchQuery('');
+                              }}
+                              className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
+                              title={`Call token #${tokenSearchQuery.trim()} now in Room ${r.roomNumber}`}
+                            >
+                              ⚡ Call Now
+                            </button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const clean = tokenSearchQuery.trim().toUpperCase();
+                                await ensureTokenCreated(clean);
+                                handleAddPatientToRoomQueue(r.roomNumber, clean);
+                                setTokenSearchQuery('');
+                              }}
+                              className="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
+                              title={`Add token #${tokenSearchQuery.trim()} to Room ${r.roomNumber} queue`}
+                            >
+                              ➕ Queue
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

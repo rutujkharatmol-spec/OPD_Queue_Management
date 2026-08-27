@@ -78,6 +78,45 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
       }
     }
 
+    if (!waitingToken && cleanId) {
+      // Find or create default doctor for department
+      let doctor = await tx.doctor.findFirst({ where: { departmentId: department.id } });
+      if (!doctor) {
+        doctor = await tx.doctor.create({
+          data: {
+            name: `Doctor for Department`,
+            roomNumber,
+            departmentId: department.id,
+          },
+        });
+      }
+
+      // Create new walk-in patient
+      const patient = await tx.patient.create({
+        data: {
+          firstName: `Patient #${cleanId}`,
+          lastName: '',
+          phone: '',
+        },
+      });
+
+      // Create and immediately mark token as CALLED in this room
+      return tx.token.create({
+        data: {
+          tokenNumber: cleanId,
+          serviceDate,
+          priority: 'NORMAL',
+          status: 'CALLED',
+          calledAt: new Date(),
+          roomNumber,
+          departmentId: department.id,
+          patientId: patient.id,
+          doctorId: doctor.id,
+        },
+        include: { patient: true, department: true, doctor: true },
+      });
+    }
+
     if (!waitingToken) return null;
 
     // 3. Mark token as CALLED in this room
