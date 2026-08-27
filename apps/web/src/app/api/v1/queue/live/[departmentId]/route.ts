@@ -64,16 +64,11 @@ export const GET = route(async (_request: Request, { params }: Context) => {
     if (room.doctorName) doctorByRoom.set(room.roomNumber, room.doctorName);
   }
 
-  // One patient per room: several tokens can sit in CALLED if a doctor moved on
-  // without completing, and the board should show each room's most recent call.
-  const seenRooms = new Set<string>();
+  // Return all currently active called tokens for all rooms
   const activeTokens = [];
 
   for (const token of activeRaw) {
     const room = token.roomNumber || '101';
-    if (seenRooms.has(room)) continue;
-    seenRooms.add(room);
-
     const name = `${token.patient?.firstName || ''} ${token.patient?.lastName || ''}`.trim();
 
     activeTokens.push({

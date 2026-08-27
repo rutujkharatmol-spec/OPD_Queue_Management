@@ -188,7 +188,9 @@ function handleWithLocalStore(url: string, method: string, options: RequestInit)
         phone: parsedBody.phone,
         uhid: parsedBody.uhid,
       },
-      parsedBody.customTokenNumber || parsedBody.tokenNumber
+      parsedBody.customTokenNumber || parsedBody.tokenNumber,
+      parsedBody.count,
+      parsedBody.patients
     );
     return jsonResponse(data, 201);
   }

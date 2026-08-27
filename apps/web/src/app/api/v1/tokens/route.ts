@@ -15,6 +15,15 @@ type Body = {
   uhid?: string;
   customTokenNumber?: string;
   tokenNumber?: string;
+  count?: number;
+  patients?: Array<{
+    firstName?: string;
+    lastName?: string;
+    phone?: string;
+    uhid?: string;
+    priority?: 'NORMAL' | 'SENIOR' | 'EMERGENCY';
+    customTokenNumber?: string;
+  }>;
 };
 
 // Registration sends this when the desk has no real number on file.
@@ -31,9 +40,6 @@ export const POST = route(async (request: Request) => {
     select: { id: true, name: true, code: true, deletedAt: true },
   });
 
-  // The NestJS version silently fell back to a department with code 'MED' when the id
-  // did not resolve, so a bad id quietly issued a token for the wrong clinic. Better to
-  // refuse: the desk can see something is wrong before handing the patient a slip.
   if (!department || department.deletedAt) {
     return notFound('That department does not exist.');
   }
@@ -44,9 +50,10 @@ export const POST = route(async (request: Request) => {
   const priority = body.priority ?? 'NORMAL';
   const serviceDate = serviceDateFor();
   const customToken = (body.customTokenNumber || body.tokenNumber)?.trim();
+  const requestedCount = Math.min(100, Math.max(1, body.patients?.length || body.count || 1));
 
-  // If a custom token number is provided, verify it is not already used in this department today
-  if (customToken) {
+  // If a single custom token number is provided, verify it is not already used in this department today
+  if (customToken && requestedCount === 1) {
     const existing = await db.token.findFirst({
       where: {
         departmentId: department.id,
@@ -59,10 +66,8 @@ export const POST = route(async (request: Request) => {
     }
   }
 
-  const token = await db.$transaction(async (tx) => {
-    // Every department needs a doctor to attach tokens to. Registration does not pick
-    // one, so fall back to any doctor in the department and create one if the clinic
-    // has none yet.
+  const result = await db.$transaction(async (tx) => {
+    // Every department needs a doctor to attach tokens to.
     let doctorId = body.doctorId ?? null;
 
     if (doctorId) {
@@ -85,63 +90,82 @@ export const POST = route(async (request: Request) => {
         ).id;
     }
 
-    // Identify the patient from whatever the desk supplied, in decreasing confidence:
-    // hospital number, then an explicit id, then phone. uhid is neither unique nor
-    // required in this schema, so this is findFirst rather than a lookup by key.
-    let patient =
-      (uhid ? await tx.patient.findFirst({ where: { uhid } }) : null) ??
-      (body.patientId ? await tx.patient.findUnique({ where: { id: body.patientId } }) : null) ??
-      (usablePhone ? await tx.patient.findFirst({ where: { phone: usablePhone } }) : null);
+    const createdTokens = [];
 
-    if (patient) {
-      // Only overwrite with values the desk actually typed; a blank field should not
-      // erase details captured on an earlier visit.
-      patient = await tx.patient.update({
-        where: { id: patient.id },
+    for (let i = 0; i < requestedCount; i++) {
+      const pItem = body.patients?.[i] || {};
+      const itemUhid = pItem.uhid?.trim() || (i === 0 ? uhid : null);
+      const itemPhone = pItem.phone?.trim() || (i === 0 ? usablePhone : '') || '';
+      const itemPriority = pItem.priority ?? priority;
+      const itemCustomToken = (pItem.customTokenNumber || (i === 0 && requestedCount === 1 ? customToken : undefined))?.trim();
+
+      const defaultFirstName = body.firstName?.trim()
+        ? (requestedCount > 1 ? `${body.firstName.trim()} (#${i + 1})` : body.firstName.trim())
+        : (requestedCount > 1 ? `Walk-in Patient #${i + 1}` : 'Patient');
+
+      const itemFirstName = pItem.firstName?.trim() || defaultFirstName;
+      const itemLastName = pItem.lastName?.trim() || body.lastName?.trim() || '';
+
+      // Identify or create patient
+      let patient =
+        (itemUhid ? await tx.patient.findFirst({ where: { uhid: itemUhid } }) : null) ??
+        (i === 0 && body.patientId ? await tx.patient.findUnique({ where: { id: body.patientId } }) : null) ??
+        (itemPhone && itemPhone !== PLACEHOLDER_PHONE ? await tx.patient.findFirst({ where: { phone: itemPhone } }) : null);
+
+      if (patient) {
+        patient = await tx.patient.update({
+          where: { id: patient.id },
+          data: {
+            ...(itemUhid && { uhid: itemUhid }),
+            ...(itemFirstName && { firstName: itemFirstName }),
+            ...(itemLastName && { lastName: itemLastName }),
+            ...(itemPhone && itemPhone !== PLACEHOLDER_PHONE && { phone: itemPhone }),
+          },
+        });
+      } else {
+        patient = await tx.patient.create({
+          data: {
+            ...(i === 0 && body.patientId && { id: body.patientId }),
+            uhid: itemUhid,
+            firstName: itemFirstName,
+            lastName: itemLastName,
+            phone: itemPhone || '',
+          },
+        });
+      }
+
+      let tokenNumber: string;
+      if (itemCustomToken) {
+        tokenNumber = itemCustomToken;
+      } else {
+        const reserved = await reserveTokenNumber(tx, department.id, department.code, serviceDate);
+        tokenNumber = reserved.tokenNumber;
+      }
+
+      const created = await tx.token.create({
         data: {
-          ...(uhid && { uhid }),
-          ...(body.firstName?.trim() && { firstName: body.firstName.trim() }),
-          ...(body.lastName?.trim() && { lastName: body.lastName.trim() }),
-          ...(usablePhone && { phone: usablePhone }),
+          tokenNumber,
+          serviceDate,
+          priority: itemPriority,
+          status: 'WAITING',
+          issuedAt: new Date(Date.now() + i * 50), // slightly offset for deterministic FIFO
+          departmentId: department.id,
+          patientId: patient.id,
+          doctorId,
         },
+        include: { patient: true, doctor: true, department: true },
       });
-    } else {
-      patient = await tx.patient.create({
-        data: {
-          ...(body.patientId && { id: body.patientId }),
-          uhid,
-          firstName: body.firstName?.trim() || 'Patient',
-          lastName: body.lastName?.trim() || '',
-          phone: usablePhone || '',
-        },
-      });
+
+      createdTokens.push(created);
     }
 
-    // Inside the transaction on purpose: the counter row stays locked until commit, so
-    // concurrent desks serialise here, and a token that fails to insert does not burn
-    // a number.
-    let tokenNumber: string;
-    if (customToken) {
-      tokenNumber = customToken;
-    } else {
-      const reserved = await reserveTokenNumber(tx, department.id, department.code, serviceDate);
-      tokenNumber = reserved.tokenNumber;
-    }
-
-    return tx.token.create({
-      data: {
-        tokenNumber,
-        serviceDate,
-        priority,
-        status: 'WAITING',
-        issuedAt: new Date(),
-        departmentId: department.id,
-        patientId: patient.id,
-        doctorId,
-      },
-      include: { patient: true, doctor: true, department: true },
-    });
+    return createdTokens;
   });
 
-  return ok(token, 201);
+  if (requestedCount === 1) {
+    const single = result[0];
+    return ok({ ...single, tokens: result, count: 1 }, 201);
+  }
+
+  return ok({ tokens: result, count: result.length, tokenNumber: result[0]?.tokenNumber }, 201);
 });

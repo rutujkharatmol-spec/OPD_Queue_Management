@@ -265,17 +265,14 @@ async function speakAccordingToMode(
 
 /**
  * Formats token string for crystal-clear spoken pronunciation
- * e.g. "MED-001" -> "M E D 1 0 1"
+ * Removes any department prefix (e.g. "ENT-001" -> "1", "MED-042" -> "42", "101" -> "101")
  */
 function formatTokenForSpeech(token: string): string {
   const clean = token.replace('🚨', '').trim();
-  if (clean.includes('-')) {
-    const parts = clean.split('-');
-    const deptLetters = parts[0].split('').join(' ');
-    const number = parts[1].replace(/^0+/, '') || '0';
-    return `${deptLetters} ${number}`;
-  }
-  return clean.split('').join(' ');
+  // Strip any letters and optional hyphen (e.g., "ENT-001" -> "001", "MED-1" -> "1")
+  const stripped = clean.replace(/^[A-Za-z]+-?/, '').trim();
+  const numericOnly = stripped.replace(/^0+/, '') || stripped || clean;
+  return numericOnly;
 }
 
 /**
@@ -291,7 +288,7 @@ export async function announcePatientCall({
 }: AnnouncementOptions): Promise<void> {
   const mode = engineMode || getVoiceEngineMode();
   const spokenToken = formatTokenForSpeech(tokenNumber);
-  const cleanToken = tokenNumber.replace('🚨', '').trim();
+  const cleanToken = spokenToken;
 
   // 1. Stop any ongoing audio/speech first
   stopAudioAnnouncement();

@@ -27,21 +27,7 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
   const cleanId = (body.tokenIdentifier || body.tokenNumber || body.tokenId)?.replace(' 🚨', '').trim();
 
   const nextToken = await db.$transaction(async (tx) => {
-    // 1. Mark any currently CALLED token in this room as COMPLETED
-    await tx.token.updateMany({
-      where: {
-        departmentId,
-        roomNumber,
-        status: 'CALLED',
-        deletedAt: null,
-      },
-      data: {
-        status: 'COMPLETED',
-        completedAt: new Date(),
-      },
-    });
-
-    // 2. Find target token or next waiting token for today
+    // 1. Find target token or next waiting token for today
     let waitingToken: any = null;
 
     if (cleanId) {

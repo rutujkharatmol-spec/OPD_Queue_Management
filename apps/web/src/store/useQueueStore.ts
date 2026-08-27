@@ -109,3 +109,12 @@ export const useQueueStore = create<QueueStore>((set, get) => ({
     }
   }
 }));
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('opd-queue-updated', ((e: CustomEvent) => {
+    const deptId = e.detail?.departmentId;
+    if (deptId) {
+      useQueueStore.getState().fetchQueue(deptId);
+    }
+  }) as EventListener);
+}

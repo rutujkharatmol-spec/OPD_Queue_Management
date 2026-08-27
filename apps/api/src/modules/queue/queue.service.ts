@@ -6,6 +6,7 @@ import { Queue, QueueStatus } from './entities/queue.entity';
 import { Department } from '../departments/entities/department.entity';
 import { Doctor } from '../doctors/entities/doctor.entity';
 import { Room } from '../settings/entities/room.entity';
+import { TokenAction } from './dto/mark-token-action.dto';
 
 @Injectable()
 export class QueueService {
@@ -70,21 +71,6 @@ export class QueueService {
 
       if (queue.status !== QueueStatus.OPEN) {
         throw new BadRequestException('Queue is not OPEN.');
-      }
-
-      // 2. Mark any token currently CALLED in this specific room as completed
-      const currentTokensInRoom = await queryRunner.manager.find(Token, {
-        where: {
-          department: { id: departmentId },
-          roomNumber: roomNumber,
-          status: TokenStatus.CALLED,
-        },
-      });
-
-      for (const t of currentTokensInRoom) {
-        t.status = TokenStatus.COMPLETED;
-        t.completedAt = new Date();
-        await queryRunner.manager.save(t);
       }
 
       // 3. Find next waiting token in this department
@@ -155,7 +141,7 @@ export class QueueService {
     return activeToken;
   }
 
-  async markTokenAction(tokenId: string, action: 'SKIP' | 'ABSENT' | 'NOT_AVAILABLE' | 'COMPLETE'): Promise<Token> {
+  async markTokenAction(tokenId: string, action: TokenAction | string): Promise<Token> {
     const token = await this.tokenRepository.findOne({
       where: { id: tokenId },
       relations: ['doctor']
@@ -163,9 +149,14 @@ export class QueueService {
 
     if (!token) throw new NotFoundException('Token not found');
 
-    if (action === 'SKIP') {
+    if (action === TokenAction.SKIP) {
       token.status = TokenStatus.SKIPPED;
-    } else if (action === 'NOT_AVAILABLE') {
+    } else if (action === TokenAction.RETURN_TO_QUEUE || action === TokenAction.RESET_TO_WAITING) {
+      token.status = TokenStatus.WAITING;
+      token.calledAt = null as any;
+      token.recalledAt = null as any;
+      token.roomNumber = null as any;
+    } else if (action === TokenAction.NOT_AVAILABLE) {
       // Penalty: +3 first time, +6 second time (and beyond)
       const penalty = token.absentCount === 0 ? 3 : 6;
 
@@ -190,9 +181,9 @@ export class QueueService {
       token.calledAt = null as any;
       token.recalledAt = null as any;
       token.roomNumber = null as any;
-    } else if (action === 'ABSENT') {
+    } else if (action === TokenAction.ABSENT) {
       token.status = TokenStatus.ABSENT;
-    } else if (action === 'COMPLETE') {
+    } else if (action === TokenAction.COMPLETE) {
       token.status = TokenStatus.COMPLETED;
       token.completedAt = new Date();
     }
@@ -331,18 +322,7 @@ export class QueueService {
       relations: ['patient']
     });
 
-    // Deduplicate so each room displays only its most recent active patient
-    const seenRooms = new Set<string>();
-    const uniqueActiveTokens: Token[] = [];
-    for (const t of activeTokensRaw) {
-      const rNum = t.roomNumber || '101';
-      if (!seenRooms.has(rNum)) {
-        seenRooms.add(rNum);
-        uniqueActiveTokens.push(t);
-      }
-    }
-
-    const activeTokens = uniqueActiveTokens.map(t => {
+    const activeTokens = activeTokensRaw.map(t => {
       const rNum = t.roomNumber || '101';
       return {
         id: t.id,

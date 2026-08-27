@@ -386,67 +386,125 @@ export default function TvDisplay() {
                 Waiting for doctor to call next patient...
               </div>
             ) : (
-              <div className={`flex-1 grid gap-4 lg:gap-6 ${activeTokens.length === 1
-                ? 'grid-cols-1'
-                : activeTokens.length > 4
-                  ? 'grid-cols-2 lg:grid-cols-3'
-                  : 'grid-cols-2'
-                }`}>
-                {activeTokens.map((item: any, idx: number) => {
-                  const isEmergency = item.token?.includes('🚨');
-                  const [prefix, number] = item.token?.includes('-') ? item.token.split('-') : [null, item.token];
-                  const tokenFontSize = activeTokens.length > 4 ? 'text-[7vh] lg:text-[9vh]' : activeTokens.length > 2 ? 'text-[9vh] lg:text-[11vh]' : 'text-[13vh] lg:text-[15vh]';
+              <div className={`flex-1 grid gap-4 lg:gap-6 ${(() => {
+                const map = new Map<string, { room: string; doctorName?: string; isEmergency: boolean; tokens: any[] }>();
+                for (const item of activeTokens) {
+                  const rKey = item.room || '101';
+                  if (!map.has(rKey)) {
+                    map.set(rKey, {
+                      room: rKey,
+                      doctorName: item.doctorName,
+                      isEmergency: Boolean(item.token?.includes('🚨')),
+                      tokens: [],
+                    });
+                  }
+                  const rEntry = map.get(rKey)!;
+                  if (item.token?.includes('🚨')) rEntry.isEmergency = true;
+                  rEntry.tokens.push(item);
+                }
+                const count = map.size;
+                return count === 1 ? 'grid-cols-1' : count > 4 ? 'grid-cols-2 lg:grid-cols-3' : 'grid-cols-2';
+              })()}`}>
+                {(() => {
+                  const map = new Map<string, { room: string; doctorName?: string; isEmergency: boolean; tokens: any[] }>();
+                  for (const item of activeTokens) {
+                    const rKey = item.room || '101';
+                    if (!map.has(rKey)) {
+                      map.set(rKey, {
+                        room: rKey,
+                        doctorName: item.doctorName,
+                        isEmergency: Boolean(item.token?.includes('🚨')),
+                        tokens: [],
+                      });
+                    }
+                    const rEntry = map.get(rKey)!;
+                    if (item.token?.includes('🚨')) rEntry.isEmergency = true;
+                    rEntry.tokens.push(item);
+                  }
+                  const roomsList = Array.from(map.values());
+                  const roomCount = roomsList.length;
 
-                  return (
-                    <div
-                      key={idx}
-                      className={`flex flex-col items-center justify-center rounded-[2rem] border transition-all duration-500 p-6 relative overflow-hidden ${pulseScale ? 'scale-[1.02] shadow-2xl ring-4 ring-blue-400/40' : 'scale-100'
-                        } ${isEmergency
-                          ? 'bg-red-50/90 dark:bg-red-950/60 border-red-300 dark:border-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]'
-                          : 'bg-gradient-to-b from-slate-50 to-white dark:from-slate-800/80 dark:to-slate-900/90 border-slate-200 dark:border-blue-500/30 shadow-md'
-                        }`}
-                    >
-                      {/* Room Header & Doctor Name */}
-                      <div className="w-full flex justify-between items-center mb-2 px-2">
-                        <span className={`text-[2.6vh] lg:text-[3vh] font-black tracking-wider uppercase ${isEmergency ? 'text-red-600 dark:text-red-300' : 'text-blue-600 dark:text-blue-300'
-                          }`}>
-                          Room {item.room}
-                        </span>
-                        {item.doctorName && (
-                          <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300 bg-slate-200/70 dark:bg-slate-700/60 px-3 py-1 rounded-full truncate max-w-[180px]">
-                            <Stethoscope size={13} className="text-blue-500" />
-                            {item.doctorName}
+                  return roomsList.map((roomItem, idx) => {
+                    const isEmergency = roomItem.isEmergency;
+                    const isSingle = roomItem.tokens.length === 1;
+                    const firstItem = roomItem.tokens[0];
+                    const [prefix, number] = firstItem?.token?.includes('-') ? firstItem.token.split('-') : [null, firstItem?.token];
+                    const tokenFontSize = roomCount > 4 ? 'text-[7vh] lg:text-[9vh]' : roomCount > 2 ? 'text-[9vh] lg:text-[11vh]' : 'text-[13vh] lg:text-[15vh]';
+
+                    return (
+                      <div
+                        key={idx}
+                        className={`flex flex-col items-center justify-center rounded-[2rem] border transition-all duration-500 p-6 relative overflow-hidden ${pulseScale ? 'scale-[1.02] shadow-2xl ring-4 ring-blue-400/40' : 'scale-100'
+                          } ${isEmergency
+                            ? 'bg-red-50/90 dark:bg-red-950/60 border-red-300 dark:border-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]'
+                            : 'bg-gradient-to-b from-slate-50 to-white dark:from-slate-800/80 dark:to-slate-900/90 border-slate-200 dark:border-blue-500/30 shadow-md'
+                          }`}
+                      >
+                        {/* Room Header & Doctor Name */}
+                        <div className="w-full flex justify-between items-center mb-2 px-2">
+                          <span className={`text-[2.6vh] lg:text-[3vh] font-black tracking-wider uppercase ${isEmergency ? 'text-red-600 dark:text-red-300' : 'text-blue-600 dark:text-blue-300'
+                            }`}>
+                            Room {roomItem.room} {roomItem.tokens.length > 1 ? `(${roomItem.tokens.length} Patients)` : ''}
                           </span>
-                        )}
-                      </div>
-
-                      {/* Giant Token Number */}
-                      <div className={`${tokenFontSize} font-black leading-none tracking-tighter w-full text-center whitespace-nowrap overflow-hidden text-ellipsis my-auto transition-colors duration-500 ${isEmergency ? 'text-red-600 dark:text-red-100' : 'text-slate-900 dark:text-white'
-                        }`}>
-                        {prefix ? (
-                          <>
-                            <span className={`text-[0.42em] font-bold align-middle mr-1 ${isEmergency ? 'text-red-400 dark:text-red-200' : 'text-slate-400 dark:text-blue-300/60'
-                              }`}>
-                              {prefix}-
+                          {roomItem.doctorName && (
+                            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300 bg-slate-200/70 dark:bg-slate-700/60 px-3 py-1 rounded-full truncate max-w-[180px]">
+                              <Stethoscope size={13} className="text-blue-500" />
+                              {roomItem.doctorName}
                             </span>
-                            {number}
+                          )}
+                        </div>
+
+                        {isSingle ? (
+                          <>
+                            {/* Giant Token Number */}
+                            <div className={`${tokenFontSize} font-black leading-none tracking-tighter w-full text-center whitespace-nowrap overflow-hidden text-ellipsis my-auto transition-colors duration-500 ${isEmergency ? 'text-red-600 dark:text-red-100' : 'text-slate-900 dark:text-white'
+                              }`}>
+                              {prefix ? (
+                                <>
+                                  <span className={`text-[0.42em] font-bold align-middle mr-1 ${isEmergency ? 'text-red-400 dark:text-red-200' : 'text-slate-400 dark:text-blue-300/60'
+                                    }`}>
+                                    {prefix}-
+                                  </span>
+                                  {number}
+                                </>
+                              ) : (
+                                firstItem?.token
+                              )}
+                            </div>
+
+                            {/* Patient Name Banner */}
+                            {firstItem?.patientName && firstItem?.patientName !== 'Unknown Patient' && (
+                              <div className="mt-2 text-center">
+                                <span className="text-sm font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-black/40 px-4 py-1.5 rounded-full border border-slate-200 dark:border-white/10">
+                                  👤 {firstItem.patientName}
+                                </span>
+                              </div>
+                            )}
                           </>
                         ) : (
-                          item.token
+                          /* Multiple Active Patients In Same Room */
+                          <div className="w-full flex-1 flex flex-wrap items-center justify-center gap-3 my-auto py-2">
+                            {roomItem.tokens.map((tok: any, tIdx: number) => (
+                              <div
+                                key={tIdx}
+                                className="flex flex-col items-center justify-center bg-white/90 dark:bg-slate-800/90 border border-blue-200 dark:border-blue-500/40 rounded-2xl px-5 py-3 shadow-md min-w-[120px]"
+                              >
+                                <span className="text-[5.5vh] lg:text-[6.5vh] font-black text-slate-900 dark:text-white leading-none">
+                                  {tok.token}
+                                </span>
+                                {tok.patientName && tok.patientName !== 'Unknown Patient' && (
+                                  <span className="text-xs font-bold text-slate-600 dark:text-slate-300 mt-1 max-w-[130px] truncate text-center">
+                                    {tok.patientName}
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
                         )}
                       </div>
-
-                      {/* Patient Name Banner */}
-                      {item.patientName && item.patientName !== 'Unknown Patient' && (
-                        <div className="mt-2 text-center">
-                          <span className="text-sm font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-black/40 px-4 py-1.5 rounded-full border border-slate-200 dark:border-white/10">
-                            👤 {item.patientName}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                    );
+                  });
+                })()}
               </div>
             )}
           </div>

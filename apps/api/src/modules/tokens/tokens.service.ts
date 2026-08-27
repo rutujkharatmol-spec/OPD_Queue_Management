@@ -120,7 +120,7 @@ export class TokensService {
           },
         });
         const nextNumber = todayTokensCount + 1;
-        tokenNumber = `${department.code}-${String(nextNumber).padStart(3, '0')}`;
+        tokenNumber = `${nextNumber}`;
       }
 
       // 3. Create Token

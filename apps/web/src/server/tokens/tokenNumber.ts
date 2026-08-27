@@ -73,6 +73,6 @@ export async function reserveTokenNumber(
 
   return {
     sequence,
-    tokenNumber: `${departmentCode}-${String(sequence).padStart(3, '0')}`,
+    tokenNumber: `${sequence}`,
   };
 }

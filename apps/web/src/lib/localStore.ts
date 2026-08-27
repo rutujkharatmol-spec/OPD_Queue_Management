@@ -325,7 +325,12 @@ export function deleteLocalRoom(id: string): boolean {
 // ----------------- TOKENS & QUEUE -----------------
 
 export function getLocalTokens(): LocalToken[] {
-  return getStorage<LocalToken[]>(TOKENS_KEY, []);
+  const tokens = getStorage<LocalToken[]>(TOKENS_KEY, []);
+  // Ensure any ENT- or department prefix is stripped, keeping only the number
+  return tokens.map(t => ({
+    ...t,
+    tokenNumber: t.tokenNumber ? t.tokenNumber.replace(/^ENT-?/i, '') : t.tokenNumber,
+  }));
 }
 
 export function saveLocalTokens(tokens: LocalToken[]): void {
@@ -336,59 +341,80 @@ export function createLocalToken(
   departmentId: string,
   priority: 'NORMAL' | 'SENIOR' | 'EMERGENCY' = 'NORMAL',
   patientData?: { firstName?: string; lastName?: string; phone?: string; uhid?: string },
-  customTokenNumber?: string
-): LocalToken {
+  customTokenNumber?: string,
+  count: number = 1,
+  patients?: Array<{ firstName?: string; lastName?: string; phone?: string; uhid?: string; priority?: 'NORMAL' | 'SENIOR' | 'EMERGENCY'; customTokenNumber?: string }>
+): LocalToken | any {
   const tokens = getLocalTokens();
   const depts = getLocalDepartments();
   const dept = depts.find(d => d.id === departmentId) || depts[0] || DEFAULT_DEPARTMENTS[0];
   const targetDeptId = dept.id;
-
   const today = getTodayString();
-  let tokenNumber = customTokenNumber?.trim();
-  if (!tokenNumber) {
-    let issuedToday = 0;
-    for (const t of tokens) {
-      if (t.departmentId === targetDeptId && t.serviceDate === today) issuedToday++;
-    }
-    const sequence = issuedToday + 1;
-    tokenNumber = `${dept.code}-${String(sequence).padStart(3, '0')}`;
+  const totalCount = Math.min(100, Math.max(1, patients?.length || count || 1));
+
+  let issuedToday = 0;
+  for (const t of tokens) {
+    if (t.departmentId === targetDeptId && t.serviceDate === today) issuedToday++;
   }
 
-  const cleanFirstName = patientData?.firstName?.trim() || 'Patient';
-  const cleanLastName = patientData?.lastName?.trim() || '';
-  const cleanPhone = patientData?.phone?.trim() || '';
-  const cleanUhid = patientData?.uhid?.trim() || null;
+  const createdTokens: LocalToken[] = [];
 
-  const patientId = newId('pat');
-  const patient: LocalPatient = {
-    id: patientId,
-    firstName: cleanFirstName,
-    lastName: cleanLastName,
-    phone: cleanPhone,
-    uhid: cleanUhid,
-  };
+  for (let i = 0; i < totalCount; i++) {
+    const pItem = patients?.[i] || {};
+    const itemPriority = pItem.priority || priority;
+    let itemTokenNumber = (pItem.customTokenNumber || (i === 0 && totalCount === 1 ? customTokenNumber : undefined))?.trim();
+    if (itemTokenNumber) {
+      itemTokenNumber = itemTokenNumber.replace(/^ENT-?/i, '');
+    } else {
+      const sequence = issuedToday + i + 1;
+      itemTokenNumber = `${sequence}`;
+    }
 
-  const newToken: LocalToken = {
-    id: newId('tok'),
-    tokenNumber,
-    serviceDate: today,
-    status: 'WAITING',
-    priority,
-    roomNumber: null,
-    issuedAt: new Date().toISOString(),
-    calledAt: null,
-    recalledAt: null,
-    completedAt: null,
-    absentCount: 0,
-    departmentId: targetDeptId,
-    patientId: patient.id,
-    patient,
-    department: dept,
-  };
+    const defaultFirst = patientData?.firstName?.trim()
+      ? (totalCount > 1 ? `${patientData.firstName.trim()} (#${i + 1})` : patientData.firstName.trim())
+      : (totalCount > 1 ? `Walk-in Patient #${i + 1}` : 'Patient');
 
-  tokens.push(newToken);
+    const cleanFirstName = pItem.firstName?.trim() || defaultFirst;
+    const cleanLastName = pItem.lastName?.trim() || patientData?.lastName?.trim() || '';
+    const cleanPhone = pItem.phone?.trim() || (i === 0 ? patientData?.phone?.trim() : '') || '';
+    const cleanUhid = pItem.uhid?.trim() || (i === 0 ? patientData?.uhid?.trim() : null) || null;
+
+    const patientId = newId('pat');
+    const patient: LocalPatient = {
+      id: patientId,
+      firstName: cleanFirstName,
+      lastName: cleanLastName,
+      phone: cleanPhone,
+      uhid: cleanUhid,
+    };
+
+    const newToken: LocalToken = {
+      id: newId('tok'),
+      tokenNumber: itemTokenNumber,
+      serviceDate: today,
+      status: 'WAITING',
+      priority: itemPriority,
+      roomNumber: null,
+      issuedAt: new Date(Date.now() + i * 50).toISOString(),
+      calledAt: null,
+      recalledAt: null,
+      completedAt: null,
+      absentCount: 0,
+      departmentId: targetDeptId,
+      patientId: patient.id,
+      patient,
+      department: dept,
+    };
+
+    tokens.push(newToken);
+    createdTokens.push(newToken);
+  }
+
   saveLocalTokens(tokens);
-  return newToken;
+  if (totalCount === 1) {
+    return { ...createdTokens[0], tokens: createdTokens, count: 1 };
+  }
+  return { tokens: createdTokens, count: createdTokens.length, tokenNumber: createdTokens[0]?.tokenNumber };
 }
 
 export function getLocalLiveQueue(departmentId: string) {
@@ -396,17 +422,17 @@ export function getLocalLiveQueue(departmentId: string) {
   const depts = getLocalDepartments();
   const rooms = getLocalRooms(departmentId);
 
-  const dept = depts.find(d => d.id === departmentId) || depts[0] || DEFAULT_DEPARTMENTS[0];
+  const dept = depts.find(d => d.id === departmentId || (d.code && departmentId && d.code.toLowerCase() === departmentId.toLowerCase())) || depts[0] || DEFAULT_DEPARTMENTS[0];
   const targetDeptId = dept.id;
   const today = getTodayString();
 
-  // One pass over the token array instead of three chained filters, each of which
-  // allocated its own intermediate array.
+  // One pass over the token array instead of three chained filters
   const calledRaw: LocalToken[] = [];
   const waitingRaw: LocalToken[] = [];
 
   for (const t of tokens) {
-    if (t.departmentId !== targetDeptId || t.serviceDate !== today) continue;
+    const isDeptMatch = t.departmentId === targetDeptId || t.departmentId === departmentId || (dept && t.department?.code === dept.code);
+    if (!isDeptMatch || t.serviceDate !== today) continue;
     if (t.status === 'CALLED') calledRaw.push(t);
     else if (t.status === 'WAITING') waitingRaw.push(t);
   }
@@ -419,25 +445,21 @@ export function getLocalLiveQueue(departmentId: string) {
     if (r.doctorName) roomDoctorMap.set(r.roomNumber, r.doctorName);
   }
 
-  const seenRooms = new Set<string>();
   const activeTokens = [];
 
   for (const t of calledTokens) {
     const room = t.roomNumber || '101';
-    if (!seenRooms.has(room)) {
-      seenRooms.add(room);
-      const name = t.patient ? `${t.patient.firstName || ''} ${t.patient.lastName || ''}`.trim() || 'Patient' : 'Patient';
-      activeTokens.push({
-        id: t.id,
-        token: t.tokenNumber,
-        room,
-        doctorName: roomDoctorMap.get(room) || undefined,
-        patientName: name,
-        uhid: t.patient?.uhid || '',
-        calledAt: t.calledAt ? new Date(t.calledAt).getTime() : undefined,
-        recalledAt: t.recalledAt ? new Date(t.recalledAt).getTime() : undefined,
-      });
-    }
+    const name = t.patient ? `${t.patient.firstName || ''} ${t.patient.lastName || ''}`.trim() || 'Patient' : 'Patient';
+    activeTokens.push({
+      id: t.id,
+      token: t.tokenNumber,
+      room,
+      doctorName: roomDoctorMap.get(room) || undefined,
+      patientName: name,
+      uhid: t.patient?.uhid || '',
+      calledAt: t.calledAt ? new Date(t.calledAt).getTime() : undefined,
+      recalledAt: t.recalledAt ? new Date(t.recalledAt).getTime() : undefined,
+    });
   }
 
   // Waiting list (emergencies first, then issuedAt)
@@ -453,24 +475,18 @@ export function getLocalLiveQueue(departmentId: string) {
 export function localCallNextPatient(departmentId: string, roomNumber: string, tokenIdentifier?: string): LocalToken | null {
   const tokens = getLocalTokens();
   const depts = getLocalDepartments();
-  const dept = depts.find(d => d.id === departmentId) || depts[0] || DEFAULT_DEPARTMENTS[0];
+  const dept = depts.find(d => d.id === departmentId || (d.code && departmentId && d.code.toLowerCase() === departmentId.toLowerCase())) || depts[0] || DEFAULT_DEPARTMENTS[0];
   const targetDeptId = dept.id;
   const today = getTodayString();
 
   const cleanIdentifier = tokenIdentifier?.replace(' 🚨', '').trim();
 
-  // 1. Mark existing called patient in this room as COMPLETED, and collect today's
-  //    waiting tokens in the same pass.
-  const completedAt = new Date().toISOString();
+  // 1. Collect today's waiting tokens
   const waitingRaw: LocalToken[] = [];
 
   for (const t of tokens) {
-    if (t.roomNumber === roomNumber && t.status === 'CALLED') {
-      t.status = 'COMPLETED';
-      t.completedAt = completedAt;
-      continue; // no longer WAITING
-    }
-    if (t.departmentId === targetDeptId && t.serviceDate === today && t.status === 'WAITING') {
+    const isDeptMatch = t.departmentId === targetDeptId || t.departmentId === departmentId || (dept && t.department?.code === dept.code);
+    if (isDeptMatch && t.serviceDate === today && t.status === 'WAITING') {
       waitingRaw.push(t);
     }
   }
@@ -542,11 +558,11 @@ export function localRecallPatient(departmentId: string, roomNumber: string): Lo
 
 export function localMarkTokenAction(
   tokenId: string,
-  action: 'COMPLETE' | 'ABSENT' | 'NOT_AVAILABLE' | 'SKIP',
+  action: 'COMPLETE' | 'ABSENT' | 'NOT_AVAILABLE' | 'SKIP' | 'RETURN_TO_QUEUE' | 'RESET_TO_WAITING',
   passCount?: number
 ): LocalToken | null {
   const tokens = getLocalTokens();
-  const token = tokens.find(t => t.id === tokenId);
+  const token = tokens.find(t => t.id === tokenId || t.tokenNumber === tokenId);
   if (!token) return null;
 
   if (action === 'COMPLETE') {
@@ -554,6 +570,11 @@ export function localMarkTokenAction(
     token.completedAt = new Date().toISOString();
   } else if (action === 'ABSENT') {
     token.status = 'ABSENT';
+  } else if (action === 'RETURN_TO_QUEUE' || action === 'RESET_TO_WAITING') {
+    token.status = 'WAITING';
+    token.roomNumber = null;
+    token.calledAt = null;
+    token.recalledAt = null;
   } else if (action === 'NOT_AVAILABLE' || action === 'SKIP') {
     token.status = 'WAITING';
     token.roomNumber = null;

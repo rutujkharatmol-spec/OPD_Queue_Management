@@ -160,6 +160,27 @@ export function addTokenToRoomQueue(deptId: string, roomNumber: string, tokenStr
 }
 
 /**
+ * Adds multiple tokens to a room's staged queue in one batch operation.
+ */
+export function addMultipleTokensToRoomQueue(deptId: string, roomNumber: string, tokens: string[]): string[] {
+  if (typeof window === 'undefined' || !tokens || tokens.length === 0) return [];
+  try {
+    let allQueues = getAllRoomStagedQueues(deptId);
+    for (const t of tokens) {
+      allQueues = withTokenRemoved(allQueues, normalizeToken(t));
+    }
+    const currentRoomQueue = (allQueues[roomNumber] || []).concat(tokens);
+    allQueues[roomNumber] = currentRoomQueue;
+
+    writeObjectKey(ROOM_STAGED_QUEUE_PREFIX, deptId, allQueues);
+    window.dispatchEvent(new CustomEvent('room-queues-updated', { detail: { deptId, allQueues } }));
+    return currentRoomQueue;
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Removes a token from a room's staged queue.
  */
 export function removeTokenFromRoomQueue(deptId: string, roomNumber: string, tokenStr: string): string[] {

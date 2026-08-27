@@ -48,7 +48,7 @@ const EN = {
   languageLabel: 'Language',
 
   tokenLabel: 'Token Number',
-  tokenPlaceholder: 'e.g. MED-001 or OP-045',
+  tokenPlaceholder: 'e.g. 101 or 45',
   dateLabel: 'Service Date',
   resetToday: 'Reset to Today',
   today: 'Today',
@@ -140,7 +140,7 @@ const HI: Record<StringKey, string> = {
   languageLabel: 'भाषा',
 
   tokenLabel: 'टोकन नंबर',
-  tokenPlaceholder: 'जैसे MED-001 या OP-045',
+  tokenPlaceholder: 'जैसे 101 या 45',
   dateLabel: 'सेवा तिथि',
   resetToday: 'आज पर लौटें',
   today: 'आज',
@@ -228,7 +228,7 @@ const BN: Record<StringKey, string> = {
   languageLabel: 'ভাষা',
 
   tokenLabel: 'টোকেন নম্বর',
-  tokenPlaceholder: 'যেমন MED-001 বা OP-045',
+  tokenPlaceholder: 'যেমন 101 বা 45',
   dateLabel: 'পরিষেবার তারিখ',
   resetToday: 'আজকের তারিখে ফিরুন',
   today: 'আজ',

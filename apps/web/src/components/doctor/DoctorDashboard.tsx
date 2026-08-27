@@ -6,7 +6,7 @@ import {
   PhoneOff, AlertTriangle, UserPlus, Settings, Bell, BarChart2, Stethoscope, ArrowRight,
   Plus, Trash2, Edit2, Check, X, Building2, SkipForward, Sliders, RotateCcw, Minus,
   CheckCircle2, GripVertical, UserCheck, CornerDownRight, Sparkles, Zap, ListOrdered,
-  Play, ShieldCheck, Eye, Layers, LayoutGrid
+  Play, ShieldCheck, Eye, Layers, LayoutGrid, ArrowRightLeft, ArrowLeftCircle, Undo2
 } from 'lucide-react';
 import {
   API_BASE_URL, callNextPatient, markTokenAction, recallPatient,
@@ -24,6 +24,7 @@ import {
 import {
   getAllRoomStagedQueues,
   addTokenToRoomQueue,
+  addMultipleTokensToRoomQueue,
   removeTokenFromRoomQueue,
   getAutoCallRooms,
   setAutoCallRoom
@@ -72,9 +73,12 @@ export default function DoctorDashboard() {
 
   // Drag and Drop Queue State
   const [draggingToken, setDraggingToken] = useState<string | null>(null);
+  const [draggingActiveToken, setDraggingActiveToken] = useState<{ token: string; tokenId: string; fromRoom: string; patientName?: string } | null>(null);
+  const [isOverQueueSidebar, setIsOverQueueSidebar] = useState(false);
   const [dragOverRoom, setDragOverRoom] = useState<string | null>(null);
   const [dragOverZone, setDragOverZone] = useState<'CALL_NOW' | 'STAGE_QUEUE' | null>(null);
   const [quickAssignToken, setQuickAssignToken] = useState<string | null>(null);
+  const [transferModalToken, setTransferModalToken] = useState<{ token: string; tokenId: string; fromRoom: string; patientName?: string } | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Pass (+N) Queue Step State
@@ -111,12 +115,14 @@ export default function DoctorDashboard() {
     return index;
   }, [roomStagedQueues]);
 
-  /** Active patient per room, so each room card is a lookup rather than a linear scan. */
-  const activeByRoom = useMemo(() => {
-    const index = new Map<string, any>();
+  /** Active patients per room, so each room card can display all serving patients. */
+  const activePatientsByRoom = useMemo(() => {
+    const index = new Map<string, any[]>();
     for (const token of queueData.activeTokens || []) {
-      // First match wins, exactly as `Array.prototype.find` did.
-      if (!index.has(token.room)) index.set(token.room, token);
+      const roomKey = token.room || '101';
+      const list = index.get(roomKey) || [];
+      list.push(token);
+      index.set(roomKey, list);
     }
     return index;
   }, [queueData.activeTokens]);
@@ -283,7 +289,7 @@ export default function DoctorDashboard() {
     }
   };
 
-  const handleTokenAction = async (tokenId: string, action: 'COMPLETE' | 'ABSENT' | 'NOT_AVAILABLE', roomNumber?: string) => {
+  const handleTokenAction = async (tokenId: string, action: 'COMPLETE' | 'ABSENT' | 'NOT_AVAILABLE' | 'RETURN_TO_QUEUE' | 'RESET_TO_WAITING', roomNumber?: string) => {
     try {
       await markTokenAction(tokenId, action, passCount);
       await useQueueStore.getState().fetchQueue(deptId);
@@ -297,6 +303,62 @@ export default function DoctorDashboard() {
     } catch (err) {
       console.error(err);
       alert(`Failed to mark token as ${action}`);
+    }
+  };
+
+  const handleReturnActiveToQueue = async (tokenId: string, tokenNumber: string, fromRoom?: string) => {
+    try {
+      await markTokenAction(tokenId, 'RETURN_TO_QUEUE');
+      const clean = tokenNumber.replace(' 🚨', '').trim();
+      if (fromRoom) {
+        removeTokenFromRoomQueue(deptId, fromRoom, clean);
+      }
+      refreshRoomSettings();
+      await useQueueStore.getState().fetchQueue(deptId);
+      showToast(`Patient ${clean} returned back to waiting queue!`, 3500);
+    } catch (err) {
+      console.error('Failed to return patient to queue:', err);
+      alert('Failed to return patient to queue.');
+    }
+  };
+
+  const handleTransferToRoomQueue = async (fromRoom: string, toRoom: string, tokenId: string, tokenNumber: string) => {
+    try {
+      const clean = tokenNumber.replace(' 🚨', '').trim();
+      // 1. Reset from CALLED to WAITING so it's not active in fromRoom
+      await markTokenAction(tokenId, 'RETURN_TO_QUEUE');
+      // 2. Clear from fromRoom staged queue if present
+      if (fromRoom) {
+        removeTokenFromRoomQueue(deptId, fromRoom, clean);
+      }
+      // 3. Add to toRoom staged queue
+      addTokenToRoomQueue(deptId, toRoom, clean);
+      refreshRoomSettings();
+      await useQueueStore.getState().fetchQueue(deptId);
+      showToast(`Patient ${clean} transferred from Room ${fromRoom} to Room ${toRoom} queue!`, 3500);
+    } catch (err) {
+      console.error('Failed to transfer patient to room queue:', err);
+      alert('Failed to transfer patient.');
+    }
+  };
+
+  const handleTransferAndCall = async (fromRoom: string, toRoom: string, tokenNumber: string) => {
+    setCallingRoom(toRoom);
+    try {
+      const cleanToken = tokenNumber.replace(' 🚨', '').trim();
+      await callNextPatient(deptId, toRoom, cleanToken);
+      removeTokenFromRoomQueue(deptId, toRoom, cleanToken);
+      if (fromRoom && fromRoom !== toRoom) {
+        removeTokenFromRoomQueue(deptId, fromRoom, cleanToken);
+      }
+      refreshRoomSettings();
+      await useQueueStore.getState().fetchQueue(deptId);
+      showToast(`Patient ${cleanToken} transferred and called in Room ${toRoom}!`, 3500);
+    } catch (err) {
+      console.error('Failed to transfer and call patient:', err);
+      alert('Failed to transfer patient to target room.');
+    } finally {
+      setCallingRoom(null);
     }
   };
 
@@ -346,6 +408,18 @@ export default function DoctorDashboard() {
   const getStagedRoomForToken = (tokenStr: string): string | null =>
     stagedRoomByToken.get(tokenStr.replace(' 🚨', '').trim()) ?? null;
 
+  const handlePullWaitingToRoom = (roomNumber: string, count: number | 'ALL') => {
+    const unstaged = (queueData.nextTokens || []).filter(t => !stagedRoomByToken.has(t.replace(' 🚨', '').trim()));
+    if (unstaged.length === 0) {
+      showToast('No unstaged waiting patients in the line.', 3000);
+      return;
+    }
+    const toPull = count === 'ALL' ? unstaged : unstaged.slice(0, count);
+    addMultipleTokensToRoomQueue(deptId, roomNumber, toPull);
+    refreshRoomSettings();
+    showToast(`Pulled ${toPull.length} patient${toPull.length === 1 ? '' : 's'} into Room ${roomNumber} Queue.`, 3000);
+  };
+
   return (
     <div className="flex flex-col lg:flex-row min-h-screen w-full bg-slate-100 font-sans">
 
@@ -361,7 +435,52 @@ export default function DoctorDashboard() {
 
       {/* Sidebar - Waiting Queue List with Room Badges & Drag/Drop (Toggleable via Show UI) */}
       {uiSettings.showQueueSidebar && (
-        <aside className="w-full lg:w-[420px] bg-white border-b lg:border-b-0 lg:border-r border-slate-200 shadow-sm flex flex-col z-20 order-2 lg:order-1 h-[50vh] lg:h-screen animate-in fade-in duration-200">
+        <aside
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            if (!isOverQueueSidebar) setIsOverQueueSidebar(true);
+          }}
+          onDragEnter={(e) => {
+            e.preventDefault();
+            setIsOverQueueSidebar(true);
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+              setIsOverQueueSidebar(false);
+            }
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            const rawData = e.dataTransfer.getData('application/json');
+            let activeInfo: { token: string; tokenId: string; fromRoom: string; isActive?: boolean } | null = draggingActiveToken;
+            if (rawData) {
+              try {
+                const parsed = JSON.parse(rawData);
+                if (parsed.isActive || parsed.tokenId) activeInfo = parsed;
+              } catch {}
+            }
+            const droppedToken = e.dataTransfer.getData('text/plain') || draggingToken || activeInfo?.token;
+
+            if (activeInfo) {
+              handleReturnActiveToQueue(activeInfo.tokenId, droppedToken || activeInfo.token, activeInfo.fromRoom);
+            } else if (droppedToken) {
+              const clean = droppedToken.replace(' 🚨', '').trim();
+              const currentStagedRoom = getStagedRoomForToken(droppedToken);
+              if (currentStagedRoom) {
+                removeTokenFromRoomQueue(deptId, currentStagedRoom, clean);
+                refreshRoomSettings();
+                showToast(`Patient ${clean} moved back to general waiting queue!`, 3000);
+              }
+            }
+            setIsOverQueueSidebar(false);
+            setDraggingToken(null);
+            setDraggingActiveToken(null);
+          }}
+          className={`w-full lg:w-[420px] bg-white border-b lg:border-b-0 lg:border-r border-slate-200 shadow-sm flex flex-col z-20 order-2 lg:order-1 h-[50vh] lg:h-screen animate-in fade-in duration-200 transition-colors ${
+            isOverQueueSidebar ? 'ring-4 ring-blue-500/30 bg-blue-50/30' : ''
+          }`}
+        >
           <div className="p-6 border-b border-slate-800 bg-slate-950 text-white flex justify-between items-center sticky top-0 z-10">
             <div>
               <div className="flex items-center gap-2">
@@ -401,8 +520,33 @@ export default function DoctorDashboard() {
             </div>
           </div>
 
-          {/* Drag Hint Banner */}
-          {queueData.nextTokens.length > 0 && (
+          {/* Drag Return Drop Target / Hint Banner */}
+          {draggingToken ? (
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsOverQueueSidebar(true);
+              }}
+              onDragEnter={(e) => {
+                e.preventDefault();
+                setIsOverQueueSidebar(true);
+              }}
+              className={`p-3.5 m-3 rounded-2xl border-2 border-dashed flex items-center justify-center gap-2.5 text-xs font-black transition-all ${
+                isOverQueueSidebar
+                  ? 'bg-blue-600 text-white border-blue-400 scale-[1.02] shadow-xl animate-pulse ring-4 ring-blue-500/25'
+                  : 'bg-blue-50 text-blue-900 border-blue-300 shadow-sm'
+              }`}
+            >
+              <RotateCcw size={16} className={isOverQueueSidebar ? 'animate-spin' : 'text-blue-600'} />
+              <span>
+                {isOverQueueSidebar
+                  ? 'Release to Put Patient Back in Queue ↵'
+                  : draggingActiveToken
+                    ? `Drop here to return ${draggingActiveToken.token} to general queue`
+                    : 'Drop here to put back in general waiting queue'}
+              </span>
+            </div>
+          ) : queueData.nextTokens.length > 0 ? (
             <div className="px-4 py-2.5 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-blue-100 flex items-center justify-between text-[11px] text-blue-950 font-bold">
               <span className="flex items-center gap-1.5">
                 <GripVertical size={14} className="text-blue-600 shrink-0" />
@@ -412,7 +556,7 @@ export default function DoctorDashboard() {
                 Drag &amp; Drop
               </span>
             </div>
-          )}
+          ) : null}
 
           <div className="flex-1 overflow-y-auto p-4 bg-slate-50 space-y-3">
             {queueData.nextTokens.map((tokenStr, idx) => {
@@ -612,7 +756,8 @@ export default function DoctorDashboard() {
                 const isRecalling = recallingRoom === room.roomNumber;
                 const isRecallSuccess = recallSuccessRoom === room.roomNumber;
                 const isOver = dragOverRoom === room.roomNumber;
-                const activePatient = activeByRoom.get(room.roomNumber);
+                const activeList = activePatientsByRoom.get(room.roomNumber) || [];
+                const activePatient = activeList[0];
                 const isAutoCallOn = Boolean(autoCallRooms[room.roomNumber]);
                 const stagedList = roomStagedQueues[room.roomNumber] || [];
 
@@ -638,17 +783,38 @@ export default function DoctorDashboard() {
                     }}
                     onDrop={(e) => {
                       e.preventDefault();
-                      const droppedToken = e.dataTransfer.getData('text/plain') || draggingToken;
+                      const rawData = e.dataTransfer.getData('application/json');
+                      let activeInfo: { token: string; tokenId: string; fromRoom: string; isActive?: boolean } | null = draggingActiveToken;
+                      if (rawData) {
+                        try {
+                          const parsed = JSON.parse(rawData);
+                          if (parsed.isActive || parsed.tokenId) activeInfo = parsed;
+                        } catch {}
+                      }
+                      const droppedToken = e.dataTransfer.getData('text/plain') || draggingToken || activeInfo?.token;
+
                       if (droppedToken) {
-                        if (dragOverZone === 'STAGE_QUEUE' || activePatient) {
-                          handleAddPatientToRoomQueue(room.roomNumber, droppedToken);
-                        } else {
-                          handleCallNext(room.roomNumber, droppedToken);
+                        if (activeInfo && activeInfo.fromRoom !== room.roomNumber) {
+                          // Transferring an ACTIVE patient from another room
+                          if (dragOverZone === 'STAGE_QUEUE') {
+                            handleTransferToRoomQueue(activeInfo.fromRoom, room.roomNumber, activeInfo.tokenId, droppedToken);
+                          } else {
+                            handleTransferAndCall(activeInfo.fromRoom, room.roomNumber, droppedToken);
+                          }
+                        } else if (!activeInfo) {
+                          // Normal waiting token from queue
+                          if (dragOverZone === 'STAGE_QUEUE') {
+                            handleAddPatientToRoomQueue(room.roomNumber, droppedToken);
+                          } else {
+                            // Adds or calls patient directly to room
+                            handleCallNext(room.roomNumber, droppedToken);
+                          }
                         }
                       }
                       setDragOverRoom(null);
                       setDragOverZone(null);
                       setDraggingToken(null);
+                      setDraggingActiveToken(null);
                     }}
                     className={`bg-white rounded-3xl p-6 flex flex-col h-full relative overflow-hidden transition-all duration-200 ${
                       isOver
@@ -673,7 +839,7 @@ export default function DoctorDashboard() {
                               onClick={() => handleToggleAutoCall(room.roomNumber)}
                               className={`px-2.5 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
                                 isAutoCallOn
-                                  ? 'bg-emerald-500 text-white border-emerald-400 shadow-sm shadow-emerald-500/30'
+                                   ? 'bg-emerald-500 text-white border-emerald-400 shadow-sm shadow-emerald-500/30'
                                   : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'
                               }`}
                               title={isAutoCallOn ? 'Auto-Call is ACTIVE: Automatically calls next patient when room is free' : 'Click to enable Auto-Call for this room'}
@@ -696,48 +862,227 @@ export default function DoctorDashboard() {
                       {/* Recall / Ring Bell Button */}
                       <button
                         onClick={() => handleRecall(room.roomNumber)}
-                        disabled={!activePatient || isRecalling}
+                        disabled={activeList.length === 0 || isRecalling}
                         className={`px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all shadow-sm ${
                           isRecallSuccess
                             ? 'bg-emerald-600 text-white animate-bounce'
-                            : activePatient
+                            : activeList.length > 0
                               ? 'bg-amber-500 hover:bg-amber-600 text-white cursor-pointer active:scale-95'
                               : 'bg-slate-100 text-slate-400 cursor-not-allowed'
                         }`}
-                        title={activePatient ? 'Ring Bell / Call Patient Again' : 'No active patient to recall'}
+                        title={activeList.length > 0 ? 'Ring Bell / Call Patient Again' : 'No active patient to recall'}
                       >
                         <Bell size={14} className={isRecalling ? 'animate-spin' : ''} />
                         <span>{isRecallSuccess ? 'Called!' : isRecalling ? 'Calling...' : 'Recall'}</span>
                       </button>
                     </div>
 
-                    {/* Active Patient Card */}
-                    <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 mb-4 flex flex-col justify-center items-center text-center">
-                      {activePatient ? (
-                        <>
-                          <span className="text-[11px] font-black uppercase tracking-wider text-blue-600 mb-1">
+                    {/* Active Patients Area */}
+                    {activeList.length === 0 ? (
+                      /* Free Room */
+                      <div className="border border-slate-200/80 rounded-2xl p-5 mb-4 flex flex-col justify-center items-center text-center bg-slate-50">
+                        <Users size={28} className="text-slate-300 mb-1.5" />
+                        <p className="text-xs font-bold text-slate-600">Room Free &amp; Ready</p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          {isAutoCallOn ? '⚡ Auto-Call active: ready for next patient' : "Click 'Call Next' or drag patients here"}
+                        </p>
+                      </div>
+                    ) : activeList.length === 1 ? (
+                      /* Single Active Patient Card */
+                      <div
+                        draggable
+                        onDragStart={(e) => {
+                          const payload = {
+                            token: activePatient.token,
+                            tokenId: activePatient.id,
+                            fromRoom: room.roomNumber,
+                            patientName: activePatient.patientName,
+                            isActive: true,
+                          };
+                          e.dataTransfer.setData('text/plain', activePatient.token);
+                          e.dataTransfer.setData('application/json', JSON.stringify(payload));
+                          e.dataTransfer.effectAllowed = 'move';
+                          setDraggingToken(activePatient.token);
+                          setDraggingActiveToken(payload);
+                        }}
+                        onDragEnd={() => {
+                          setDraggingToken(null);
+                          setDraggingActiveToken(null);
+                          setDragOverRoom(null);
+                          setDragOverZone(null);
+                          setIsOverQueueSidebar(false);
+                        }}
+                        className="border border-blue-200/90 rounded-2xl p-4 mb-4 flex flex-col justify-center items-center text-center transition-all bg-gradient-to-b from-blue-50/50 to-slate-50 shadow-xs cursor-grab active:cursor-grabbing hover:border-blue-400 hover:shadow-md select-none group/card relative"
+                        title="Drag to transfer patient to another room or drop on sidebar to return to queue"
+                      >
+                        <div className="w-full flex items-center justify-between mb-1 text-[11px] font-black uppercase tracking-wider text-blue-600">
+                          <span className="flex items-center gap-1">
+                            <GripVertical size={13} className="text-blue-400 group-hover/card:text-blue-600 transition-colors" />
                             Currently In Room
                           </span>
-                          <span className="text-3xl font-black text-slate-900 tracking-tight my-0.5">
-                            {activePatient.token}
+                          <span className="text-[10px] text-blue-500 font-bold bg-blue-100/70 px-1.5 py-0.5 rounded">
+                            Draggable ⇄
                           </span>
-                          <p className="text-xs font-bold text-slate-700 mt-0.5">{activePatient.patientName}</p>
-                          {activePatient.uhid && (
-                            <span className="text-[10px] font-semibold text-slate-400">
-                              UHID: {activePatient.uhid}
-                            </span>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <Users size={28} className="text-slate-300 mb-1.5" />
-                          <p className="text-xs font-bold text-slate-600">Room Free &amp; Ready</p>
-                          <p className="text-[10px] text-slate-400 mt-0.5">
-                            {isAutoCallOn ? '⚡ Auto-Call active: ready for next patient' : "Click 'Call Next' or drag a patient here"}
-                          </p>
-                        </>
-                      )}
-                    </div>
+                        </div>
+
+                        <span className="text-3xl font-black text-slate-900 tracking-tight my-0.5">
+                          {activePatient.token}
+                        </span>
+                        <p className="text-xs font-bold text-slate-700 mt-0.5">{activePatient.patientName}</p>
+                        {activePatient.uhid && (
+                          <span className="text-[10px] font-semibold text-slate-400">
+                            UHID: {activePatient.uhid}
+                          </span>
+                        )}
+
+                        {/* Quick Action Buttons: Put Back in Queue & Transfer Room */}
+                        <div className="mt-3 pt-2 border-t border-blue-100/80 w-full flex items-center justify-center gap-1.5 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleReturnActiveToQueue(activePatient.id, activePatient.token, room.roomNumber);
+                            }}
+                            className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 hover:border-amber-300 font-bold text-[11px] rounded-lg transition-all flex items-center gap-1 cursor-pointer active:scale-95 shadow-xs"
+                            title="Put this patient back into the general waiting queue"
+                          >
+                            <RotateCcw size={11} className="text-amber-600" />
+                            <span>Put Back in Queue</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setTransferModalToken({
+                                token: activePatient.token,
+                                tokenId: activePatient.id,
+                                fromRoom: room.roomNumber,
+                                patientName: activePatient.patientName,
+                              });
+                            }}
+                            className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200 hover:border-blue-300 font-bold text-[11px] rounded-lg transition-all flex items-center gap-1 cursor-pointer active:scale-95 shadow-xs"
+                            title="Transfer patient to another consultation room"
+                          >
+                            <ArrowRightLeft size={11} className="text-blue-600" />
+                            <span>Transfer...</span>
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      /* Multiple Active Patients In Same Room */
+                      <div className="mb-4 space-y-2">
+                        <div className="flex items-center justify-between px-1">
+                          <span className="text-[11px] font-black uppercase tracking-wider text-blue-700 flex items-center gap-1.5 bg-blue-50 px-2.5 py-1 rounded-full border border-blue-200 shadow-2xs">
+                            <Users size={13} className="text-blue-600" />
+                            {activeList.length} Patients In Room
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              for (const p of activeList) {
+                                handleTokenAction(p.id, 'COMPLETE', room.roomNumber);
+                              }
+                            }}
+                            className="text-[10px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded-lg border border-emerald-200 transition-colors cursor-pointer"
+                            title="Complete all patients in this room"
+                          >
+                            ✓ Complete All
+                          </button>
+                        </div>
+
+                        <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
+                          {activeList.map((p: any) => (
+                            <div
+                              key={p.id}
+                              draggable
+                              onDragStart={(e) => {
+                                const payload = {
+                                  token: p.token,
+                                  tokenId: p.id,
+                                  fromRoom: room.roomNumber,
+                                  patientName: p.patientName,
+                                  isActive: true,
+                                };
+                                e.dataTransfer.setData('text/plain', p.token);
+                                e.dataTransfer.setData('application/json', JSON.stringify(payload));
+                                e.dataTransfer.effectAllowed = 'move';
+                                setDraggingToken(p.token);
+                                setDraggingActiveToken(payload);
+                              }}
+                              onDragEnd={() => {
+                                setDraggingToken(null);
+                                setDraggingActiveToken(null);
+                                setDragOverRoom(null);
+                                setDragOverZone(null);
+                                setIsOverQueueSidebar(false);
+                              }}
+                              className="border border-blue-200/90 rounded-2xl p-3 bg-gradient-to-r from-blue-50/60 via-white to-slate-50 shadow-xs cursor-grab active:cursor-grabbing hover:border-blue-400 hover:shadow-md transition-all group/item select-none"
+                              title="Drag patient to another room or drop on sidebar to return to queue"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <GripVertical size={14} className="text-blue-400 group-hover/item:text-blue-600 transition-colors shrink-0" />
+                                  <div className="text-left">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-base font-black text-slate-900 leading-none">{p.token}</span>
+                                      <span className="text-[11px] font-bold text-slate-600 truncate max-w-[110px]">{p.patientName}</span>
+                                    </div>
+                                    {p.uhid && (
+                                      <span className="text-[9px] text-slate-400 block">UHID: {p.uhid}</span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Individual patient action buttons */}
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleTokenAction(p.id, 'COMPLETE', room.roomNumber)}
+                                    className="px-2 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold text-[10px] rounded-lg transition-colors cursor-pointer"
+                                    title="Complete this patient"
+                                  >
+                                    Done
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleTokenAction(p.id, 'NOT_AVAILABLE', room.roomNumber)}
+                                    className="px-1.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-800 font-bold text-[10px] rounded-lg transition-colors cursor-pointer"
+                                    title={`Pass (+${passCount})`}
+                                  >
+                                    +{passCount}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleTokenAction(p.id, 'ABSENT', room.roomNumber)}
+                                    className="px-1.5 py-1 bg-rose-100 hover:bg-rose-200 text-rose-800 font-bold text-[10px] rounded-lg transition-colors cursor-pointer"
+                                    title="Mark absent"
+                                  >
+                                    Abs
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleReturnActiveToQueue(p.id, p.token, room.roomNumber)}
+                                    className="p-1 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer"
+                                    title="Return to waiting queue"
+                                  >
+                                    <RotateCcw size={12} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setTransferModalToken({ token: p.token, tokenId: p.id, fromRoom: room.roomNumber, patientName: p.patientName })}
+                                    className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                                    title="Transfer to another room"
+                                  >
+                                    <ArrowRightLeft size={12} />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                     {/* Room-Specific Dedicated Staged Queue Area (Toggleable via Show UI) */}
                     {uiSettings.showRoomStagedQueue && (
@@ -802,6 +1147,37 @@ export default function DoctorDashboard() {
                             })}
                           </div>
                         )}
+
+                        {/* Quick Pull Controls from Waiting Line */}
+                        <div className="flex items-center justify-between pt-2 mt-2 border-t border-indigo-100/80">
+                          <span className="text-[10px] font-bold text-slate-500">Pull from line:</span>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handlePullWaitingToRoom(room.roomNumber, 1)}
+                              className="px-2 py-0.5 rounded-lg bg-white hover:bg-indigo-100 border border-indigo-200 text-indigo-800 text-[10px] font-bold transition-colors cursor-pointer"
+                              title="Pull next 1 patient from waiting line"
+                            >
+                              +1
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handlePullWaitingToRoom(room.roomNumber, 3)}
+                              className="px-2 py-0.5 rounded-lg bg-white hover:bg-indigo-100 border border-indigo-200 text-indigo-800 text-[10px] font-bold transition-colors cursor-pointer"
+                              title="Pull next 3 patients from waiting line"
+                            >
+                              +3
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handlePullWaitingToRoom(room.roomNumber, 'ALL')}
+                              className="px-2 py-0.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold transition-colors cursor-pointer shadow-xs"
+                              title="Pull all waiting patients from line into this room"
+                            >
+                              +All
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     )}
 
@@ -825,39 +1201,43 @@ export default function DoctorDashboard() {
                             ? 'Calling...'
                             : stagedList.length > 0
                               ? `Call Staged: ${stagedList[0].replace(' 🚨', '')} (${stagedList.length} queued)`
-                              : queueData.nextTokens.length === 0
-                                ? 'Call Next Patient (Queue 0)'
-                                : 'Call Next Patient'}
+                              : activeList.length > 0
+                                ? `+ Add Patient into Room ${room.roomNumber}`
+                                : queueData.nextTokens.length === 0
+                                  ? 'Call Next Patient (Queue 0)'
+                                  : 'Call Next Patient'}
                         </span>
                       </button>
 
-                      <div className="grid grid-cols-3 gap-2">
-                        <button
-                          onClick={() => handleTokenAction(activePatient.id, 'COMPLETE', room.roomNumber)}
-                          disabled={!activePatient}
-                          className="py-2.5 rounded-xl bg-emerald-50 text-emerald-700 font-bold text-xs hover:bg-emerald-100 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                        >
-                          Complete {isAutoCallOn ? '⚡' : ''}
-                        </button>
-                        
-                        {/* Dynamic Configurable Pass (+N) Button */}
-                        <button
-                          onClick={() => handleTokenAction(activePatient.id, 'NOT_AVAILABLE', room.roomNumber)}
-                          disabled={!activePatient}
-                          className="w-full py-2.5 rounded-xl bg-amber-50 text-amber-800 font-bold text-xs hover:bg-amber-100 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed text-center cursor-pointer flex items-center justify-center gap-1"
-                          title={`Patient stepped away (Push +${passCount} spots back in queue)`}
-                        >
-                          <span>Pass (+{passCount})</span>
-                        </button>
+                      {activeList.length <= 1 && (
+                        <div className="grid grid-cols-3 gap-2">
+                          <button
+                            onClick={() => activePatient && handleTokenAction(activePatient.id, 'COMPLETE', room.roomNumber)}
+                            disabled={!activePatient}
+                            className="py-2.5 rounded-xl bg-emerald-50 text-emerald-700 font-bold text-xs hover:bg-emerald-100 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                          >
+                            Complete {isAutoCallOn ? '⚡' : ''}
+                          </button>
+                          
+                          {/* Dynamic Configurable Pass (+N) Button */}
+                          <button
+                            onClick={() => activePatient && handleTokenAction(activePatient.id, 'NOT_AVAILABLE', room.roomNumber)}
+                            disabled={!activePatient}
+                            className="w-full py-2.5 rounded-xl bg-amber-50 text-amber-800 font-bold text-xs hover:bg-amber-100 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed text-center cursor-pointer flex items-center justify-center gap-1"
+                            title={`Patient stepped away (Push +${passCount} spots back in queue)`}
+                          >
+                            <span>Pass (+{passCount})</span>
+                          </button>
 
-                        <button
-                          onClick={() => handleTokenAction(activePatient.id, 'ABSENT', room.roomNumber)}
-                          disabled={!activePatient}
-                          className="py-2.5 rounded-xl bg-rose-50 text-rose-700 font-bold text-xs hover:bg-rose-100 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                        >
-                          Absent
-                        </button>
-                      </div>
+                          <button
+                            onClick={() => activePatient && handleTokenAction(activePatient.id, 'ABSENT', room.roomNumber)}
+                            disabled={!activePatient}
+                            className="py-2.5 rounded-xl bg-rose-50 text-rose-700 font-bold text-xs hover:bg-rose-100 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                          >
+                            Absent
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -1405,6 +1785,116 @@ export default function DoctorDashboard() {
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* Transfer Patient Modal */}
+      {transferModalToken && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl relative flex flex-col text-white">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-5">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center font-black">
+                  <ArrowRightLeft size={22} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-white">Transfer / Move Patient</h3>
+                  <p className="text-xs text-slate-400">
+                    Patient <strong className="text-blue-400">{transferModalToken.token}</strong> {transferModalToken.patientName ? `(${transferModalToken.patientName})` : ''} from Room {transferModalToken.fromRoom}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setTransferModalToken(null)}
+                className="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Option 1: Put back in general queue */}
+            <div className="mb-4">
+              <button
+                onClick={() => {
+                  handleReturnActiveToQueue(transferModalToken.tokenId, transferModalToken.token, transferModalToken.fromRoom);
+                  setTransferModalToken(null);
+                }}
+                className="w-full p-4 rounded-2xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold text-sm flex items-center justify-between transition-all group cursor-pointer"
+              >
+                <span className="flex items-center gap-2.5">
+                  <RotateCcw size={18} className="text-amber-400" />
+                  <span>Put Back in General Waiting Queue</span>
+                </span>
+                <span className="text-xs bg-amber-500/20 px-2.5 py-1 rounded-lg text-amber-300 font-black">
+                  Return ↵
+                </span>
+              </button>
+            </div>
+
+            {/* Option 2: Send to another room */}
+            <p className="text-xs font-black uppercase tracking-wider text-slate-400 mb-3">
+              Or Send to Another Consultation Room:
+            </p>
+
+            <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
+              {rooms.filter((r) => r.roomNumber !== transferModalToken.fromRoom).length === 0 ? (
+                <div className="p-4 text-center text-slate-400 text-xs bg-slate-950/60 rounded-2xl border border-slate-800">
+                  No other consultation rooms available. Add more rooms in settings.
+                </div>
+              ) : (
+                rooms
+                  .filter((r) => r.roomNumber !== transferModalToken.fromRoom)
+                  .map((targetRoom) => (
+                    <div
+                      key={targetRoom.id}
+                      className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-3 hover:border-slate-700 transition-all"
+                    >
+                      <div>
+                        <span className="font-black text-sm text-white">Room {targetRoom.roomNumber}</span>
+                        {targetRoom.doctorName && (
+                          <p className="text-[11px] text-slate-400 font-semibold">{targetRoom.doctorName}</p>
+                        )}
+                      </div>
+
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            handleTransferToRoomQueue(transferModalToken.fromRoom, targetRoom.roomNumber, transferModalToken.tokenId, transferModalToken.token);
+                            setTransferModalToken(null);
+                          }}
+                          className="px-3 py-1.5 rounded-xl bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 font-bold text-xs border border-indigo-500/30 transition-all cursor-pointer"
+                          title="Add to target room's staged queue"
+                        >
+                          + Queue
+                        </button>
+                        <button
+                          onClick={() => {
+                            handleTransferAndCall(transferModalToken.fromRoom, targetRoom.roomNumber, transferModalToken.token);
+                            setTransferModalToken(null);
+                          }}
+                          className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-sm transition-all cursor-pointer"
+                          title="Call immediately in target room"
+                        >
+                          Call Now
+                        </button>
+                      </div>
+                    </div>
+                  ))
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="pt-4 border-t border-slate-800 flex justify-end mt-4">
+              <button
+                type="button"
+                onClick={() => setTransferModalToken(null)}
+                className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}

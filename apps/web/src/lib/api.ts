@@ -12,7 +12,9 @@ export async function generateToken(
   doctorId?: string,
   priority: string = 'NORMAL',
   patientData?: { firstName?: string; lastName?: string; phone?: string; uhid?: string; },
-  customTokenNumber?: string
+  customTokenNumber?: string,
+  count: number = 1,
+  patients?: Array<{ firstName?: string; lastName?: string; phone?: string; uhid?: string; priority?: string; customTokenNumber?: string }>
 ) {
   const cleanCustomToken = customTokenNumber?.trim() || undefined;
   const response = await fetchWithOfflineSync(`${API_BASE_URL}/tokens`, {
@@ -25,6 +27,8 @@ export async function generateToken(
       priority,
       customTokenNumber: cleanCustomToken,
       tokenNumber: cleanCustomToken,
+      count,
+      patients,
       ...(patientData || {})
     }),
   });
@@ -35,6 +39,7 @@ export async function generateToken(
     try {
       const parsed = JSON.parse(text);
       if (parsed.message) errorMessage = parsed.message;
+      else if (parsed.error) errorMessage = parsed.error;
     } catch {}
     throw new Error(errorMessage);
   }
@@ -58,7 +63,7 @@ export async function callNextPatient(departmentId: string, roomNumber: string, 
 
 export async function markTokenAction(
   tokenId: string,
-  action: 'SKIP' | 'ABSENT' | 'NOT_AVAILABLE' | 'COMPLETE',
+  action: 'SKIP' | 'ABSENT' | 'NOT_AVAILABLE' | 'COMPLETE' | 'RETURN_TO_QUEUE' | 'RESET_TO_WAITING',
   passCount?: number
 ) {
   const response = await fetchWithOfflineSync(`${API_BASE_URL}/queue/action/${tokenId}`, {

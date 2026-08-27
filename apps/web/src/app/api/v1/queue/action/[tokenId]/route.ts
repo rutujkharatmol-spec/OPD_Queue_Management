@@ -4,7 +4,7 @@ import { ok, badRequest, notFound, route, readJson } from '@/server/http';
 export const dynamic = 'force-dynamic';
 
 type Context = { params: Promise<{ tokenId: string }> };
-type Body = { action: 'SKIP' | 'ABSENT' | 'NOT_AVAILABLE' | 'COMPLETE'; passCount?: number };
+type Body = { action: 'SKIP' | 'ABSENT' | 'NOT_AVAILABLE' | 'COMPLETE' | 'RETURN_TO_QUEUE' | 'RESET_TO_WAITING'; passCount?: number };
 
 export const PATCH = route(async (request: Request, { params }: Context) => {
   const { tokenId } = await params;
@@ -44,6 +44,19 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
     const updated = await db.token.update({
       where: { id: token.id },
       data: { status: 'ABSENT' },
+    });
+    return ok(updated);
+  }
+
+  if (body.action === 'RETURN_TO_QUEUE' || body.action === 'RESET_TO_WAITING') {
+    const updated = await db.token.update({
+      where: { id: token.id },
+      data: {
+        status: 'WAITING',
+        calledAt: null,
+        recalledAt: null,
+        roomNumber: null,
+      },
     });
     return ok(updated);
   }
