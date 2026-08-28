@@ -11,12 +11,30 @@ import {
 
 /**
  * Shared fallback for a department with no data yet.
- *
- * Module-level on purpose: built inline it was a new object on every render, so the
- * announcement effect below — which depends on `queueData.activeTokens` — saw a changed
- * dependency every single time and re-ran continuously before any data arrived.
  */
 const EMPTY_QUEUE = { department: 'Department', activeTokens: [], nextTokens: [] as string[] };
+
+/**
+ * Filter out auto-generated placeholder names like "Patient #10", "Patient #11", "Patient", "Walk-in Patient"
+ * so only real patient names are displayed on the TV.
+ */
+function shouldShowPatientName(name?: string | null): boolean {
+  if (!name) return false;
+  const trimmed = name.trim();
+  if (!trimmed) return false;
+  const lower = trimmed.toLowerCase();
+  if (
+    lower === 'unknown patient' ||
+    lower === 'patient' ||
+    lower === 'walk-in patient' ||
+    lower.startsWith('patient #') ||
+    lower.startsWith('patient#') ||
+    /^patient\s*#?\s*\d+/i.test(lower)
+  ) {
+    return false;
+  }
+  return true;
+}
 
 export default function TvDisplay() {
   const searchParams = useSearchParams();
@@ -503,7 +521,7 @@ export default function TvDisplay() {
                             </div>
 
                             {/* Patient Name Banner */}
-                            {firstItem?.patientName && firstItem?.patientName !== 'Unknown Patient' && (
+                            {shouldShowPatientName(firstItem?.patientName) && (
                               <div className="mt-2 text-center">
                                 <span className="text-sm font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-black/40 px-4 py-1.5 rounded-full border border-slate-200 dark:border-white/10">
                                   👤 {firstItem.patientName}
@@ -522,7 +540,7 @@ export default function TvDisplay() {
                                 <span className="text-[5.5vh] lg:text-[6.5vh] font-black text-slate-900 dark:text-white leading-none">
                                   {tok.token}
                                 </span>
-                                {tok.patientName && tok.patientName !== 'Unknown Patient' && (
+                                {shouldShowPatientName(tok.patientName) && (
                                   <span className="text-xs font-bold text-slate-600 dark:text-slate-300 mt-1 max-w-[130px] truncate text-center">
                                     {tok.patientName}
                                   </span>

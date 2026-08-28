@@ -86,6 +86,28 @@ function expandTokenInput(raw: string): string[] {
   return result;
 }
 
+/**
+ * Filter out auto-generated placeholder names like "Patient #10", "Patient #11", "Patient", "Walk-in Patient"
+ * so only real patient names are displayed.
+ */
+function shouldShowPatientName(name?: string | null): boolean {
+  if (!name) return false;
+  const trimmed = name.trim();
+  if (!trimmed) return false;
+  const lower = trimmed.toLowerCase();
+  if (
+    lower === 'unknown patient' ||
+    lower === 'patient' ||
+    lower === 'walk-in patient' ||
+    lower.startsWith('patient #') ||
+    lower.startsWith('patient#') ||
+    /^patient\s*#?\s*\d+/i.test(lower)
+  ) {
+    return false;
+  }
+  return true;
+}
+
 export default function DoctorDashboard() {
   const searchParams = useSearchParams();
   const requestedDeptId = searchParams.get('deptId');
@@ -2128,7 +2150,9 @@ export default function DoctorDashboard() {
                           </span>
                         </div>
 
-                        <p className="text-xs font-bold text-slate-700 mt-0.5">{activePatient.patientName}</p>
+                        {shouldShowPatientName(activePatient.patientName) && (
+                          <p className="text-xs font-bold text-slate-700 mt-0.5">{activePatient.patientName}</p>
+                        )}
                         {activePatient.uhid && (
                           <span className="text-[10px] font-semibold text-slate-400">
                             UHID: {activePatient.uhid}
@@ -2327,7 +2351,9 @@ export default function DoctorDashboard() {
                                   <div className="text-left">
                                     <div className="flex items-center gap-1.5">
                                       <span className="text-base font-black text-slate-900 leading-none group-hover/tok:text-blue-700 transition-colors">{p.token}</span>
-                                      <span className="text-[11px] font-bold text-slate-600 truncate max-w-[110px]">{p.patientName}</span>
+                                      {shouldShowPatientName(p.patientName) && (
+                                        <span className="text-[11px] font-bold text-slate-600 truncate max-w-[110px]">{p.patientName}</span>
+                                      )}
                                     </div>
                                     {p.uhid && (
                                       <span className="text-[9px] text-slate-400 block">UHID: {p.uhid}</span>
