@@ -197,6 +197,44 @@ export function removeTokenFromRoomQueue(deptId: string, roomNumber: string, tok
 }
 
 /**
+ * Empties one room's staged queue, leaving every other room untouched.
+ */
+export function clearRoomQueue(deptId: string, roomNumber: string): string[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const allQueues = { ...getAllRoomStagedQueues(deptId), [roomNumber]: [] };
+
+    writeObjectKey(ROOM_STAGED_QUEUE_PREFIX, deptId, allQueues);
+    window.dispatchEvent(new CustomEvent('room-queues-updated', { detail: { deptId, allQueues } }));
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Empties every room's staged queue for a department.
+ *
+ * Staged tokens are ordinary WAITING tokens that a room has laid claim to, so clearing the
+ * whole waiting line has to clear the staging with it — otherwise each room keeps a list of
+ * token numbers that no longer exist, and the next call attempt chases a deleted patient.
+ */
+export function clearAllRoomQueues(deptId: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const allQueues: Record<string, string[]> = {};
+    for (const room of Object.keys(getAllRoomStagedQueues(deptId))) {
+      allQueues[room] = [];
+    }
+
+    writeObjectKey(ROOM_STAGED_QUEUE_PREFIX, deptId, allQueues);
+    window.dispatchEvent(new CustomEvent('room-queues-updated', { detail: { deptId, allQueues } }));
+  } catch {
+    // ignore
+  }
+}
+
+/**
  * Clears and returns the next token from a room's staged queue.
  */
 export function popNextFromRoomQueue(deptId: string, roomNumber: string): string | null {

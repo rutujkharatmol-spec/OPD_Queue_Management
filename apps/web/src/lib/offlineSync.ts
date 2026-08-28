@@ -13,6 +13,7 @@ import {
   localCallNextPatient,
   localRecallPatient,
   localMarkTokenAction,
+  localBulkDeleteTokens,
   localSearchTokens,
   getLocalTokenStatus,
   getLocalAnalytics,
@@ -227,8 +228,21 @@ function handleWithLocalStore(url: string, method: string, options: RequestInit)
   }
   if (pathname.includes('/queue/action/') && method === 'PATCH') {
     const tokenId = pathname.split('/queue/action/')[1]?.split('?')[0] || '';
-    const data = localMarkTokenAction(tokenId, parsedBody.action || 'COMPLETE', parsedBody.passCount);
+    const data = localMarkTokenAction(
+      tokenId,
+      parsedBody.action || 'COMPLETE',
+      parsedBody.passCount,
+      parsedBody.departmentId
+    );
     return jsonResponse(data || { ok: true }, 200);
+  }
+  if (pathname.includes('/queue/bulk-delete/') && method === 'PATCH') {
+    const deptId = pathname.split('/queue/bulk-delete/')[1]?.split('?')[0] || '';
+    const data = localBulkDeleteTokens(deptId, parsedBody.scope === 'ROOM' ? 'ROOM' : 'WAITING', {
+      roomNumber: parsedBody.roomNumber,
+      tokenNumbers: parsedBody.tokenNumbers,
+    });
+    return jsonResponse(data, 200);
   }
   if (pathname.includes('/queue/analytics') && method === 'GET') {
     const parts = pathname.split('/queue/analytics/');

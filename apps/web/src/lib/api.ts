@@ -89,21 +89,52 @@ export async function callNextPatient(departmentId: string, roomNumber: string, 
 export async function markTokenAction(
   tokenId: string,
   action: 'SKIP' | 'ABSENT' | 'NOT_AVAILABLE' | 'COMPLETE' | 'RETURN_TO_QUEUE' | 'RESET_TO_WAITING' | 'CANCEL' | 'DELETE',
-  passCount?: number
+  passCount?: number,
+  // Token numbers restart at 1 in every department every morning, so `tokenId` only
+  // identifies a row once it is paired with a department. Pass it whenever the caller
+  // holds a token *number* rather than a UUID.
+  departmentId?: string
 ) {
   const response = await fetchWithOfflineSync(`${API_BASE_URL}/queue/action/${tokenId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, passCount }),
+    body: JSON.stringify({ action, passCount, departmentId }),
   });
   if (!response.ok) throw new Error('Failed to mark token action');
   const result = await response.json();
-  broadcastQueueUpdate();
+  broadcastQueueUpdate(departmentId);
   return result;
 }
 
-export async function deleteToken(tokenId: string) {
-  return markTokenAction(tokenId, 'DELETE');
+export async function deleteToken(tokenId: string, departmentId?: string) {
+  return markTokenAction(tokenId, 'DELETE', undefined, departmentId);
+}
+
+/**
+ * Clears a whole queue in one request.
+ *
+ * Deliberately not a loop over `markTokenAction`: a hundred sequential PATCHes is slow
+ * enough for the board to visibly drain, and a failure halfway leaves the line in a state
+ * neither the user nor the retry can reason about. The server decides the membership of
+ * `WAITING` and a room's called patients, so a stale sidebar cannot widen the delete.
+ */
+export async function bulkDeleteTokens(
+  departmentId: string,
+  scope: 'WAITING' | 'ROOM',
+  options: { roomNumber?: string; tokenNumbers?: string[] } = {}
+): Promise<{ deleted: number }> {
+  const response = await fetchWithOfflineSync(`${API_BASE_URL}/queue/bulk-delete/${departmentId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scope, ...options }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || 'Failed to clear queue');
+  }
+  const result = await response.json();
+  broadcastQueueUpdate(departmentId);
+  return result;
 }
 
 export type TokenStatusValue = 'WAITING' | 'CALLED' | 'IN_PROGRESS' | 'COMPLETED' | 'SKIPPED' | 'ABSENT';

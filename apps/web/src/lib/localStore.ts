@@ -583,10 +583,22 @@ export function localRecallPatient(departmentId: string, roomNumber: string): Lo
 export function localMarkTokenAction(
   tokenId: string,
   action: 'COMPLETE' | 'ABSENT' | 'NOT_AVAILABLE' | 'SKIP' | 'RETURN_TO_QUEUE' | 'RESET_TO_WAITING' | 'CANCEL' | 'DELETE',
-  passCount?: number
+  passCount?: number,
+  departmentId?: string
 ): LocalToken | null {
   const tokens = getLocalTokens();
-  const token = tokens.find(t => t.id === tokenId || t.tokenNumber === tokenId);
+  // A UUID is unique on its own. A token *number* is not — it repeats in every department
+  // and on every past day — so match it only within today's queue for the given
+  // department, mirroring how the server resolves the same identifier.
+  const today = getTodayString();
+  const token =
+    tokens.find(t => t.id === tokenId) ??
+    tokens.find(t =>
+      t.tokenNumber === tokenId &&
+      !t.deletedAt &&
+      t.serviceDate === today &&
+      (!departmentId || t.departmentId === departmentId)
+    );
   if (!token) return null;
 
   if (action === 'DELETE' || action === 'CANCEL') {
@@ -615,7 +627,6 @@ export function localMarkTokenAction(
       ? passCount
       : getStoredPassCount();
 
-    const today = getTodayString();
     const otherWaiting = tokens.filter(t =>
       t.id !== token.id &&
       t.departmentId === token.departmentId &&
@@ -640,6 +651,48 @@ export function localMarkTokenAction(
 
   saveLocalTokens(tokens);
   return token;
+}
+
+/**
+ * Offline counterpart of the bulk-delete route.
+ *
+ * Scoped by department and today's date for the same reason the server is: a token number
+ * on its own names a different patient in every department and on every previous day.
+ */
+export function localBulkDeleteTokens(
+  departmentId: string,
+  scope: 'WAITING' | 'ROOM',
+  options: { roomNumber?: string; tokenNumbers?: string[] } = {}
+): { deleted: number } {
+  const tokens = getLocalTokens();
+  const today = getTodayString();
+  const staged = new Set(
+    (options.tokenNumbers ?? []).map(t => t.replace(' 🚨', '').trim()).filter(Boolean)
+  );
+  const roomNumber = options.roomNumber?.trim();
+
+  const inScope = (t: LocalToken) =>
+    !t.deletedAt && t.departmentId === departmentId && t.serviceDate === today;
+
+  const shouldDelete = (t: LocalToken) => {
+    if (!inScope(t)) return false;
+    if (scope === 'WAITING') return t.status === 'WAITING';
+    // Called into this room, or staged for it and still sitting in the general line.
+    if (t.status === 'CALLED' && t.roomNumber === roomNumber) return true;
+    return t.status === 'WAITING' && staged.has(t.tokenNumber);
+  };
+
+  const stamp = new Date().toISOString();
+  let deleted = 0;
+  for (const token of tokens) {
+    if (!shouldDelete(token)) continue;
+    token.status = 'SKIPPED';
+    token.deletedAt = stamp;
+    deleted++;
+  }
+
+  if (deleted > 0) saveLocalTokens(tokens);
+  return { deleted };
 }
 
 export function localSearchTokens(query: string, departmentId?: string): LocalToken[] {

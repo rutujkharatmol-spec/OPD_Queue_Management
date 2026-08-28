@@ -9,7 +9,7 @@ import {
   Play, ShieldCheck, Eye, Layers, LayoutGrid, ArrowRightLeft, ArrowLeftCircle, Undo2, Search, Hash
 } from 'lucide-react';
 import {
-  API_BASE_URL, callNextPatient, markTokenAction, recallPatient,
+  API_BASE_URL, callNextPatient, markTokenAction, recallPatient, bulkDeleteTokens,
   getRooms, createRoom, updateRoom, deleteRoom, searchTokens, generateToken
 } from '../../lib/api';
 import { useQueueStore } from '../../store/useQueueStore';
@@ -26,6 +26,8 @@ import {
   addTokenToRoomQueue,
   addMultipleTokensToRoomQueue,
   removeTokenFromRoomQueue,
+  clearRoomQueue,
+  clearAllRoomQueues,
   getAutoCallRooms,
   setAutoCallRoom
 } from '../../lib/roomQueueSettings';
@@ -93,6 +95,8 @@ export default function DoctorDashboard() {
   const [callingRoom, setCallingRoom] = useState<string | null>(null);
   const [recallingRoom, setRecallingRoom] = useState<string | null>(null);
   const [recallSuccessRoom, setRecallSuccessRoom] = useState<string | null>(null);
+  /** Which bulk clear is in flight: 'WAITING' for the sidebar, or a room number. */
+  const [isBulkDeleting, setIsBulkDeleting] = useState<string | null>(null);
 
   // UI Visibility State (Show/Hide checkboxes)
   const [uiSettings, setUiSettings] = useState<UiVisibilitySettings>(DEFAULT_UI_SETTINGS);
@@ -511,8 +515,10 @@ export default function DoctorDashboard() {
         removeTokenFromRoomQueue(deptId, currentStagedRoom, clean);
       }
 
-      // 3. Mark delete in backend / local storage
-      await markTokenAction(clean, 'DELETE');
+      // 3. Mark delete in backend / local storage. `clean` is a token *number*, which only
+      //    names a row once paired with a department — the same number is in use in every
+      //    other department today and on every previous day.
+      await markTokenAction(clean, 'DELETE', undefined, deptId);
       refreshRoomSettings();
       await useQueueStore.getState().fetchQueue(deptId);
       showToast(`Token #${clean} deleted`, 2500);
@@ -520,6 +526,86 @@ export default function DoctorDashboard() {
       console.error('Failed to delete token:', err);
       // If error, re-fetch to restore true state
       await useQueueStore.getState().fetchQueue(deptId);
+    }
+  };
+
+  /**
+   * Clears the whole general waiting line for this department.
+   *
+   * One request rather than a loop over `handleDeleteTokenDirect`: the server decides which
+   * tokens are WAITING, so a sidebar that is a few seconds stale cannot widen or narrow the
+   * delete, and a hundred-patient line does not drain visibly one token at a time.
+   */
+  const handleDeleteAllWaiting = async () => {
+    const total = (queueData.nextTokens || []).length;
+    if (total === 0) {
+      showToast('Waiting line is already empty.', 2500);
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete all ${total} patient${total === 1 ? '' : 's'} from the ${queueData.department || ''} waiting line?\n\n` +
+      `They will be removed from the OPD queue for today. This cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setIsBulkDeleting('WAITING');
+    try {
+      const { deleted } = await bulkDeleteTokens(deptId, 'WAITING');
+      // Staged tokens are WAITING tokens a room has claimed, so they went with the line.
+      // Their staging entries have to go too, or each room keeps pointing at deleted rows.
+      clearAllRoomQueues(deptId);
+      refreshRoomSettings();
+      await useQueueStore.getState().fetchQueue(deptId);
+      showToast(`Waiting line cleared — ${deleted} patient${deleted === 1 ? '' : 's'} removed`, 3500);
+    } catch (err: any) {
+      console.error('Failed to clear waiting line:', err);
+      alert(err?.message || 'Failed to clear the waiting line.');
+      await useQueueStore.getState().fetchQueue(deptId);
+    } finally {
+      setIsBulkDeleting(null);
+    }
+  };
+
+  /** Clears one room: the patients called into it plus everything staged for it. */
+  const handleDeleteAllInRoom = async (roomNumber: string) => {
+    const staged = roomStagedQueues[roomNumber] || [];
+    const active = activePatientsByRoom.get(roomNumber) || [];
+    const total = staged.length + active.length;
+
+    if (total === 0) {
+      showToast(`Room ${roomNumber} is already empty.`, 2500);
+      return;
+    }
+
+    const parts = [
+      active.length > 0 ? `${active.length} active` : '',
+      staged.length > 0 ? `${staged.length} staged` : '',
+    ].filter(Boolean).join(' + ');
+
+    const confirmed = window.confirm(
+      `Clear Room ${roomNumber}? (${parts})\n\n` +
+      `These patients will be removed from the OPD queue for today. This cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setIsBulkDeleting(roomNumber);
+    try {
+      // Staging lives only in this browser, so the server cannot derive it — send the list.
+      const { deleted } = await bulkDeleteTokens(deptId, 'ROOM', {
+        roomNumber,
+        tokenNumbers: staged,
+      });
+      clearRoomQueue(deptId, roomNumber);
+      refreshRoomSettings();
+      await useQueueStore.getState().fetchQueue(deptId);
+      showToast(`Room ${roomNumber} cleared — ${deleted} patient${deleted === 1 ? '' : 's'} removed`, 3500);
+    } catch (err: any) {
+      console.error('Failed to clear room:', err);
+      alert(err?.message || `Failed to clear Room ${roomNumber}.`);
+      await useQueueStore.getState().fetchQueue(deptId);
+    } finally {
+      setIsBulkDeleting(null);
     }
   };
 
@@ -835,6 +921,31 @@ export default function DoctorDashboard() {
                 <p className="text-blue-300 text-xs font-semibold">
                   {queueData.nextTokens.length} Patients in Waiting Line
                 </p>
+
+                {/* Sits with the count rather than in the icon row above, so a destructive
+                    clear is never a slipped click away from "Add Patient". */}
+                <button
+                  type="button"
+                  onClick={handleDeleteAllWaiting}
+                  disabled={queueData.nextTokens.length === 0 || isBulkDeleting !== null}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wide border transition-all ${
+                    queueData.nextTokens.length === 0 || isBulkDeleting !== null
+                      ? 'bg-slate-900 text-slate-600 border-slate-800 cursor-not-allowed'
+                      : 'bg-red-950/60 text-red-300 border-red-800/70 hover:bg-red-600 hover:text-white hover:border-red-500 cursor-pointer active:scale-95'
+                  }`}
+                  title={
+                    queueData.nextTokens.length === 0
+                      ? 'Waiting line is already empty'
+                      : `Delete all ${queueData.nextTokens.length} patients from the waiting line`
+                  }
+                >
+                  {isBulkDeleting === 'WAITING' ? (
+                    <span className="w-2.5 h-2.5 border-2 border-red-300 border-t-transparent rounded-full animate-spin"></span>
+                  ) : (
+                    <Trash2 size={11} />
+                  )}
+                  <span>{isBulkDeleting === 'WAITING' ? 'Clearing...' : 'Delete All'}</span>
+                </button>
               </div>
             </div>
             <div className="flex gap-2">
@@ -1602,22 +1713,53 @@ export default function DoctorDashboard() {
                         )}
                       </div>
 
-                      {/* Recall / Ring Bell Button */}
-                      <button
-                        onClick={() => handleRecall(room.roomNumber)}
-                        disabled={activeList.length === 0 || isRecalling}
-                        className={`px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all shadow-sm ${
-                          isRecallSuccess
-                            ? 'bg-emerald-600 text-white animate-bounce'
-                            : activeList.length > 0
-                              ? 'bg-amber-500 hover:bg-amber-600 text-white cursor-pointer active:scale-95'
-                              : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                        }`}
-                        title={activeList.length > 0 ? 'Ring Bell / Call Patient Again' : 'No active patient to recall'}
-                      >
-                        <Bell size={14} className={isRecalling ? 'animate-spin' : ''} />
-                        <span>{isRecallSuccess ? 'Called!' : isRecalling ? 'Calling...' : 'Recall'}</span>
-                      </button>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {/* Recall / Ring Bell Button */}
+                        <button
+                          onClick={() => handleRecall(room.roomNumber)}
+                          disabled={activeList.length === 0 || isRecalling}
+                          className={`px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all shadow-sm ${
+                            isRecallSuccess
+                              ? 'bg-emerald-600 text-white animate-bounce'
+                              : activeList.length > 0
+                                ? 'bg-amber-500 hover:bg-amber-600 text-white cursor-pointer active:scale-95'
+                                : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                          }`}
+                          title={activeList.length > 0 ? 'Ring Bell / Call Patient Again' : 'No active patient to recall'}
+                        >
+                          <Bell size={14} className={isRecalling ? 'animate-spin' : ''} />
+                          <span>{isRecallSuccess ? 'Called!' : isRecalling ? 'Calling...' : 'Recall'}</span>
+                        </button>
+
+                        {/* Clears the room: patients called into it, plus everything staged for it. */}
+                        {(() => {
+                          const roomTotal = activeList.length + stagedList.length;
+                          const busy = isBulkDeleting === room.roomNumber;
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteAllInRoom(room.roomNumber)}
+                              disabled={roomTotal === 0 || isBulkDeleting !== null}
+                              className={`p-2 rounded-xl transition-all shadow-sm ${
+                                roomTotal === 0 || isBulkDeleting !== null
+                                  ? 'bg-slate-100 text-slate-300 cursor-not-allowed'
+                                  : 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-600 hover:text-white hover:border-red-600 cursor-pointer active:scale-95'
+                              }`}
+                              title={
+                                roomTotal === 0
+                                  ? `Room ${room.roomNumber} is already empty`
+                                  : `Delete all ${roomTotal} patient${roomTotal === 1 ? '' : 's'} in Room ${room.roomNumber} (${activeList.length} active, ${stagedList.length} staged)`
+                              }
+                            >
+                              {busy ? (
+                                <span className="block w-3.5 h-3.5 border-2 border-red-500 border-t-transparent rounded-full animate-spin"></span>
+                              ) : (
+                                <Trash2 size={14} />
+                              )}
+                            </button>
+                          );
+                        })()}
+                      </div>
                     </div>
 
                     {/* Active Patients Area */}
