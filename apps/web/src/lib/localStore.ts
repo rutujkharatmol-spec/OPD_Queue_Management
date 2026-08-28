@@ -391,26 +391,47 @@ export function createLocalToken(
       uhid: cleanUhid,
     };
 
-    const newToken: LocalToken = {
-      id: newId('tok'),
-      tokenNumber: itemTokenNumber,
-      serviceDate: today,
-      status: 'WAITING',
-      priority: itemPriority,
-      roomNumber: null,
-      issuedAt: new Date(Date.now() + i * 50).toISOString(),
-      calledAt: null,
-      recalledAt: null,
-      completedAt: null,
-      absentCount: 0,
-      departmentId: targetDeptId,
-      patientId: patient.id,
-      patient,
-      department: dept,
-    };
+    const existingIdx = tokens.findIndex(
+      t => t.departmentId === targetDeptId && t.serviceDate === today && t.tokenNumber === itemTokenNumber
+    );
 
-    tokens.push(newToken);
-    createdTokens.push(newToken);
+    if (existingIdx >= 0) {
+      tokens[existingIdx] = {
+        ...tokens[existingIdx],
+        status: 'WAITING',
+        priority: itemPriority,
+        patientId: patient.id,
+        patient,
+        roomNumber: null,
+        calledAt: null,
+        recalledAt: null,
+        completedAt: null,
+        deletedAt: null,
+        issuedAt: new Date(Date.now() + i * 50).toISOString(),
+      };
+      createdTokens.push(tokens[existingIdx]);
+    } else {
+      const newToken: LocalToken = {
+        id: newId('tok'),
+        tokenNumber: itemTokenNumber,
+        serviceDate: today,
+        status: 'WAITING',
+        priority: itemPriority,
+        roomNumber: null,
+        issuedAt: new Date(Date.now() + i * 50).toISOString(),
+        calledAt: null,
+        recalledAt: null,
+        completedAt: null,
+        absentCount: 0,
+        departmentId: targetDeptId,
+        patientId: patient.id,
+        patient,
+        department: dept,
+      };
+
+      tokens.push(newToken);
+      createdTokens.push(newToken);
+    }
   }
 
   saveLocalTokens(tokens);

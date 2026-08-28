@@ -42,29 +42,13 @@ export const POST = route(async (request: Request) => {
   const customToken = (body.customTokenNumber || body.tokenNumber)?.trim();
   const requestedCount = Math.min(100, Math.max(1, body.patients?.length || body.count || 1));
 
-  // Both lookups key off `body.departmentId`, so neither has to wait for the other — one
-  // round-trip phase instead of two before the transaction even opens. The duplicate check
-  // selects a single column: it only ever asks whether a row exists.
-  const [department, duplicateToken] = await Promise.all([
-    db.department.findUnique({
-      where: { id: body.departmentId },
-      // The two columns the rest of this handler reads, plus the soft-delete flag.
-      select: { id: true, name: true, deletedAt: true },
-    }),
-    customToken && requestedCount === 1
-      ? db.token.findFirst({
-          where: { departmentId: body.departmentId, serviceDate, tokenNumber: customToken },
-          select: { id: true },
-        })
-      : null,
-  ]);
+  const department = await db.department.findUnique({
+    where: { id: body.departmentId },
+    select: { id: true, name: true, deletedAt: true },
+  });
 
   if (!department || department.deletedAt) {
     return notFound('That department does not exist.');
-  }
-
-  if (duplicateToken) {
-    return badRequest(`Token "${customToken}" is already in use for ${department.name} today.`);
   }
 
   const result = await db.$transaction(
@@ -178,13 +162,33 @@ export const POST = route(async (request: Request) => {
           tokenNumber = reservedList[autoIdx++];
         }
 
-        const created = await tx.token.create({
-          data: {
+        const created = await tx.token.upsert({
+          where: {
+            departmentId_serviceDate_tokenNumber: {
+              departmentId: department.id,
+              serviceDate,
+              tokenNumber,
+            },
+          },
+          update: {
+            priority: itemPriority,
+            status: 'WAITING',
+            deletedAt: null,
+            roomNumber: null,
+            calledAt: null,
+            recalledAt: null,
+            completedAt: null,
+            issuedAt: new Date(Date.now() + i * 50),
+            patientId: patient.id,
+            doctorId,
+          },
+          create: {
             tokenNumber,
             serviceDate,
             priority: itemPriority,
             status: 'WAITING',
-            issuedAt: new Date(Date.now() + i * 50), // slightly offset for deterministic FIFO
+            deletedAt: null,
+            issuedAt: new Date(Date.now() + i * 50),
             departmentId: department.id,
             patientId: patient.id,
             doctorId,

@@ -110,7 +110,17 @@ export class TokensService {
           },
         });
         if (existing) {
-          throw new BadRequestException(`Token "${tokenNumber}" is already in use for ${department.name} today.`);
+          existing.status = TokenStatus.WAITING;
+          existing.priority = priority;
+          existing.patient = patient;
+          existing.doctor = doctor;
+          existing.issuedAt = new Date();
+          existing.roomNumber = null as any;
+          existing.calledAt = null as any;
+          existing.completedAt = null as any;
+          await queryRunner.manager.save(existing);
+          await queryRunner.commitTransaction();
+          return existing;
         }
       } else {
         const todayTokensCount = await queryRunner.manager.count(Token, {
