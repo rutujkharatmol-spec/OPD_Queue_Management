@@ -81,6 +81,10 @@ export default function DoctorDashboard() {
   const [transferModalToken, setTransferModalToken] = useState<{ token: string; tokenId: string; fromRoom: string; patientName?: string } | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // Direct Token Entry into Free Room State
+  const [directInputRoom, setDirectInputRoom] = useState<string | null>(null);
+  const [directTokenVal, setDirectTokenVal] = useState<string>('');
+
   // Pass (+N) Queue Step State
   const [passCount, setPassCount] = useState(DEFAULT_PASS_COUNT);
   const [isPassModalOpen, setIsPassModalOpen] = useState(false);
@@ -506,6 +510,20 @@ export default function DoctorDashboard() {
     addMultipleTokensToRoomQueue(deptId, roomNumber, toPull);
     refreshRoomSettings();
     showToast(`Pulled ${toPull.length} patient${toPull.length === 1 ? '' : 's'} into Room ${roomNumber} Queue.`, 3000);
+  };
+
+  const handleDirectCallOrStage = async (roomNumber: string, action: 'CALL' | 'STAGE') => {
+    const clean = directTokenVal.trim();
+    if (!clean) return;
+
+    setDirectInputRoom(null);
+    setDirectTokenVal('');
+
+    if (action === 'CALL') {
+      await handleCallNext(roomNumber, clean);
+    } else {
+      await handleAddPatientToRoomQueue(roomNumber, clean);
+    }
   };
 
   return (
@@ -1200,14 +1218,149 @@ export default function DoctorDashboard() {
 
                     {/* Active Patients Area */}
                     {activeList.length === 0 ? (
-                      /* Free Room */
-                      <div className="border border-slate-200/80 rounded-2xl p-5 mb-4 flex flex-col justify-center items-center text-center bg-slate-50">
-                        <Users size={28} className="text-slate-300 mb-1.5" />
-                        <p className="text-xs font-bold text-slate-600">Room Free &amp; Ready</p>
-                        <p className="text-[10px] text-slate-400 mt-0.5">
-                          {isAutoCallOn ? '⚡ Auto-Call active: ready for next patient' : "Click 'Call Next' or drag patients here"}
-                        </p>
-                      </div>
+                      /* Free Room Area / Direct Token Entry */
+                      directInputRoom === room.roomNumber ? (
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          className="border-2 border-blue-500 rounded-2xl p-4 mb-4 bg-gradient-to-b from-blue-50/90 via-white to-slate-50 shadow-lg animate-in fade-in zoom-in-95 duration-150 relative text-left"
+                        >
+                          <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-blue-100">
+                            <span className="text-[11px] font-black uppercase tracking-wider text-blue-700 flex items-center gap-1.5">
+                              <Sparkles size={13} className="text-blue-600 animate-pulse" />
+                              Direct Token Entry (Room {room.roomNumber})
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDirectInputRoom(null);
+                                setDirectTokenVal('');
+                              }}
+                              className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-lg transition-colors cursor-pointer"
+                              title="Cancel (Esc)"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+
+                          <form
+                            onSubmit={(e) => {
+                              e.preventDefault();
+                              handleDirectCallOrStage(room.roomNumber, 'CALL');
+                            }}
+                            className="space-y-2.5"
+                          >
+                            <div className="relative">
+                              <input
+                                type="text"
+                                autoFocus
+                                value={directTokenVal}
+                                onChange={(e) => setDirectTokenVal(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Escape') {
+                                    setDirectInputRoom(null);
+                                    setDirectTokenVal('');
+                                  }
+                                }}
+                                placeholder="Enter token # (e.g. 101, M-05)..."
+                                className="w-full bg-white border-2 border-blue-400 focus:border-blue-600 rounded-xl px-3.5 py-2.5 text-center text-lg font-black text-slate-900 placeholder:text-slate-400 placeholder:text-xs placeholder:font-normal focus:outline-none focus:ring-4 focus:ring-blue-500/20 tracking-wider shadow-inner transition-all font-mono"
+                              />
+                              {directTokenVal && (
+                                <button
+                                  type="button"
+                                  onClick={() => setDirectTokenVal('')}
+                                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 rounded-md cursor-pointer"
+                                  title="Clear"
+                                >
+                                  <X size={13} />
+                                </button>
+                              )}
+                            </div>
+
+                            {/* Waiting line suggestion chips */}
+                            {queueData.nextTokens && queueData.nextTokens.length > 0 && (
+                              <div className="flex items-center gap-1.5 flex-wrap justify-center pt-0.5">
+                                <span className="text-[10px] text-slate-400 font-bold">Pick from line:</span>
+                                {queueData.nextTokens.slice(0, 4).map((tok) => {
+                                  const clean = tok.replace(' 🚨', '').trim();
+                                  return (
+                                    <button
+                                      key={tok}
+                                      type="button"
+                                      onClick={() => setDirectTokenVal(clean)}
+                                      className={`text-[10px] font-black px-2 py-0.5 rounded-lg border transition-all cursor-pointer ${
+                                        directTokenVal.toLowerCase() === clean.toLowerCase()
+                                          ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                                          : 'bg-slate-100 hover:bg-blue-100 text-slate-700 border-slate-200 hover:border-blue-300'
+                                      }`}
+                                    >
+                                      {clean}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+
+                            {/* Action Buttons */}
+                            <div className="grid grid-cols-2 gap-2 pt-1">
+                              <button
+                                type="submit"
+                                disabled={!directTokenVal.trim()}
+                                className="py-2.5 px-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 active:scale-95 text-white rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 shadow-md shadow-blue-500/25 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                                title="Call this token immediately into this room"
+                              >
+                                <Zap size={13} className="fill-white" />
+                                <span>Call Now ↵</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                disabled={!directTokenVal.trim()}
+                                onClick={() => handleDirectCallOrStage(room.roomNumber, 'STAGE')}
+                                className="py-2.5 px-3 bg-indigo-50 hover:bg-indigo-100 active:scale-95 text-indigo-900 border border-indigo-200 hover:border-indigo-300 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-2xs"
+                                title="Add this token to this room's staged queue"
+                              >
+                                <ListOrdered size={13} className="text-indigo-600" />
+                                <span>+ Queue Here</span>
+                              </button>
+                            </div>
+                          </form>
+                        </div>
+                      ) : (
+                        /* Free Room Clickable Banner */
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => {
+                            setDirectInputRoom(room.roomNumber);
+                            setDirectTokenVal('');
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              setDirectInputRoom(room.roomNumber);
+                              setDirectTokenVal('');
+                            }
+                          }}
+                          className="border border-slate-200/80 hover:border-blue-400 rounded-2xl p-5 mb-4 flex flex-col justify-center items-center text-center bg-slate-50 hover:bg-gradient-to-b hover:from-blue-50/70 hover:to-slate-50 transition-all cursor-pointer group/ready shadow-2xs hover:shadow-md select-none relative"
+                          title="Click to directly enter and call / stage a token number for this room"
+                        >
+                          <div className="w-10 h-10 rounded-2xl bg-white border border-slate-200 group-hover/ready:border-blue-300 group-hover/ready:bg-blue-600 group-hover/ready:text-white text-slate-400 flex items-center justify-center mb-1.5 transition-all shadow-2xs group-hover/ready:scale-105">
+                            <Users size={20} className="group-hover/ready:hidden" />
+                            <Plus size={20} className="hidden group-hover/ready:block animate-in zoom-in-75 duration-150" />
+                          </div>
+                          <p className="text-xs font-black text-slate-700 group-hover/ready:text-blue-700 transition-colors">
+                            Room Free &amp; Ready
+                          </p>
+                          <p className="text-[10px] text-slate-400 group-hover/ready:text-slate-600 mt-0.5 transition-colors">
+                            {isAutoCallOn ? '⚡ Auto-Call active: ready for next patient' : "Click 'Call Next' or drag patients here"}
+                          </p>
+
+                          <div className="mt-2.5 inline-flex items-center gap-1.5 text-[10px] font-bold text-blue-700 bg-blue-50/90 group-hover/ready:bg-blue-100/90 border border-blue-200 px-2.5 py-1 rounded-lg transition-colors shadow-2xs">
+                            <Plus size={11} className="text-blue-600" />
+                            <span>Click to Enter Token # Directly</span>
+                          </div>
+                        </div>
+                      )
                     ) : activeList.length === 1 ? (
                       /* Single Active Patient Card */
                       <div

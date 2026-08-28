@@ -6,7 +6,9 @@ import { Suspense, useState, useEffect, useRef } from 'react';
 import { useDepartmentStore } from '../store/useDepartmentStore';
 import {
   Building2, ChevronDown, Eye, Sliders, Check, X, RotateCcw,
-  LayoutGrid, Users, Stethoscope, Zap, Sparkles, Layers
+  LayoutGrid, Users, Stethoscope, Zap, Sparkles, Layers,
+  BookOpen, HelpCircle, ClipboardList, Tv, PhoneCall, Volume2,
+  ArrowRight, ShieldAlert, CheckCircle2
 } from 'lucide-react';
 import {
   UiVisibilitySettings,
@@ -34,6 +36,7 @@ function NavbarContent() {
 
   const [uiSettings, setUiSettingsState] = useState<UiVisibilitySettings>(DEFAULT_UI_SETTINGS);
   const [isShowUiOpen, setIsShowUiOpen] = useState(false);
+  const [isGuideOpen, setIsGuideOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -78,7 +81,7 @@ function NavbarContent() {
   }
 
   const getHref = (path: string) => {
-    if (path === '/settings') return '/settings';
+    if (path === '/settings' || path === '/guide') return path;
     return activeDeptId ? `${path}?deptId=${activeDeptId}` : path;
   };
 
@@ -109,6 +112,7 @@ function NavbarContent() {
     { href: '/doctor', label: 'Doctor Room' },
     { href: '/tv', label: 'TV Monitor' },
     { href: '/analytics', label: 'Analytics' },
+    { href: '/guide', label: 'How to Use' },
     { href: '/settings', label: 'Settings' },
   ];
 
@@ -359,6 +363,96 @@ function NavbarContent() {
 
         </div>
       </div>
+
+      {/* Interactive How to Use Modal Popup */}
+      {isGuideOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4 animate-in fade-in duration-200 text-white">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 sm:p-8 max-w-2xl w-full shadow-2xl relative flex flex-col max-h-[85vh] overflow-hidden">
+            
+            {/* Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-slate-800 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold">
+                  <BookOpen size={20} />
+                </div>
+                <div>
+                  <h2 className="text-lg font-black text-white">How to Use OPD Queue</h2>
+                  <p className="text-xs text-slate-400">Simple guide to using all features across the app</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsGuideOpen(false)}
+                className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Content Body */}
+            <div className="py-5 space-y-4 overflow-y-auto pr-1 text-xs">
+              {/* 1. Registration */}
+              <div className="p-4 bg-slate-950/80 border border-slate-800 rounded-2xl space-y-2">
+                <div className="flex items-center gap-2 text-blue-400 font-bold text-sm">
+                  <ClipboardList size={16} />
+                  <h3>1. Registration Desk (/registration)</h3>
+                </div>
+                <ul className="space-y-1.5 text-slate-300 list-disc list-inside">
+                  <li><strong>Single Token:</strong> Enter patient name &amp; phone/UHID, click <em>Generate Token</em>.</li>
+                  <li><strong>⚡ Bulk Tokens:</strong> Switch to <em>"Create Multiple Tokens at Once"</em> to generate batches of 5–10 tokens instantly for walk-in rushes.</li>
+                  <li><strong>🚨 Priority:</strong> Choose Emergency Priority to place emergency patients at the top of the queue.</li>
+                </ul>
+              </div>
+
+              {/* 2. Doctor Dashboard */}
+              <div className="p-4 bg-slate-950/80 border border-slate-800 rounded-2xl space-y-2">
+                <div className="flex items-center gap-2 text-indigo-400 font-bold text-sm">
+                  <Stethoscope size={16} />
+                  <h3>2. Doctor Consultation Room (/doctor)</h3>
+                </div>
+                <ul className="space-y-1.5 text-slate-300 list-disc list-inside">
+                  <li><strong>Call Next:</strong> Click <em>"Call Next Patient"</em> to call the next patient into your room.</li>
+                  <li><strong>⚡ Auto-Call:</strong> Turn Auto-Call ON to automatically call the next patient whenever you mark one Complete.</li>
+                  <li><strong>Search &amp; Drag-and-Drop:</strong> Search any token number (or create a new one on the fly) and drag it into any room.</li>
+                  <li><strong>Pass (+3):</strong> If a patient stepped away, click Pass to push them 3 spots back in line without losing them.</li>
+                </ul>
+              </div>
+
+              {/* 3. TV Monitor */}
+              <div className="p-4 bg-slate-950/80 border border-slate-800 rounded-2xl space-y-2">
+                <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm">
+                  <Tv size={16} />
+                  <h3>3. Waiting Hall TV Monitor (/tv)</h3>
+                </div>
+                <ul className="space-y-1.5 text-slate-300 list-disc list-inside">
+                  <li><strong>Live Display:</strong> Displays called token numbers and consultation room numbers in giant text.</li>
+                  <li><strong>🔊 Audio Announcements:</strong> Speaks patient calls out loud in English, Hindi, and Bengali.</li>
+                  <li><strong>Light / Dark Mode:</strong> Clean high-contrast Light Mode default with Dark Mode toggle.</li>
+                  <li><strong>Full Screen:</strong> Press <strong>'F'</strong> key on keyboard for borderless TV mode.</li>
+                </ul>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="pt-4 border-t border-slate-800 flex items-center justify-between shrink-0">
+              <Link
+                href="/guide"
+                onClick={() => setIsGuideOpen(false)}
+                className="text-xs text-blue-400 hover:text-blue-300 font-bold flex items-center gap-1 transition-colors"
+              >
+                <span>Open Full Guide Page</span>
+                <ArrowRight size={13} />
+              </Link>
+              <button
+                type="button"
+                onClick={() => setIsGuideOpen(false)}
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl shadow-md transition-all cursor-pointer"
+              >
+                Got it!
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </nav>
   );
 }
