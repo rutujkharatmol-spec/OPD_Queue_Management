@@ -111,10 +111,54 @@ export const useQueueStore = create<QueueStore>((set, get) => ({
 }));
 
 if (typeof window !== 'undefined') {
+  const wakeUpAndFetchAll = (targetDeptId?: string) => {
+    const state = useQueueStore.getState();
+    if (targetDeptId) {
+      void state.fetchQueue(targetDeptId);
+    }
+    const openDepts = Object.keys(state.liveQueues);
+    for (const id of openDepts) {
+      if (id !== targetDeptId) {
+        void state.fetchQueue(id);
+      }
+    }
+  };
+
+  // 1. Same-window custom events
   window.addEventListener('opd-queue-updated', ((e: CustomEvent) => {
     const deptId = e.detail?.departmentId;
-    if (deptId) {
-      useQueueStore.getState().fetchQueue(deptId);
-    }
+    wakeUpAndFetchAll(deptId);
   }) as EventListener);
+
+  // 2. Cross-tab and cross-window BroadcastChannel listener (instant real-time updates across separate windows)
+  if (typeof BroadcastChannel !== 'undefined') {
+    try {
+      const syncChannel = new BroadcastChannel('opd-queue-sync-channel');
+      syncChannel.onmessage = (event) => {
+        if (event.data?.type === 'QUEUE_UPDATED') {
+          wakeUpAndFetchAll(event.data.departmentId);
+        }
+      };
+    } catch {}
+  }
+
+  // 3. Storage event listener (fallback for separate windows and minimized background tabs)
+  window.addEventListener('storage', (e) => {
+    if (e.key === 'opd_queue_last_updated' || e.key === 'local_tokens_store') {
+      wakeUpAndFetchAll();
+    }
+  });
+
+  // 4. Window focus, visibility, resize, and fullscreen events to immediately update when restored/unminimized
+  window.addEventListener('focus', () => wakeUpAndFetchAll());
+  window.addEventListener('resize', () => wakeUpAndFetchAll());
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      wakeUpAndFetchAll();
+    }
+  });
+  document.addEventListener('fullscreenchange', () => wakeUpAndFetchAll());
+  document.addEventListener('webkitfullscreenchange', () => wakeUpAndFetchAll());
+  document.addEventListener('mozfullscreenchange', () => wakeUpAndFetchAll());
+  document.addEventListener('MSFullscreenChange', () => wakeUpAndFetchAll());
 }

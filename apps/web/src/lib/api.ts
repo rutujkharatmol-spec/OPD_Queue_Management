@@ -6,6 +6,28 @@ import { fetchWithOfflineSync } from './offlineSync';
 // changes. See next.config.ts for the temporary fallback to the old NestJS API.
 export const API_BASE_URL = '/api/v1';
 
+export function broadcastQueueUpdate(departmentId?: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    // 1. Same-window custom event
+    window.dispatchEvent(new CustomEvent('opd-queue-updated', { detail: { departmentId } }));
+
+    // 2. Cross-tab and cross-window BroadcastChannel
+    if (typeof BroadcastChannel !== 'undefined') {
+      const bc = new BroadcastChannel('opd-queue-sync-channel');
+      bc.postMessage({ type: 'QUEUE_UPDATED', departmentId, timestamp: Date.now() });
+      bc.close();
+    }
+
+    // 3. Storage event trigger for external/minimized windows
+    try {
+      localStorage.setItem('opd_queue_last_updated', `${departmentId || 'all'}_${Date.now()}`);
+    } catch {}
+  } catch (err) {
+    console.warn('Queue update broadcast warning:', err);
+  }
+}
+
 export async function generateToken(
   departmentId: string,
   patientId?: string,
@@ -43,7 +65,9 @@ export async function generateToken(
     } catch {}
     throw new Error(errorMessage);
   }
-  return response.json();
+  const result = await response.json();
+  broadcastQueueUpdate(departmentId);
+  return result;
 }
 
 export async function callNextPatient(departmentId: string, roomNumber: string, tokenIdentifier?: string) {
@@ -58,6 +82,7 @@ export async function callNextPatient(departmentId: string, roomNumber: string, 
     throw new Error(`Failed to call patient: ${errText || response.statusText}`);
   }
   const text = await response.text();
+  broadcastQueueUpdate(departmentId);
   return text ? JSON.parse(text) : null;
 }
 
@@ -72,7 +97,9 @@ export async function markTokenAction(
     body: JSON.stringify({ action, passCount }),
   });
   if (!response.ok) throw new Error('Failed to mark token action');
-  return response.json();
+  const result = await response.json();
+  broadcastQueueUpdate();
+  return result;
 }
 
 export type TokenStatusValue = 'WAITING' | 'CALLED' | 'IN_PROGRESS' | 'COMPLETED' | 'SKIPPED' | 'ABSENT';
@@ -187,7 +214,9 @@ export async function recallPatient(departmentId: string, roomNumber: string) {
     const text = await response.text();
     throw new Error(text || 'Failed to recall patient');
   }
-  return response.json();
+  const result = await response.json();
+  broadcastQueueUpdate(departmentId);
+  return result;
 }
 
 export async function searchTokens(query: string, departmentId?: string) {

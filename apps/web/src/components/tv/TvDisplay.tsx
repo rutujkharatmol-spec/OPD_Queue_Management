@@ -29,6 +29,7 @@ export default function TvDisplay() {
   const deptId = getEffectiveDeptId(requestedDeptId);
 
   const initializeWebSocket = useQueueStore((state) => state.initializeWebSocket);
+  const fetchQueue = useQueueStore((state) => state.fetchQueue);
   const queueData = useQueueStore((state) => state.liveQueues[deptId]) || EMPTY_QUEUE;
   const [pulseScale, setPulseScale] = useState(false);
   const [isDark, setIsDark] = useState(false); // Default to clean, high-contrast light mode for TV screens
@@ -39,7 +40,7 @@ export default function TvDisplay() {
     loadDepartments(requestedDeptId);
   }, [requestedDeptId, loadDepartments]);
 
-  // Fullscreen event listener and synchronization
+  // Fullscreen event listener, window resize/focus/visibility synchronization
   useEffect(() => {
     const handleFullscreenChange = () => {
       const isFull = !!(
@@ -49,12 +50,24 @@ export default function TvDisplay() {
         (document as any).msFullscreenElement
       );
       setIsFullscreen(isFull);
+      if (deptId) {
+        void fetchQueue(deptId);
+      }
+    };
+
+    const handleWindowWake = () => {
+      if (deptId) {
+        void fetchQueue(deptId);
+      }
     };
 
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
     document.addEventListener('mozfullscreenchange', handleFullscreenChange);
     document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+    window.addEventListener('resize', handleWindowWake);
+    window.addEventListener('focus', handleWindowWake);
+    document.addEventListener('visibilitychange', handleWindowWake);
 
     const handleKeyDown = (e: KeyboardEvent) => {
       // Toggle fullscreen on 'f' or 'F' key if not typing in an input
@@ -69,9 +82,12 @@ export default function TvDisplay() {
       document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
       document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
       document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
+      window.removeEventListener('resize', handleWindowWake);
+      window.removeEventListener('focus', handleWindowWake);
+      document.removeEventListener('visibilitychange', handleWindowWake);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, []);
+  }, [deptId, fetchQueue]);
 
   const toggleFullscreen = useCallback(async () => {
     try {
