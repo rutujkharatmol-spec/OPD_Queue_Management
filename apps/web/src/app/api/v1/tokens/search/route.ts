@@ -10,6 +10,10 @@ export const GET = route(async (request: Request) => {
 
   if (!q) return ok([]);
 
+  // Both callers (the doctor dashboard's sidebar and the registration desk's lookup
+  // modal) render exactly these fields. The previous `include` pulled all three relations
+  // whole — every patient column, every department column, and a doctor row that neither
+  // screen reads — on a query the dashboard re-issues 250ms after every keystroke.
   const results = await db.token.findMany({
     where: {
       ...(departmentId ? { departmentId } : {}),
@@ -22,7 +26,15 @@ export const GET = route(async (request: Request) => {
         { patient: { uhid: { contains: q } } },
       ],
     },
-    include: { patient: true, department: true, doctor: true },
+    select: {
+      id: true,
+      tokenNumber: true,
+      status: true,
+      priority: true,
+      issuedAt: true,
+      patient: { select: { firstName: true, lastName: true, phone: true, uhid: true } },
+      department: { select: { name: true } },
+    },
     orderBy: { issuedAt: 'desc' },
     take: 20,
   });

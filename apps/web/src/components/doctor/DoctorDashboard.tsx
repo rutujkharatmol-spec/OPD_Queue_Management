@@ -6,7 +6,7 @@ import {
   PhoneOff, AlertTriangle, UserPlus, Settings, Bell, BarChart2, Stethoscope, ArrowRight,
   Plus, Trash2, Edit2, Check, X, Building2, SkipForward, Sliders, RotateCcw, Minus,
   CheckCircle2, GripVertical, UserCheck, CornerDownRight, Sparkles, Zap, ListOrdered,
-  Play, ShieldCheck, Eye, Layers, LayoutGrid, ArrowRightLeft, ArrowLeftCircle, Undo2, Search
+  Play, ShieldCheck, Eye, Layers, LayoutGrid, ArrowRightLeft, ArrowLeftCircle, Undo2, Search, Hash
 } from 'lucide-react';
 import {
   API_BASE_URL, callNextPatient, markTokenAction, recallPatient,
@@ -80,6 +80,45 @@ export default function DoctorDashboard() {
   const [quickAssignToken, setQuickAssignToken] = useState<string | null>(null);
   const [transferModalToken, setTransferModalToken] = useState<{ token: string; tokenId: string; fromRoom: string; patientName?: string } | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Add Patient Directly to Waiting Line State
+  const [isAddPatientModalOpen, setIsAddPatientModalOpen] = useState(false);
+  const [addPatientName, setAddPatientName] = useState('');
+  const [addPatientPhone, setAddPatientPhone] = useState('');
+  const [addPatientUhid, setAddPatientUhid] = useState('');
+  const [addPatientPriority, setAddPatientPriority] = useState<'NORMAL' | 'SENIOR' | 'EMERGENCY'>('NORMAL');
+  const [addPatientCustomToken, setAddPatientCustomToken] = useState('');
+  const [addPatientDestination, setAddPatientDestination] = useState<string>('WAITING_LINE');
+  const [isAddingPatient, setIsAddingPatient] = useState(false);
+  const [addPatientError, setAddPatientError] = useState<string | null>(null);
+
+  const resetAddPatientForm = useCallback(() => {
+    setAddPatientName('');
+    setAddPatientPhone('');
+    setAddPatientUhid('');
+    setAddPatientPriority('NORMAL');
+    setAddPatientCustomToken('');
+    setAddPatientDestination('WAITING_LINE');
+    setAddPatientError(null);
+  }, []);
+
+  // Quick Token (Token Number Only) State
+  const [isQuickTokenModalOpen, setIsQuickTokenModalOpen] = useState(false);
+  const [quickTokenVal, setQuickTokenVal] = useState('');
+  const [quickTokenPriority, setQuickTokenPriority] = useState<'NORMAL' | 'SENIOR' | 'EMERGENCY'>('NORMAL');
+  const [quickTokenDestination, setQuickTokenDestination] = useState<string>('WAITING_LINE');
+  const [isQuickAddingToken, setIsQuickAddingToken] = useState(false);
+  const [quickTokenError, setQuickTokenError] = useState<string | null>(null);
+  const [sidebarQuickToken, setSidebarQuickToken] = useState('');
+  const [sidebarQuickEmergency, setSidebarQuickEmergency] = useState(false);
+  const [isSidebarQuickAdding, setIsSidebarQuickAdding] = useState(false);
+
+  const resetQuickTokenForm = useCallback(() => {
+    setQuickTokenVal('');
+    setQuickTokenPriority('NORMAL');
+    setQuickTokenDestination('WAITING_LINE');
+    setQuickTokenError(null);
+  }, []);
 
   // Direct Token Entry into Free Room State
   const [directInputRoom, setDirectInputRoom] = useState<string | null>(null);
@@ -299,6 +338,157 @@ export default function DoctorDashboard() {
     } catch (err) {
       console.error('Failed to update room', err);
       alert('Failed to update room.');
+    }
+  };
+
+  /** Handles adding a patient directly to the waiting line from the Doctor Room page */
+  const handleAddPatientSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsAddingPatient(true);
+    setAddPatientError(null);
+
+    try {
+      const trimmedName = addPatientName.trim();
+      const nameParts = trimmedName ? trimmedName.split(' ') : [];
+      const firstName = nameParts[0] || (addPatientCustomToken.trim() ? `Patient #${addPatientCustomToken.trim()}` : 'Walk-in Patient');
+      const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+      const phone = addPatientPhone.trim();
+      const uhid = addPatientUhid.trim();
+      const cleanCustomToken = addPatientCustomToken.trim();
+
+      const randomPatientId = crypto.randomUUID();
+      const dummyDoctorId = "550e8400-e29b-41d4-a716-446655440000";
+
+      const res = await generateToken(
+        deptId,
+        randomPatientId,
+        dummyDoctorId,
+        addPatientPriority,
+        {
+          firstName,
+          lastName,
+          phone: phone || undefined,
+          uhid: uhid || undefined
+        },
+        cleanCustomToken || undefined,
+        1
+      );
+
+      const tokensArray = res.tokens || (Array.isArray(res) ? res : [res]);
+      const createdTokenObj = tokensArray[0] || res;
+      const createdTokenNum: string = createdTokenObj?.tokenNumber || cleanCustomToken || 'Token';
+
+      await useQueueStore.getState().fetchQueue(deptId);
+
+      // Handle destination routing
+      if (addPatientDestination.startsWith('ROOM_QUEUE:')) {
+        const targetRoom = addPatientDestination.replace('ROOM_QUEUE:', '');
+        addTokenToRoomQueue(deptId, targetRoom, createdTokenNum);
+        refreshRoomSettings();
+        showToast(`Patient ${createdTokenNum} added and queued for Room ${targetRoom}!`, 4000);
+      } else if (addPatientDestination.startsWith('CALL_NOW:')) {
+        const targetRoom = addPatientDestination.replace('CALL_NOW:', '');
+        await handleCallNext(targetRoom, createdTokenNum);
+        showToast(`Patient ${createdTokenNum} called directly in Room ${targetRoom}!`, 4000);
+      } else {
+        showToast(`Patient ${createdTokenNum} added directly to waiting line!`, 4000);
+      }
+
+      setIsAddPatientModalOpen(false);
+      resetAddPatientForm();
+    } catch (err: any) {
+      console.error('Failed to add patient to waiting line:', err);
+      setAddPatientError(err?.message || 'Failed to add patient. Please try again.');
+    } finally {
+      setIsAddingPatient(false);
+    }
+  };
+
+  /** Quick add token number only (no patient name / details required) */
+  const handleQuickAddToken = async (
+    tokenNumber: string,
+    priority: 'NORMAL' | 'SENIOR' | 'EMERGENCY' = 'NORMAL',
+    destination: string = 'WAITING_LINE'
+  ) => {
+    const clean = tokenNumber.replace(' 🚨', '').trim().toUpperCase();
+    if (!clean) return;
+
+    try {
+      const randomPatientId = crypto.randomUUID();
+      const dummyDoctorId = "550e8400-e29b-41d4-a716-446655440000";
+
+      await generateToken(
+        deptId,
+        randomPatientId,
+        dummyDoctorId,
+        priority,
+        {
+          firstName: `Patient #${clean}`,
+        },
+        clean,
+        1
+      );
+
+      await useQueueStore.getState().fetchQueue(deptId);
+
+      if (destination.startsWith('ROOM_QUEUE:')) {
+        const targetRoom = destination.replace('ROOM_QUEUE:', '');
+        addTokenToRoomQueue(deptId, targetRoom, clean);
+        refreshRoomSettings();
+        showToast(`Token #${clean} added to Room ${targetRoom} queue!`, 3500);
+      } else if (destination.startsWith('CALL_NOW:')) {
+        const targetRoom = destination.replace('CALL_NOW:', '');
+        await handleCallNext(targetRoom, clean);
+        showToast(`Token #${clean} called directly in Room ${targetRoom}!`, 3500);
+      } else {
+        showToast(`Token #${clean} added directly to waiting line!`, 3500);
+      }
+    } catch (err: any) {
+      console.error('Failed to quick add token:', err);
+      throw err;
+    }
+  };
+
+  /** Deletes / cancels a token directly from the waiting queue (Instant 1-Click, No Confirmation) */
+  const handleDeleteTokenDirect = async (tokenIdentifier: string) => {
+    const clean = tokenIdentifier.replace(' 🚨', '').trim();
+    if (!clean) return;
+
+    // 1. Instantly remove optimistically from UI state for zero-lag responsiveness
+    const currentQueue = useQueueStore.getState().liveQueues[deptId];
+    if (currentQueue) {
+      useQueueStore.getState().updateQueueData(deptId, {
+        ...currentQueue,
+        nextTokens: (currentQueue.nextTokens || []).filter(
+          (t) => t.replace(' 🚨', '').trim().toLowerCase() !== clean.toLowerCase()
+        ),
+        activeTokens: (currentQueue.activeTokens || []).filter(
+          (t) => t.token.trim().toLowerCase() !== clean.toLowerCase()
+        ),
+      });
+    }
+
+    // Also remove from local search results if present
+    setDbSearchResults((prev) =>
+      prev.filter((st) => st.tokenNumber?.toLowerCase() !== clean.toLowerCase())
+    );
+
+    try {
+      // 2. Remove from room staged queue if staged
+      const currentStagedRoom = getStagedRoomForToken(tokenIdentifier);
+      if (currentStagedRoom) {
+        removeTokenFromRoomQueue(deptId, currentStagedRoom, clean);
+      }
+
+      // 3. Mark delete in backend / local storage
+      await markTokenAction(clean, 'DELETE');
+      refreshRoomSettings();
+      await useQueueStore.getState().fetchQueue(deptId);
+      showToast(`Token #${clean} deleted`, 2500);
+    } catch (err: any) {
+      console.error('Failed to delete token:', err);
+      // If error, re-fetch to restore true state
+      await useQueueStore.getState().fetchQueue(deptId);
     }
   };
 
@@ -602,6 +792,28 @@ export default function DoctorDashboard() {
               </div>
             </div>
             <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  resetQuickTokenForm();
+                  setIsQuickTokenModalOpen(true);
+                }}
+                className="p-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl transition-colors shadow-sm shadow-indigo-500/20 cursor-pointer"
+                title="Quick Add Token # (Token Only)"
+              >
+                <Hash size={18} />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  resetAddPatientForm();
+                  setIsAddPatientModalOpen(true);
+                }}
+                className="p-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl transition-colors shadow-sm shadow-emerald-500/20 cursor-pointer"
+                title="Add Full Patient Details"
+              >
+                <UserPlus size={18} />
+              </button>
               <Link
                 href={`/analytics?deptId=${deptId}`}
                 className="p-2.5 bg-slate-800 rounded-xl hover:bg-blue-600 transition-colors text-slate-300 hover:text-white"
@@ -626,8 +838,66 @@ export default function DoctorDashboard() {
             </div>
           </div>
 
+          {/* Quick Token Entry (Token # Only) Bar */}
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const clean = sidebarQuickToken.trim();
+              if (!clean) return;
+              setIsSidebarQuickAdding(true);
+              try {
+                await handleQuickAddToken(clean, sidebarQuickEmergency ? 'EMERGENCY' : 'NORMAL');
+                setSidebarQuickToken('');
+                setSidebarQuickEmergency(false);
+              } catch (err: any) {
+                alert(err?.message || 'Failed to add token');
+              } finally {
+                setIsSidebarQuickAdding(false);
+              }
+            }}
+            className="p-2.5 bg-slate-900 border-b border-slate-800 flex items-center gap-2"
+          >
+            <div className="relative flex-1 flex items-center">
+              <span className="absolute left-3 text-indigo-400 font-mono font-black text-xs">#</span>
+              <input
+                type="text"
+                value={sidebarQuickToken}
+                onChange={(e) => setSidebarQuickToken(e.target.value)}
+                placeholder="Token # only (e.g. 105, A-1)..."
+                className="w-full bg-slate-950 border border-indigo-500/40 focus:border-indigo-400 rounded-xl pl-7 pr-3 py-2 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono tracking-wider"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setSidebarQuickEmergency(!sidebarQuickEmergency)}
+              className={`px-2 py-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                sidebarQuickEmergency
+                  ? 'bg-red-500/30 text-red-300 border-red-500 animate-pulse'
+                  : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-red-500/40 hover:text-red-400'
+              }`}
+              title={sidebarQuickEmergency ? 'Priority: EMERGENCY (🚨)' : 'Click to mark as Emergency (🚨)'}
+            >
+              🚨
+            </button>
+
+            <button
+              type="submit"
+              disabled={!sidebarQuickToken.trim() || isSidebarQuickAdding}
+              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition-all shadow-xs flex items-center gap-1 shrink-0 cursor-pointer disabled:opacity-40 active:scale-95"
+              title="Add token directly to waiting line (Press Enter)"
+            >
+              {isSidebarQuickAdding ? (
+                <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+              ) : (
+                <Plus size={14} />
+              )}
+              <span>Add Token</span>
+            </button>
+          </form>
+
           {/* Token Search Bar */}
-          <div className="p-3 bg-slate-900 border-b border-slate-800">
+          <div className="p-3 bg-slate-900 border-b border-slate-800 space-y-2">
             <div className="relative flex items-center">
               <Search size={15} className="absolute left-3 text-slate-400 pointer-events-none" />
               <input
@@ -772,6 +1042,19 @@ export default function DoctorDashboard() {
                       >
                         <CornerDownRight size={14} />
                       </button>
+
+                      {/* Delete Token Directly Button */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteTokenDirect(tokenStr);
+                        }}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                        title={`Delete / Cancel Token ${token}`}
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
                   </div>
 
@@ -852,6 +1135,14 @@ export default function DoctorDashboard() {
                             title="Assign to Room"
                           >
                             <CornerDownRight size={13} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteTokenDirect(st.tokenNumber)}
+                            className="p-1 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                            title={`Delete / Cancel Token ${st.tokenNumber}`}
+                          >
+                            <Trash2 size={13} />
                           </button>
                         </div>
                       </div>
@@ -990,6 +1281,30 @@ export default function DoctorDashboard() {
                 <CheckCircle size={44} className="mb-3 text-emerald-500 opacity-60" />
                 <p className="font-bold text-slate-700">Waiting Line Clear</p>
                 <p className="text-xs text-slate-400 mt-1">No new patients waiting in this department.</p>
+                <div className="flex flex-wrap items-center justify-center gap-2 mt-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetQuickTokenForm();
+                      setIsQuickTokenModalOpen(true);
+                    }}
+                    className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-md shadow-indigo-600/20 transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                  >
+                    <Hash size={14} />
+                    <span>+ Quick Token #</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetAddPatientForm();
+                      setIsAddPatientModalOpen(true);
+                    }}
+                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-md shadow-emerald-600/20 transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                  >
+                    <UserPlus size={14} />
+                    <span>+ Full Patient Form</span>
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -1061,6 +1376,34 @@ export default function DoctorDashboard() {
                 </Link>
               </>
             )}
+
+            {/* Quick Add Token Number Only Button */}
+            <button
+              type="button"
+              onClick={() => {
+                resetQuickTokenForm();
+                setIsQuickTokenModalOpen(true);
+              }}
+              className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white font-bold text-xs rounded-xl transition-all shadow-md shadow-indigo-600/25 flex items-center gap-2 cursor-pointer active:scale-95"
+              title="Quickly add a token number only (no patient details needed)"
+            >
+              <Hash size={16} />
+              <span>+ Quick Token</span>
+            </button>
+
+            {/* Add Patient Directly to Waiting Line Button */}
+            <button
+              type="button"
+              onClick={() => {
+                resetAddPatientForm();
+                setIsAddPatientModalOpen(true);
+              }}
+              className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs rounded-xl transition-all shadow-md shadow-emerald-600/25 flex items-center gap-2 cursor-pointer active:scale-95"
+              title="Add a walk-in or new patient with full details"
+            >
+              <UserPlus size={16} />
+              <span>+ Add Patient</span>
+            </button>
 
             <button
               onClick={() => setIsRoomModalOpen(true)}
@@ -2006,7 +2349,21 @@ export default function DoctorDashboard() {
               )}
             </div>
 
-            <div className="pt-3 border-t border-slate-800 flex justify-end">
+            <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => {
+                  const tok = quickAssignToken;
+                  setQuickAssignToken(null);
+                  handleDeleteTokenDirect(tok);
+                }}
+                className="px-3 py-2 bg-red-950/60 hover:bg-red-900/80 text-red-400 hover:text-red-200 border border-red-800/80 text-xs font-bold rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer"
+                title="Delete this token from the queue"
+              >
+                <Trash2 size={13} />
+                <span>Delete Token</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => setQuickAssignToken(null)}
@@ -2438,6 +2795,370 @@ export default function DoctorDashboard() {
                 Cancel
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Patient Directly to Waiting Line Modal */}
+      {isAddPatientModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl relative max-h-[90vh] flex flex-col text-white">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center font-black">
+                  <UserPlus size={20} />
+                </div>
+                <div>
+                  <h2 className="text-lg font-black text-white">Add Patient to Waiting Line</h2>
+                  <p className="text-xs text-slate-400">
+                    Department: <strong className="text-blue-400">{queueData.department || 'Medicine'} OPD</strong>
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsAddPatientModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                title="Close"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleAddPatientSubmit} className="flex-1 overflow-y-auto py-4 space-y-4 pr-1">
+              {/* Error Message */}
+              {addPatientError && (
+                <div className="p-3 bg-red-950/80 border border-red-800/80 rounded-xl text-red-300 text-xs flex items-center gap-2 animate-in fade-in">
+                  <AlertTriangle size={15} className="text-red-400 shrink-0" />
+                  <span>{addPatientError}</span>
+                </div>
+              )}
+
+              {/* Patient Name */}
+              <div>
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                  Patient Name (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={addPatientName}
+                  onChange={(e) => setAddPatientName(e.target.value)}
+                  placeholder="e.g. Rahul Sharma (Leave blank for Walk-in)"
+                  className="w-full bg-slate-950 border border-slate-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl px-3.5 py-2.5 text-sm text-white font-medium placeholder:text-slate-500 focus:outline-none transition-all"
+                  autoFocus
+                />
+              </div>
+
+              {/* Phone & UHID in 2 columns */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                    Phone Number (Optional)
+                  </label>
+                  <input
+                    type="tel"
+                    value={addPatientPhone}
+                    onChange={(e) => setAddPatientPhone(e.target.value)}
+                    placeholder="e.g. 9876543210"
+                    className="w-full bg-slate-950 border border-slate-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500 focus:outline-none transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                    UHID / Hospital ID (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={addPatientUhid}
+                    onChange={(e) => setAddPatientUhid(e.target.value)}
+                    placeholder="e.g. AIIMS-10928"
+                    className="w-full bg-slate-950 border border-slate-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl px-3 py-2 text-xs text-white font-mono placeholder:text-slate-500 focus:outline-none transition-all"
+                  />
+                </div>
+              </div>
+
+              {/* Priority Selection */}
+              <div>
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                  Queue Priority
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAddPatientPriority('NORMAL')}
+                    className={`py-2 px-2 rounded-xl text-xs font-bold transition-all border cursor-pointer text-center ${
+                      addPatientPriority === 'NORMAL'
+                        ? 'bg-emerald-600/30 border-emerald-500 text-emerald-300 shadow-sm'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                    }`}
+                  >
+                    🟢 Normal
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAddPatientPriority('SENIOR')}
+                    className={`py-2 px-2 rounded-xl text-xs font-bold transition-all border cursor-pointer text-center ${
+                      addPatientPriority === 'SENIOR'
+                        ? 'bg-amber-600/30 border-amber-500 text-amber-300 shadow-sm'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                    }`}
+                  >
+                    🟡 Senior / PwD
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAddPatientPriority('EMERGENCY')}
+                    className={`py-2 px-2 rounded-xl text-xs font-bold transition-all border cursor-pointer text-center ${
+                      addPatientPriority === 'EMERGENCY'
+                        ? 'bg-red-600/30 border-red-500 text-red-300 shadow-sm animate-pulse'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                    }`}
+                  >
+                    🚨 Emergency
+                  </button>
+                </div>
+              </div>
+
+              {/* Custom Token Number */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                  Custom Token Number (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={addPatientCustomToken}
+                  onChange={(e) => setAddPatientCustomToken(e.target.value)}
+                  placeholder="Auto-generated if empty (or enter e.g. 15, MED-15)"
+                  className="w-full bg-slate-950 border border-slate-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl px-3 py-2 text-xs text-white font-mono placeholder:text-slate-500 focus:outline-none transition-all"
+                />
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Leave empty to automatically assign the next sequential token number.
+                </p>
+              </div>
+
+              {/* Placement Destination */}
+              <div>
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                  Placement Destination
+                </label>
+                <select
+                  value={addPatientDestination}
+                  onChange={(e) => setAddPatientDestination(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl px-3 py-2.5 text-xs text-white font-semibold focus:outline-none transition-all cursor-pointer"
+                >
+                  <option value="WAITING_LINE">📋 General Waiting Line (Up Next in OPD)</option>
+                  {rooms.map((r) => (
+                    <option key={r.id} value={`ROOM_QUEUE:${r.roomNumber}`}>
+                      🚪 Stage into Room {r.roomNumber} Queue {r.doctorName ? `(${r.doctorName})` : ''}
+                    </option>
+                  ))}
+                  {rooms.map((r) => (
+                    <option key={`call-${r.id}`} value={`CALL_NOW:${r.roomNumber}`}>
+                      ⚡ Call Immediately in Room {r.roomNumber} {r.doctorName ? `(${r.doctorName})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Footer Buttons inside form */}
+              <div className="pt-4 border-t border-slate-800 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsAddPatientModalOpen(false)}
+                  className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isAddingPatient}
+                  className="px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs rounded-xl transition-all shadow-md shadow-emerald-600/30 flex items-center gap-2 disabled:opacity-50 cursor-pointer active:scale-95"
+                >
+                  {isAddingPatient ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                      <span>Adding...</span>
+                    </>
+                  ) : (
+                    <>
+                      <UserPlus size={15} />
+                      <span>{addPatientDestination.startsWith('CALL_NOW:') ? 'Add & Call Now' : 'Add to Waiting Line'}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Add Token Modal (Token Number Only) */}
+      {isQuickTokenModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl relative flex flex-col text-white">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center font-black">
+                  <Hash size={20} />
+                </div>
+                <div>
+                  <h2 className="text-lg font-black text-white">Quick Add Token</h2>
+                  <p className="text-xs text-slate-400">
+                    Add token number only to waiting line — no name or details required.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsQuickTokenModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                title="Close"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Form */}
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const clean = quickTokenVal.trim();
+                if (!clean) return;
+                setIsQuickAddingToken(true);
+                setQuickTokenError(null);
+                try {
+                  await handleQuickAddToken(clean, quickTokenPriority, quickTokenDestination);
+                  setIsQuickTokenModalOpen(false);
+                  resetQuickTokenForm();
+                } catch (err: any) {
+                  setQuickTokenError(err?.message || 'Failed to add token');
+                } finally {
+                  setIsQuickAddingToken(false);
+                }
+              }}
+              className="py-5 space-y-4"
+            >
+              {quickTokenError && (
+                <div className="p-3 bg-red-950/80 border border-red-800/80 rounded-xl text-red-300 text-xs flex items-center gap-2">
+                  <AlertTriangle size={15} className="text-red-400 shrink-0" />
+                  <span>{quickTokenError}</span>
+                </div>
+              )}
+
+              {/* Big Token Number Input */}
+              <div>
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
+                  Token Number *
+                </label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xl font-black text-indigo-400 font-mono">#</span>
+                  <input
+                    type="text"
+                    required
+                    autoFocus
+                    value={quickTokenVal}
+                    onChange={(e) => setQuickTokenVal(e.target.value)}
+                    placeholder="e.g. 105, MED-01, 24"
+                    className="w-full bg-slate-950 border-2 border-indigo-500/50 focus:border-indigo-400 rounded-2xl pl-10 pr-4 py-3 text-2xl font-black text-white font-mono placeholder:text-slate-600 focus:outline-none focus:ring-4 focus:ring-indigo-500/20 tracking-wider transition-all"
+                  />
+                </div>
+              </div>
+
+              {/* Priority Selection */}
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                  Priority
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setQuickTokenPriority('NORMAL')}
+                    className={`py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                      quickTokenPriority === 'NORMAL'
+                        ? 'bg-emerald-600/30 border-emerald-500 text-emerald-300'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                    }`}
+                  >
+                    🟢 Normal
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setQuickTokenPriority('SENIOR')}
+                    className={`py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                      quickTokenPriority === 'SENIOR'
+                        ? 'bg-amber-600/30 border-amber-500 text-amber-300'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                    }`}
+                  >
+                    🟡 Senior
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setQuickTokenPriority('EMERGENCY')}
+                    className={`py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                      quickTokenPriority === 'EMERGENCY'
+                        ? 'bg-red-600/30 border-red-500 text-red-300 animate-pulse'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                    }`}
+                  >
+                    🚨 Emergency
+                  </button>
+                </div>
+              </div>
+
+              {/* Placement Destination */}
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                  Destination
+                </label>
+                <select
+                  value={quickTokenDestination}
+                  onChange={(e) => setQuickTokenDestination(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 focus:border-indigo-500 rounded-xl px-3 py-2 text-xs text-white font-semibold focus:outline-none transition-all cursor-pointer"
+                >
+                  <option value="WAITING_LINE">📋 General Waiting Line (Default)</option>
+                  {rooms.map((r) => (
+                    <option key={r.id} value={`ROOM_QUEUE:${r.roomNumber}`}>
+                      🚪 Stage into Room {r.roomNumber} Queue {r.doctorName ? `(${r.doctorName})` : ''}
+                    </option>
+                  ))}
+                  {rooms.map((r) => (
+                    <option key={`call-${r.id}`} value={`CALL_NOW:${r.roomNumber}`}>
+                      ⚡ Call Immediately in Room {r.roomNumber} {r.doctorName ? `(${r.doctorName})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="pt-4 border-t border-slate-800 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsQuickTokenModalOpen(false)}
+                  className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!quickTokenVal.trim() || isQuickAddingToken}
+                  className="px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white font-bold text-xs rounded-xl transition-all shadow-md shadow-indigo-600/30 flex items-center gap-2 disabled:opacity-50 cursor-pointer active:scale-95"
+                >
+                  {isQuickAddingToken ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                      <span>Adding Token...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Plus size={15} />
+                      <span>{quickTokenDestination.startsWith('CALL_NOW:') ? 'Add & Call Now' : 'Add Token to Line'}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

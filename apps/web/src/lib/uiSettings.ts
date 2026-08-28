@@ -9,14 +9,14 @@ export interface UiVisibilitySettings {
   showDeptSwitcher: boolean;
 }
 
-const UI_SETTINGS_KEY = 'opd_ui_visibility_settings_v1';
+const UI_SETTINGS_KEY = 'opd_ui_visibility_settings_v3';
 
 export const DEFAULT_UI_SETTINGS: UiVisibilitySettings = {
   showQueueSidebar: true,
-  showRoomStagedQueue: true,
-  showDoctorNames: true,
-  showAutoCallToggle: true,
-  showQuickActions: true,
+  showRoomStagedQueue: false,
+  showDoctorNames: false,
+  showAutoCallToggle: false,
+  showQuickActions: false,
   showDeptSwitcher: true,
 };
 

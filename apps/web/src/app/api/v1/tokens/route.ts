@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { ok, badRequest, notFound, route, readJson } from '@/server/http';
-import { reserveTokenNumber, reserveTokenNumbers, serviceDateFor } from '@/server/tokens/tokenNumber';
+import { reserveTokenNumbers, serviceDateFor } from '@/server/tokens/tokenNumber';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,16 +34,6 @@ export const POST = route(async (request: Request) => {
 
   if (!body.departmentId) return badRequest('A department is required to issue a token.');
 
-  // The four columns the rest of this handler reads.
-  const department = await db.department.findUnique({
-    where: { id: body.departmentId },
-    select: { id: true, name: true, code: true, deletedAt: true },
-  });
-
-  if (!department || department.deletedAt) {
-    return notFound('That department does not exist.');
-  }
-
   const uhid = body.uhid?.trim() || null;
   const phone = body.phone?.trim() || '';
   const usablePhone = phone && phone !== PLACEHOLDER_PHONE ? phone : null;
@@ -52,32 +42,54 @@ export const POST = route(async (request: Request) => {
   const customToken = (body.customTokenNumber || body.tokenNumber)?.trim();
   const requestedCount = Math.min(100, Math.max(1, body.patients?.length || body.count || 1));
 
-  // If a single custom token number is provided, verify it is not already used in this department today
-  if (customToken && requestedCount === 1) {
-    const existing = await db.token.findFirst({
-      where: {
-        departmentId: department.id,
-        serviceDate,
-        tokenNumber: customToken,
-      },
-    });
-    if (existing) {
-      return badRequest(`Token "${customToken}" is already in use for ${department.name} today.`);
-    }
+  // Both lookups key off `body.departmentId`, so neither has to wait for the other — one
+  // round-trip phase instead of two before the transaction even opens. The duplicate check
+  // selects a single column: it only ever asks whether a row exists.
+  const [department, duplicateToken] = await Promise.all([
+    db.department.findUnique({
+      where: { id: body.departmentId },
+      // The two columns the rest of this handler reads, plus the soft-delete flag.
+      select: { id: true, name: true, deletedAt: true },
+    }),
+    customToken && requestedCount === 1
+      ? db.token.findFirst({
+          where: { departmentId: body.departmentId, serviceDate, tokenNumber: customToken },
+          select: { id: true },
+        })
+      : null,
+  ]);
+
+  if (!department || department.deletedAt) {
+    return notFound('That department does not exist.');
+  }
+
+  if (duplicateToken) {
+    return badRequest(`Token "${customToken}" is already in use for ${department.name} today.`);
   }
 
   const result = await db.$transaction(
     async (tx) => {
-      // Every department needs a doctor to attach tokens to.
-      let doctorId = body.doctorId ?? null;
+      // Every department needs a doctor to attach tokens to. Only existence is checked,
+      // so each lookup selects the id alone rather than hauling back the whole row.
+      //
+      // Deliberately sequential: a transaction runs on a single connection and the driver
+      // queues statements on it, so `Promise.all` here would still execute one after the
+      // other — it would only make the ordering harder to read.
+      let doctorId: string | null = null;
 
-      if (doctorId) {
-        const named = await tx.doctor.findUnique({ where: { id: doctorId } });
-        if (!named) doctorId = null;
+      if (body.doctorId) {
+        const named = await tx.doctor.findUnique({
+          where: { id: body.doctorId },
+          select: { id: true },
+        });
+        doctorId = named?.id ?? null;
       }
 
       if (!doctorId) {
-        const existing = await tx.doctor.findFirst({ where: { departmentId: department.id } });
+        const existing = await tx.doctor.findFirst({
+          where: { departmentId: department.id },
+          select: { id: true },
+        });
         doctorId =
           existing?.id ??
           (
@@ -87,6 +99,7 @@ export const POST = route(async (request: Request) => {
                 roomNumber: '101',
                 departmentId: department.id,
               },
+              select: { id: true },
             })
           ).id;
       }
@@ -102,7 +115,7 @@ export const POST = route(async (request: Request) => {
       // Allocate all required sequence numbers in a single atomic SQL query
       let reservedList: string[] = [];
       if (autoCount > 0) {
-        const reserved = await reserveTokenNumbers(tx, department.id, department.code, serviceDate, autoCount);
+        const reserved = await reserveTokenNumbers(tx, department.id, serviceDate, autoCount);
         reservedList = reserved.tokenNumbers;
       }
 
@@ -123,11 +136,16 @@ export const POST = route(async (request: Request) => {
         const itemFirstName = pItem.firstName?.trim() || defaultFirstName;
         const itemLastName = pItem.lastName?.trim() || body.lastName?.trim() || '';
 
-        // Identify or create patient
+        // Identify or create patient. Only the id is used below — the full row comes back
+        // with the token's `include` — so every branch selects that one column. The UHID
+        // lookup in particular used to return every patient column, and before the index
+        // added alongside this change it scanned the whole table to do it.
+        const ID_ONLY = { id: true } as const;
+
         let patient =
-          (itemUhid ? await tx.patient.findFirst({ where: { uhid: itemUhid } }) : null) ??
-          (i === 0 && body.patientId ? await tx.patient.findUnique({ where: { id: body.patientId } }) : null) ??
-          (itemPhone && itemPhone !== PLACEHOLDER_PHONE ? await tx.patient.findFirst({ where: { phone: itemPhone } }) : null);
+          (itemUhid ? await tx.patient.findFirst({ where: { uhid: itemUhid }, select: ID_ONLY }) : null) ??
+          (i === 0 && body.patientId ? await tx.patient.findUnique({ where: { id: body.patientId }, select: ID_ONLY }) : null) ??
+          (itemPhone && itemPhone !== PLACEHOLDER_PHONE ? await tx.patient.findFirst({ where: { phone: itemPhone }, select: ID_ONLY }) : null);
 
         if (patient) {
           patient = await tx.patient.update({
@@ -138,6 +156,7 @@ export const POST = route(async (request: Request) => {
               ...(itemLastName && { lastName: itemLastName }),
               ...(itemPhone && itemPhone !== PLACEHOLDER_PHONE && { phone: itemPhone }),
             },
+            select: ID_ONLY,
           });
         } else {
           patient = await tx.patient.create({
@@ -148,6 +167,7 @@ export const POST = route(async (request: Request) => {
               lastName: itemLastName,
               phone: itemPhone || '',
             },
+            select: ID_ONLY,
           });
         }
 

@@ -47,6 +47,31 @@ const lastPayloadByDept = new Map<string, string>();
  */
 let pollGeneration = 0;
 
+/**
+ * The fetch currently in flight per department, so concurrent callers share one request.
+ *
+ * The wake-up events below can fire several times before any of their requests come
+ * back — `visibilitychange`, `focus` and `resize` all land together when a minimised
+ * window is restored. Without this each one opened its own connection to ask the same
+ * question. Callers still get a promise that resolves when the data has landed, so
+ * nothing downstream can tell the difference.
+ */
+const inFlightByDept = new Map<string, Promise<void>>();
+
+/**
+ * Collapses a burst of wake-up events into a single refetch.
+ *
+ * `resize` is the reason this exists: dragging or un-maximising a TV window emits it at
+ * roughly display rate, and each event used to trigger a fetch for every open
+ * department — several hundred queue queries over a two-second drag, all returning the
+ * same rows. A leading-edge call keeps the restore-instantly behaviour these listeners
+ * were added for, and the trailing call guarantees the final size/state is reflected.
+ */
+const WAKE_COALESCE_MS = 400;
+let wakeTimer: ReturnType<typeof setTimeout> | null = null;
+let lastWakeAt = 0;
+let pendingWakeDept: string | undefined;
+
 export const useQueueStore = create<QueueStore>((set, get) => ({
   liveQueues: {},
   activeInterval: null,
@@ -62,20 +87,32 @@ export const useQueueStore = create<QueueStore>((set, get) => ({
       }
     }));
   },
-  fetchQueue: async (departmentId: string) => {
-    try {
-      const res = await fetchWithOfflineSync(`${API_BASE_URL}/queue/live/${departmentId}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data && (data.activeTokens || data.nextTokens)) {
-          get().updateQueueData(departmentId, data);
+  fetchQueue: (departmentId: string) => {
+    // Join the request already on the wire for this department rather than opening a
+    // second one that would return the same rows.
+    const existing = inFlightByDept.get(departmentId);
+    if (existing) return existing;
+
+    const request = (async () => {
+      try {
+        const res = await fetchWithOfflineSync(`${API_BASE_URL}/queue/live/${departmentId}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && (data.activeTokens || data.nextTokens)) {
+            get().updateQueueData(departmentId, data);
+          }
         }
+      } catch (err) {
+        if (err instanceof Error && err.name !== 'TypeError') {
+          console.error(`Failed to fetch queue updates from ${API_BASE_URL}/queue/live/${departmentId}`, err);
+        }
+      } finally {
+        inFlightByDept.delete(departmentId);
       }
-    } catch (err) {
-      if (err instanceof Error && err.name !== 'TypeError') {
-        console.error(`Failed to fetch queue updates from ${API_BASE_URL}/queue/live/${departmentId}`, err);
-      }
-    }
+    })();
+
+    inFlightByDept.set(departmentId, request);
+    return request;
   },
   initializeWebSocket: (departmentId) => {
     // Prevent multiple pollers
@@ -110,20 +147,50 @@ export const useQueueStore = create<QueueStore>((set, get) => ({
   }
 }));
 
-if (typeof window !== 'undefined') {
-  const wakeUpAndFetchAll = (targetDeptId?: string) => {
-    const state = useQueueStore.getState();
-    if (targetDeptId) {
-      void state.fetchQueue(targetDeptId);
+function wakeUpAndFetchAll(targetDeptId?: string) {
+  const state = useQueueStore.getState();
+  if (targetDeptId) {
+    void state.fetchQueue(targetDeptId);
+  }
+  const openDepts = Object.keys(state.liveQueues);
+  for (const id of openDepts) {
+    if (id !== targetDeptId) {
+      void state.fetchQueue(id);
     }
-    const openDepts = Object.keys(state.liveQueues);
-    for (const id of openDepts) {
-      if (id !== targetDeptId) {
-        void state.fetchQueue(id);
-      }
-    }
-  };
+  }
+}
 
+/**
+ * Refetch the live queue in response to a UI event, at most once per coalescing window.
+ *
+ * Exported so every burst-prone listener — here and in the TV display — shares one
+ * budget instead of each keeping its own.
+ */
+export function requestQueueWake(targetDeptId?: string) {
+  if (typeof window === 'undefined') return;
+
+  const now = Date.now();
+  if (now - lastWakeAt >= WAKE_COALESCE_MS) {
+    lastWakeAt = now;
+    wakeUpAndFetchAll(targetDeptId);
+    return;
+  }
+
+  // Inside the window: remember the department and fire once when it closes. A wake for
+  // a specific department outranks a general one, since it is the more precise request.
+  if (targetDeptId) pendingWakeDept = targetDeptId;
+  if (wakeTimer) return;
+
+  wakeTimer = setTimeout(() => {
+    wakeTimer = null;
+    lastWakeAt = Date.now();
+    const dept = pendingWakeDept;
+    pendingWakeDept = undefined;
+    wakeUpAndFetchAll(dept);
+  }, WAKE_COALESCE_MS - (now - lastWakeAt));
+}
+
+if (typeof window !== 'undefined') {
   // 1. Same-window custom events
   window.addEventListener('opd-queue-updated', ((e: CustomEvent) => {
     const deptId = e.detail?.departmentId;
@@ -149,16 +216,19 @@ if (typeof window !== 'undefined') {
     }
   });
 
-  // 4. Window focus, visibility, resize, and fullscreen events to immediately update when restored/unminimized
-  window.addEventListener('focus', () => wakeUpAndFetchAll());
-  window.addEventListener('resize', () => wakeUpAndFetchAll());
+  // 4. Window focus, visibility, resize, and fullscreen events to immediately update when
+  //    restored/unminimized. These are the burst-prone ones — a single un-maximise emits
+  //    focus, visibilitychange and a long train of resizes — so they go through the
+  //    coalescing path rather than firing a fetch each.
+  window.addEventListener('focus', () => requestQueueWake());
+  window.addEventListener('resize', () => requestQueueWake());
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
-      wakeUpAndFetchAll();
+      requestQueueWake();
     }
   });
-  document.addEventListener('fullscreenchange', () => wakeUpAndFetchAll());
-  document.addEventListener('webkitfullscreenchange', () => wakeUpAndFetchAll());
-  document.addEventListener('mozfullscreenchange', () => wakeUpAndFetchAll());
-  document.addEventListener('MSFullscreenChange', () => wakeUpAndFetchAll());
+  document.addEventListener('fullscreenchange', () => requestQueueWake());
+  document.addEventListener('webkitfullscreenchange', () => requestQueueWake());
+  document.addEventListener('mozfullscreenchange', () => requestQueueWake());
+  document.addEventListener('MSFullscreenChange', () => requestQueueWake());
 }

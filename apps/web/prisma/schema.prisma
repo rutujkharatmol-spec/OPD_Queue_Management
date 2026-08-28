@@ -100,7 +100,10 @@ model Patient {
 
   tokens    Token[]
 
-  // Registration looks patients up by phone when no UHID is given.
+  // Registration looks a patient up by UHID first and falls back to phone. Both were
+  // sequential scans of the whole patient table on every token issued; only phone was
+  // indexed, so the UHID lookup — the one that runs first — was the slower of the two.
+  @@index([uhid])
   @@index([phone])
   @@map("patients")
 }

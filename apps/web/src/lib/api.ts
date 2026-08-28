@@ -88,7 +88,7 @@ export async function callNextPatient(departmentId: string, roomNumber: string, 
 
 export async function markTokenAction(
   tokenId: string,
-  action: 'SKIP' | 'ABSENT' | 'NOT_AVAILABLE' | 'COMPLETE' | 'RETURN_TO_QUEUE' | 'RESET_TO_WAITING',
+  action: 'SKIP' | 'ABSENT' | 'NOT_AVAILABLE' | 'COMPLETE' | 'RETURN_TO_QUEUE' | 'RESET_TO_WAITING' | 'CANCEL' | 'DELETE',
   passCount?: number
 ) {
   const response = await fetchWithOfflineSync(`${API_BASE_URL}/queue/action/${tokenId}`, {
@@ -100,6 +100,10 @@ export async function markTokenAction(
   const result = await response.json();
   broadcastQueueUpdate();
   return result;
+}
+
+export async function deleteToken(tokenId: string) {
+  return markTokenAction(tokenId, 'DELETE');
 }
 
 export type TokenStatusValue = 'WAITING' | 'CALLED' | 'IN_PROGRESS' | 'COMPLETED' | 'SKIPPED' | 'ABSENT';

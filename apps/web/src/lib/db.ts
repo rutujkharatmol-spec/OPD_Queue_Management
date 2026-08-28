@@ -48,9 +48,16 @@ function createClient() {
 
   const isServerless = Boolean(process.env.VERCEL);
 
+  // A pool of 1 silently serialised every `Promise.all` in the API. The hot routes are
+  // written to batch their independent queries — the live board fires four, the patient
+  // status route six — but a single connection makes the driver queue them, so those
+  // batches cost the sum of their queries rather than the slowest one. Three lets the
+  // batching work while staying small enough that many function instances do not
+  // overwhelm the backend: Vercel points at Neon's pooled (PgBouncer) endpoint, which
+  // exists to multiplex exactly this.
   const adapter = new PrismaPg({
     connectionString,
-    max: isServerless ? 1 : 5,
+    max: isServerless ? 3 : 5,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 10000,
   });

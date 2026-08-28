@@ -36,7 +36,6 @@ export function serviceDateFor(when: Date = new Date()): Date {
 export async function reserveTokenNumbers(
   db: Db,
   departmentId: string,
-  departmentCode: string,
   serviceDate: Date,
   count: number = 1
 ): Promise<{ tokenNumbers: string[]; startSequence: number }> {
@@ -68,21 +67,5 @@ export async function reserveTokenNumbers(
   return {
     tokenNumbers,
     startSequence,
-  };
-}
-
-/**
- * Reserves the next sequential number for a department on a given day.
- */
-export async function reserveTokenNumber(
-  db: Db,
-  departmentId: string,
-  departmentCode: string,
-  serviceDate: Date
-): Promise<{ tokenNumber: string; sequence: number }> {
-  const { tokenNumbers, startSequence } = await reserveTokenNumbers(db, departmentId, departmentCode, serviceDate, 1);
-  return {
-    sequence: startSequence,
-    tokenNumber: tokenNumbers[0],
   };
 }

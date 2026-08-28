@@ -4,7 +4,7 @@ import { ok, badRequest, notFound, route, readJson } from '@/server/http';
 export const dynamic = 'force-dynamic';
 
 type Context = { params: Promise<{ tokenId: string }> };
-type Body = { action: 'SKIP' | 'ABSENT' | 'NOT_AVAILABLE' | 'COMPLETE' | 'RETURN_TO_QUEUE' | 'RESET_TO_WAITING'; passCount?: number };
+type Body = { action: 'SKIP' | 'ABSENT' | 'NOT_AVAILABLE' | 'COMPLETE' | 'RETURN_TO_QUEUE' | 'RESET_TO_WAITING' | 'CANCEL' | 'DELETE'; passCount?: number };
 
 export const PATCH = route(async (request: Request, { params }: Context) => {
   const { tokenId } = await params;
@@ -14,19 +14,45 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
 
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tokenId);
 
+  // If action is DELETE or CANCEL, perform robust soft delete immediately
+  if (body.action === 'DELETE' || body.action === 'CANCEL') {
+    const rawNumber = tokenId.replace(/^.*-/, '').trim();
+    await db.token.updateMany({
+      where: {
+        deletedAt: null,
+        OR: [
+          ...(isUuid ? [{ id: tokenId }] : []),
+          { tokenNumber: { equals: tokenId, mode: 'insensitive' as const } },
+          { tokenNumber: { equals: rawNumber, mode: 'insensitive' as const } },
+          { tokenNumber: { endsWith: `-${rawNumber}`, mode: 'insensitive' as const } },
+        ],
+      },
+      data: { status: 'SKIPPED', deletedAt: new Date() },
+    });
+    return ok({ success: true, deleted: tokenId });
+  }
+
   // Only the three columns below are read, and the response returns the *updated* row,
   // not this one. The previous `include: { patient: true, department: true }` joined and
   // shipped both rows in full on every Complete / Absent / Pass click and then dropped
   // them on the floor.
   const TOKEN_LOOKUP_SELECT = { id: true, departmentId: true, serviceDate: true } as const;
 
+  const rawNumber = tokenId.replace(/^.*-/, '').trim();
   const token = isUuid
     ? await db.token.findUnique({
         where: { id: tokenId },
         select: TOKEN_LOOKUP_SELECT,
       })
     : await db.token.findFirst({
-        where: { tokenNumber: tokenId, deletedAt: null },
+        where: {
+          deletedAt: null,
+          OR: [
+            { tokenNumber: { equals: tokenId, mode: 'insensitive' } },
+            { tokenNumber: { equals: rawNumber, mode: 'insensitive' } },
+            { tokenNumber: { endsWith: `-${rawNumber}`, mode: 'insensitive' } },
+          ],
+        },
         select: TOKEN_LOOKUP_SELECT,
       });
 

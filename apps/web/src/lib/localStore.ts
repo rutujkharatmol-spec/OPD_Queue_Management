@@ -53,6 +53,7 @@ export interface LocalToken {
   patientId: string;
   patient?: LocalPatient;
   department?: LocalDepartment;
+  deletedAt?: string | null;
 }
 
 const DEPARTMENTS_KEY = 'opd_local_departments';
@@ -327,10 +328,12 @@ export function deleteLocalRoom(id: string): boolean {
 export function getLocalTokens(): LocalToken[] {
   const tokens = getStorage<LocalToken[]>(TOKENS_KEY, []);
   // Ensure any ENT- or department prefix is stripped, keeping only the number
-  return tokens.map(t => ({
-    ...t,
-    tokenNumber: t.tokenNumber ? t.tokenNumber.replace(/^ENT-?/i, '') : t.tokenNumber,
-  }));
+  return tokens
+    .filter(t => !t.deletedAt)
+    .map(t => ({
+      ...t,
+      tokenNumber: t.tokenNumber ? t.tokenNumber.replace(/^ENT-?/i, '') : t.tokenNumber,
+    }));
 }
 
 export function saveLocalTokens(tokens: LocalToken[]): void {
@@ -558,14 +561,19 @@ export function localRecallPatient(departmentId: string, roomNumber: string): Lo
 
 export function localMarkTokenAction(
   tokenId: string,
-  action: 'COMPLETE' | 'ABSENT' | 'NOT_AVAILABLE' | 'SKIP' | 'RETURN_TO_QUEUE' | 'RESET_TO_WAITING',
+  action: 'COMPLETE' | 'ABSENT' | 'NOT_AVAILABLE' | 'SKIP' | 'RETURN_TO_QUEUE' | 'RESET_TO_WAITING' | 'CANCEL' | 'DELETE',
   passCount?: number
 ): LocalToken | null {
   const tokens = getLocalTokens();
   const token = tokens.find(t => t.id === tokenId || t.tokenNumber === tokenId);
   if (!token) return null;
 
-  if (action === 'COMPLETE') {
+  if (action === 'DELETE' || action === 'CANCEL') {
+    token.status = 'SKIPPED';
+    token.deletedAt = new Date().toISOString();
+    saveLocalTokens(tokens);
+    return token;
+  } else if (action === 'COMPLETE') {
     token.status = 'COMPLETED';
     token.completedAt = new Date().toISOString();
   } else if (action === 'ABSENT') {

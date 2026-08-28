@@ -1,6 +1,6 @@
 "use client";
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { useQueueStore } from '../../store/useQueueStore';
+import { useQueueStore, requestQueueWake } from '../../store/useQueueStore';
 import { Moon, Sun, Volume2, VolumeX, Stethoscope, Sparkles, Maximize2, Minimize2 } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { useDepartmentStore } from '../../store/useDepartmentStore';
@@ -55,9 +55,11 @@ export default function TvDisplay() {
       }
     };
 
+    // Coalesced in the store: a window drag emits `resize` at display rate, and this
+    // handler used to turn each one into its own live-queue request.
     const handleWindowWake = () => {
       if (deptId) {
-        void fetchQueue(deptId);
+        requestQueueWake(deptId);
       }
     };
 

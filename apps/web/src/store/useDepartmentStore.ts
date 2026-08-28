@@ -69,9 +69,9 @@ export const useDepartmentStore = create<DepartmentStore>((set, get) => ({
     }
     if (typeof window !== 'undefined') {
       const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) return stored;
+      if (stored && (!departments.length || departments.some(d => d.id === stored))) return stored;
     }
-    return departments[0]?.id || '660e8400-e29b-41d4-a716-446655440000';
+    return departments[0]?.id || '';
   },
   loadDepartments: async (urlDeptId?: string | null) => {
     try {
@@ -109,3 +109,18 @@ export const useDepartmentStore = create<DepartmentStore>((set, get) => ({
     }
   }
 }));
+
+/**
+ * Reactive hook that subscribes to department changes and returns the active department ID.
+ */
+export function useEffectiveDeptId(urlDeptId?: string | null): string {
+  return useDepartmentStore((state) => {
+    if (urlDeptId && (!state.departments.length || state.departments.some(d => d.id === urlDeptId))) {
+      return urlDeptId;
+    }
+    if (state.selectedDeptId && (!state.departments.length || state.departments.some(d => d.id === state.selectedDeptId))) {
+      return state.selectedDeptId;
+    }
+    return state.departments[0]?.id || '';
+  });
+}
