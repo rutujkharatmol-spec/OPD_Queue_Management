@@ -1217,152 +1217,156 @@ export default function DoctorDashboard() {
                     </div>
 
                     {/* Active Patients Area */}
-                    {activeList.length === 0 ? (
-                      /* Free Room Area / Direct Token Entry */
-                      directInputRoom === room.roomNumber ? (
-                        <div
-                          onClick={(e) => e.stopPropagation()}
-                          className="border-2 border-blue-500 rounded-2xl p-4 mb-4 bg-gradient-to-b from-blue-50/90 via-white to-slate-50 shadow-lg animate-in fade-in zoom-in-95 duration-150 relative text-left"
-                        >
-                          <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-blue-100">
-                            <span className="text-[11px] font-black uppercase tracking-wider text-blue-700 flex items-center gap-1.5">
-                              <Sparkles size={13} className="text-blue-600 animate-pulse" />
-                              Direct Token Entry (Room {room.roomNumber})
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setDirectInputRoom(null);
-                                setDirectTokenVal('');
-                              }}
-                              className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-lg transition-colors cursor-pointer"
-                              title="Cancel (Esc)"
-                            >
-                              <X size={14} />
-                            </button>
-                          </div>
-
-                          <form
-                            onSubmit={(e) => {
-                              e.preventDefault();
-                              handleDirectCallOrStage(room.roomNumber, 'CALL');
+                    {/* Direct Token Entry Box (when opened for this room) */}
+                    {directInputRoom === room.roomNumber && (
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="border-2 border-blue-500 rounded-2xl p-4 mb-4 bg-gradient-to-b from-blue-50/90 via-white to-slate-50 shadow-lg animate-in fade-in zoom-in-95 duration-150 relative text-left"
+                      >
+                        <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-blue-100">
+                          <span className="text-[11px] font-black uppercase tracking-wider text-blue-700 flex items-center gap-1.5">
+                            <Sparkles size={13} className="text-blue-600 animate-pulse" />
+                            {activeList.length > 0
+                              ? `Add More Patients into Room ${room.roomNumber}`
+                              : `Direct Token Entry (Room ${room.roomNumber})`}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDirectInputRoom(null);
+                              setDirectTokenVal('');
                             }}
-                            className="space-y-2.5"
+                            className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-lg transition-colors cursor-pointer"
+                            title="Cancel (Esc)"
                           >
-                            <div className="relative">
-                              <input
-                                type="text"
-                                autoFocus
-                                value={directTokenVal}
-                                onChange={(e) => setDirectTokenVal(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Escape') {
-                                    setDirectInputRoom(null);
-                                    setDirectTokenVal('');
-                                  }
-                                }}
-                                placeholder="Enter token # (e.g. 101, M-05)..."
-                                className="w-full bg-white border-2 border-blue-400 focus:border-blue-600 rounded-xl px-3.5 py-2.5 text-center text-lg font-black text-slate-900 placeholder:text-slate-400 placeholder:text-xs placeholder:font-normal focus:outline-none focus:ring-4 focus:ring-blue-500/20 tracking-wider shadow-inner transition-all font-mono"
-                              />
-                              {directTokenVal && (
-                                <button
-                                  type="button"
-                                  onClick={() => setDirectTokenVal('')}
-                                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 rounded-md cursor-pointer"
-                                  title="Clear"
-                                >
-                                  <X size={13} />
-                                </button>
-                              )}
-                            </div>
+                            <X size={14} />
+                          </button>
+                        </div>
 
-                            {/* Waiting line suggestion chips */}
-                            {queueData.nextTokens && queueData.nextTokens.length > 0 && (
-                              <div className="flex items-center gap-1.5 flex-wrap justify-center pt-0.5">
-                                <span className="text-[10px] text-slate-400 font-bold">Pick from line:</span>
-                                {queueData.nextTokens.slice(0, 4).map((tok) => {
-                                  const clean = tok.replace(' 🚨', '').trim();
-                                  return (
-                                    <button
-                                      key={tok}
-                                      type="button"
-                                      onClick={() => setDirectTokenVal(clean)}
-                                      className={`text-[10px] font-black px-2 py-0.5 rounded-lg border transition-all cursor-pointer ${
-                                        directTokenVal.toLowerCase() === clean.toLowerCase()
-                                          ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
-                                          : 'bg-slate-100 hover:bg-blue-100 text-slate-700 border-slate-200 hover:border-blue-300'
-                                      }`}
-                                    >
-                                      {clean}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            )}
-
-                            {/* Action Buttons */}
-                            <div className="grid grid-cols-2 gap-2 pt-1">
-                              <button
-                                type="submit"
-                                disabled={!directTokenVal.trim()}
-                                className="py-2.5 px-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 active:scale-95 text-white rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 shadow-md shadow-blue-500/25 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                                title="Call this token immediately into this room"
-                              >
-                                <Zap size={13} className="fill-white" />
-                                <span>Call Now ↵</span>
-                              </button>
-
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            handleDirectCallOrStage(room.roomNumber, 'CALL');
+                          }}
+                          className="space-y-2.5"
+                        >
+                          <div className="relative">
+                            <input
+                              type="text"
+                              autoFocus
+                              value={directTokenVal}
+                              onChange={(e) => setDirectTokenVal(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Escape') {
+                                  setDirectInputRoom(null);
+                                  setDirectTokenVal('');
+                                }
+                              }}
+                              placeholder="Enter token # (e.g. 101, M-05)..."
+                              className="w-full bg-white border-2 border-blue-400 focus:border-blue-600 rounded-xl px-3.5 py-2.5 text-center text-lg font-black text-slate-900 placeholder:text-slate-400 placeholder:text-xs placeholder:font-normal focus:outline-none focus:ring-4 focus:ring-blue-500/20 tracking-wider shadow-inner transition-all font-mono"
+                            />
+                            {directTokenVal && (
                               <button
                                 type="button"
-                                disabled={!directTokenVal.trim()}
-                                onClick={() => handleDirectCallOrStage(room.roomNumber, 'STAGE')}
-                                className="py-2.5 px-3 bg-indigo-50 hover:bg-indigo-100 active:scale-95 text-indigo-900 border border-indigo-200 hover:border-indigo-300 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-2xs"
-                                title="Add this token to this room's staged queue"
+                                onClick={() => setDirectTokenVal('')}
+                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 rounded-md cursor-pointer"
+                                title="Clear"
                               >
-                                <ListOrdered size={13} className="text-indigo-600" />
-                                <span>+ Queue Here</span>
+                                <X size={13} />
                               </button>
+                            )}
+                          </div>
+
+                          {/* Waiting line suggestion chips */}
+                          {queueData.nextTokens && queueData.nextTokens.length > 0 && (
+                            <div className="flex items-center gap-1.5 flex-wrap justify-center pt-0.5">
+                              <span className="text-[10px] text-slate-400 font-bold">Pick from line:</span>
+                              {queueData.nextTokens.slice(0, 4).map((tok) => {
+                                const clean = tok.replace(' 🚨', '').trim();
+                                return (
+                                  <button
+                                    key={tok}
+                                    type="button"
+                                    onClick={() => setDirectTokenVal(clean)}
+                                    className={`text-[10px] font-black px-2 py-0.5 rounded-lg border transition-all cursor-pointer ${
+                                      directTokenVal.toLowerCase() === clean.toLowerCase()
+                                        ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                                        : 'bg-slate-100 hover:bg-blue-100 text-slate-700 border-slate-200 hover:border-blue-300'
+                                    }`}
+                                  >
+                                    {clean}
+                                  </button>
+                                );
+                              })}
                             </div>
-                          </form>
-                        </div>
-                      ) : (
-                        /* Free Room Clickable Banner */
-                        <div
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => {
+                          )}
+
+                          {/* Action Buttons */}
+                          <div className="grid grid-cols-2 gap-2 pt-1">
+                            <button
+                              type="submit"
+                              disabled={!directTokenVal.trim()}
+                              className="py-2.5 px-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 active:scale-95 text-white rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 shadow-md shadow-blue-500/25 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                              title="Call this token immediately into this room"
+                            >
+                              <Zap size={13} className="fill-white" />
+                              <span>{activeList.length > 0 ? '+ Add into Room ↵' : 'Call Now ↵'}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={!directTokenVal.trim()}
+                              onClick={() => handleDirectCallOrStage(room.roomNumber, 'STAGE')}
+                              className="py-2.5 px-3 bg-indigo-50 hover:bg-indigo-100 active:scale-95 text-indigo-900 border border-indigo-200 hover:border-indigo-300 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-2xs"
+                              title="Add this token to this room's staged queue"
+                            >
+                              <ListOrdered size={13} className="text-indigo-600" />
+                              <span>+ Queue Here</span>
+                            </button>
+                          </div>
+                        </form>
+                      </div>
+                    )}
+
+                    {/* Free Room State (when room is empty and direct input not active) */}
+                    {activeList.length === 0 && directInputRoom !== room.roomNumber && (
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => {
+                          setDirectInputRoom(room.roomNumber);
+                          setDirectTokenVal('');
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
                             setDirectInputRoom(room.roomNumber);
                             setDirectTokenVal('');
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              setDirectInputRoom(room.roomNumber);
-                              setDirectTokenVal('');
-                            }
-                          }}
-                          className="border border-slate-200/80 hover:border-blue-400 rounded-2xl p-5 mb-4 flex flex-col justify-center items-center text-center bg-slate-50 hover:bg-gradient-to-b hover:from-blue-50/70 hover:to-slate-50 transition-all cursor-pointer group/ready shadow-2xs hover:shadow-md select-none relative"
-                          title="Click to directly enter and call / stage a token number for this room"
-                        >
-                          <div className="w-10 h-10 rounded-2xl bg-white border border-slate-200 group-hover/ready:border-blue-300 group-hover/ready:bg-blue-600 group-hover/ready:text-white text-slate-400 flex items-center justify-center mb-1.5 transition-all shadow-2xs group-hover/ready:scale-105">
-                            <Users size={20} className="group-hover/ready:hidden" />
-                            <Plus size={20} className="hidden group-hover/ready:block animate-in zoom-in-75 duration-150" />
-                          </div>
-                          <p className="text-xs font-black text-slate-700 group-hover/ready:text-blue-700 transition-colors">
-                            Room Free &amp; Ready
-                          </p>
-                          <p className="text-[10px] text-slate-400 group-hover/ready:text-slate-600 mt-0.5 transition-colors">
-                            {isAutoCallOn ? '⚡ Auto-Call active: ready for next patient' : "Click 'Call Next' or drag patients here"}
-                          </p>
-
-                          <div className="mt-2.5 inline-flex items-center gap-1.5 text-[10px] font-bold text-blue-700 bg-blue-50/90 group-hover/ready:bg-blue-100/90 border border-blue-200 px-2.5 py-1 rounded-lg transition-colors shadow-2xs">
-                            <Plus size={11} className="text-blue-600" />
-                            <span>Click to Enter Token # Directly</span>
-                          </div>
+                          }
+                        }}
+                        className="border border-slate-200/80 hover:border-blue-400 rounded-2xl p-5 mb-4 flex flex-col justify-center items-center text-center bg-slate-50 hover:bg-gradient-to-b hover:from-blue-50/70 hover:to-slate-50 transition-all cursor-pointer group/ready shadow-2xs hover:shadow-md select-none relative"
+                        title="Click to directly enter and call / stage a token number for this room"
+                      >
+                        <div className="w-10 h-10 rounded-2xl bg-white border border-slate-200 group-hover/ready:border-blue-300 group-hover/ready:bg-blue-600 group-hover/ready:text-white text-slate-400 flex items-center justify-center mb-1.5 transition-all shadow-2xs group-hover/ready:scale-105">
+                          <Users size={20} className="group-hover/ready:hidden" />
+                          <Plus size={20} className="hidden group-hover/ready:block animate-in zoom-in-75 duration-150" />
                         </div>
-                      )
-                    ) : activeList.length === 1 ? (
-                      /* Single Active Patient Card */
+                        <p className="text-xs font-black text-slate-700 group-hover/ready:text-blue-700 transition-colors">
+                          Room Free &amp; Ready
+                        </p>
+                        <p className="text-[10px] text-slate-400 group-hover/ready:text-slate-600 mt-0.5 transition-colors">
+                          {isAutoCallOn ? '⚡ Auto-Call active: ready for next patient' : "Click 'Call Next' or drag patients here"}
+                        </p>
+
+                        <div className="mt-2.5 inline-flex items-center gap-1.5 text-[10px] font-bold text-blue-700 bg-blue-50/90 group-hover/ready:bg-blue-100/90 border border-blue-200 px-2.5 py-1 rounded-lg transition-colors shadow-2xs">
+                          <Plus size={11} className="text-blue-600" />
+                          <span>Click to Enter Token # Directly</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Single Active Patient Card */}
+                    {activeList.length === 1 && (
                       <div
                         draggable
                         onDragStart={(e) => {
@@ -1387,21 +1391,48 @@ export default function DoctorDashboard() {
                           setIsOverQueueSidebar(false);
                         }}
                         className="border border-blue-200/90 rounded-2xl p-4 mb-4 flex flex-col justify-center items-center text-center transition-all bg-gradient-to-b from-blue-50/50 to-slate-50 shadow-xs cursor-grab active:cursor-grabbing hover:border-blue-400 hover:shadow-md select-none group/card relative"
-                        title="Drag to transfer patient to another room or drop on sidebar to return to queue"
+                        title="Drag to transfer patient or click token to add more patients to this room"
                       >
                         <div className="w-full flex items-center justify-between mb-1 text-[11px] font-black uppercase tracking-wider text-blue-600">
                           <span className="flex items-center gap-1">
                             <GripVertical size={13} className="text-blue-400 group-hover/card:text-blue-600 transition-colors" />
                             Currently In Room
                           </span>
-                          <span className="text-[10px] text-blue-500 font-bold bg-blue-100/70 px-1.5 py-0.5 rounded">
-                            Draggable ⇄
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDirectInputRoom(room.roomNumber);
+                              setDirectTokenVal('');
+                            }}
+                            className="text-[10px] text-blue-700 bg-blue-100 hover:bg-blue-200 font-bold px-2 py-0.5 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                            title="Click to add another patient into this room"
+                          >
+                            <Plus size={11} />
+                            <span>+ Add More</span>
+                          </button>
+                        </div>
+
+                        {/* Interactive Token Click Area */}
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDirectInputRoom(room.roomNumber);
+                            setDirectTokenVal('');
+                          }}
+                          className="my-0.5 px-4 py-1 rounded-2xl hover:bg-blue-100/70 border border-transparent hover:border-blue-300 transition-all cursor-pointer group/tok flex flex-col items-center"
+                          title="Click on token to add more patients into this room"
+                        >
+                          <span className="text-3xl font-black text-slate-900 tracking-tight group-hover/tok:text-blue-700 transition-colors">
+                            {activePatient.token}
+                          </span>
+                          <span className="text-[10px] text-blue-600 font-bold opacity-0 group-hover/tok:opacity-100 transition-opacity flex items-center gap-0.5 -mt-0.5">
+                            <Plus size={10} /> Click to add more patient
                           </span>
                         </div>
 
-                        <span className="text-3xl font-black text-slate-900 tracking-tight my-0.5">
-                          {activePatient.token}
-                        </span>
                         <p className="text-xs font-bold text-slate-700 mt-0.5">{activePatient.patientName}</p>
                         {activePatient.uhid && (
                           <span className="text-[10px] font-semibold text-slate-400">
@@ -1409,8 +1440,22 @@ export default function DoctorDashboard() {
                           </span>
                         )}
 
-                        {/* Quick Action Buttons: Put Back in Queue & Transfer Room */}
+                        {/* Quick Action Buttons: Add Patient, Put Back in Queue & Transfer Room */}
                         <div className="mt-3 pt-2 border-t border-blue-100/80 w-full flex items-center justify-center gap-1.5 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDirectInputRoom(room.roomNumber);
+                              setDirectTokenVal('');
+                            }}
+                            className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200 hover:border-blue-300 font-bold text-[11px] rounded-lg transition-all flex items-center gap-1 cursor-pointer active:scale-95 shadow-xs"
+                            title="Add another patient into this consultation room"
+                          >
+                            <Plus size={12} className="text-blue-600" />
+                            <span>+ Add Patient</span>
+                          </button>
+
                           <button
                             type="button"
                             onClick={(e) => {
@@ -1421,7 +1466,7 @@ export default function DoctorDashboard() {
                             title="Put this patient back into the general waiting queue"
                           >
                             <RotateCcw size={11} className="text-amber-600" />
-                            <span>Put Back in Queue</span>
+                            <span>Put Back</span>
                           </button>
 
                           <button
@@ -1435,34 +1480,49 @@ export default function DoctorDashboard() {
                                 patientName: activePatient.patientName,
                               });
                             }}
-                            className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200 hover:border-blue-300 font-bold text-[11px] rounded-lg transition-all flex items-center gap-1 cursor-pointer active:scale-95 shadow-xs"
+                            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 hover:border-slate-300 font-bold text-[11px] rounded-lg transition-all flex items-center gap-1 cursor-pointer active:scale-95 shadow-xs"
                             title="Transfer patient to another consultation room"
                           >
-                            <ArrowRightLeft size={11} className="text-blue-600" />
+                            <ArrowRightLeft size={11} className="text-slate-600" />
                             <span>Transfer...</span>
                           </button>
                         </div>
                       </div>
-                    ) : (
-                      /* Multiple Active Patients In Same Room */
+                    )}
+
+                    {/* Multiple Active Patients In Same Room */}
+                    {activeList.length > 1 && (
                       <div className="mb-4 space-y-2">
                         <div className="flex items-center justify-between px-1">
                           <span className="text-[11px] font-black uppercase tracking-wider text-blue-700 flex items-center gap-1.5 bg-blue-50 px-2.5 py-1 rounded-full border border-blue-200 shadow-2xs">
                             <Users size={13} className="text-blue-600" />
                             {activeList.length} Patients In Room
                           </span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              for (const p of activeList) {
-                                handleTokenAction(p.id, 'COMPLETE', room.roomNumber);
-                              }
-                            }}
-                            className="text-[10px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded-lg border border-emerald-200 transition-colors cursor-pointer"
-                            title="Complete all patients in this room"
-                          >
-                            ✓ Complete All
-                          </button>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDirectInputRoom(room.roomNumber);
+                                setDirectTokenVal('');
+                              }}
+                              className="text-[10px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded-lg border border-blue-200 transition-colors cursor-pointer flex items-center gap-1"
+                              title="Add another patient into this room"
+                            >
+                              <Plus size={11} /> + Add Patient
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                for (const p of activeList) {
+                                  handleTokenAction(p.id, 'COMPLETE', room.roomNumber);
+                                }
+                              }}
+                              className="text-[10px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded-lg border border-emerald-200 transition-colors cursor-pointer"
+                              title="Complete all patients in this room"
+                            >
+                              ✓ Complete All
+                            </button>
+                          </div>
                         </div>
 
                         <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
@@ -1492,14 +1552,23 @@ export default function DoctorDashboard() {
                                 setIsOverQueueSidebar(false);
                               }}
                               className="border border-blue-200/90 rounded-2xl p-3 bg-gradient-to-r from-blue-50/60 via-white to-slate-50 shadow-xs cursor-grab active:cursor-grabbing hover:border-blue-400 hover:shadow-md transition-all group/item select-none"
-                              title="Drag patient to another room or drop on sidebar to return to queue"
+                              title="Drag patient to another room or click to add more patients"
                             >
                               <div className="flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-2">
+                                <div
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={() => {
+                                    setDirectInputRoom(room.roomNumber);
+                                    setDirectTokenVal('');
+                                  }}
+                                  className="flex items-center gap-2 cursor-pointer group/tok hover:opacity-80 transition-opacity"
+                                  title="Click to add another patient into this room"
+                                >
                                   <GripVertical size={14} className="text-blue-400 group-hover/item:text-blue-600 transition-colors shrink-0" />
                                   <div className="text-left">
                                     <div className="flex items-center gap-1.5">
-                                      <span className="text-base font-black text-slate-900 leading-none">{p.token}</span>
+                                      <span className="text-base font-black text-slate-900 leading-none group-hover/tok:text-blue-700 transition-colors">{p.token}</span>
                                       <span className="text-[11px] font-bold text-slate-600 truncate max-w-[110px]">{p.patientName}</span>
                                     </div>
                                     {p.uhid && (
