@@ -37,7 +37,6 @@ export default function RegistrationDesk() {
   });
   const [customTokenNumber, setCustomTokenNumber] = useState('');
   const [priority, setPriority] = useState<'NORMAL' | 'SENIOR' | 'EMERGENCY'>('NORMAL');
-  const [singleCount, setSingleCount] = useState<number>(1);
 
   // Target Room / Queue Destination State
   const [availableRooms, setAvailableRooms] = useState<Array<{ id: string; roomNumber: string; doctorName?: string }>>([]);
@@ -97,7 +96,6 @@ export default function RegistrationDesk() {
       const phone = patientData.phone.trim();
       const uhid = patientData.uhid.trim();
       const cleanCustomToken = customTokenNumber.trim();
-      const count = Math.max(1, Math.min(100, singleCount));
 
       const res = await generateToken(
         deptId,
@@ -111,13 +109,13 @@ export default function RegistrationDesk() {
           uhid: uhid || undefined
         },
         cleanCustomToken || undefined,
-        count
+        1
       );
 
       const tokensArray = res.tokens || (Array.isArray(res) ? res : [res]);
-      const formattedTokens = tokensArray.map((t: any, idx: number) => ({
+      const formattedTokens = tokensArray.map((t: any) => ({
         tokenNumber: t.tokenNumber,
-        name: t.patient?.firstName ? `${t.patient.firstName} ${t.patient.lastName || ''}`.trim() : (trimmedName || `Patient ${count > 1 ? idx + 1 : ''}`.trim()),
+        name: t.patient?.firstName ? `${t.patient.firstName} ${t.patient.lastName || ''}`.trim() : (trimmedName || 'Patient'),
         phone: t.patient?.phone || phone || '---',
         uhid: t.patient?.uhid || uhid || '',
         priority: t.priority || priority,
@@ -468,38 +466,6 @@ export default function RegistrationDesk() {
                             placeholder="E.g. 101, 105, 42 (Auto if blank)"
                           />
                         </div>
-
-                        {/* Number of Tokens to Issue (Family / Group Stepper) */}
-                        <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between gap-3">
-                          <div>
-                            <p className="text-xs font-bold text-slate-700">Tokens Quantity</p>
-                            <p className="text-[11px] text-slate-400">Issue multiple tokens for family / group</p>
-                          </div>
-                          <div className="flex items-center gap-1.5 bg-white border border-slate-300 rounded-xl p-1 shadow-xs">
-                            <button
-                              type="button"
-                              onClick={() => setSingleCount(Math.max(1, singleCount - 1))}
-                              className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center font-bold transition-colors cursor-pointer"
-                            >
-                              <Minus size={14} />
-                            </button>
-                            <input
-                              type="number"
-                              min={1}
-                              max={50}
-                              value={singleCount}
-                              onChange={e => setSingleCount(Math.max(1, Math.min(50, parseInt(e.target.value) || 1)))}
-                              className="w-10 text-center font-black text-slate-900 text-sm outline-none"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => setSingleCount(Math.min(50, singleCount + 1))}
-                              className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center font-bold transition-colors cursor-pointer"
-                            >
-                              <Plus size={14} />
-                            </button>
-                          </div>
-                        </div>
                       </div>
 
                       {/* Target Room / Queue Destination Selector */}
@@ -554,16 +520,12 @@ export default function RegistrationDesk() {
                               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
                               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                             </svg>
-                            <span>Generating {singleCount > 1 ? `${singleCount} Tokens` : 'Token'}...</span>
+                            <span>Generating Token &amp; Slip...</span>
                           </span>
                         ) : (
                           <span className="flex items-center gap-2">
                             <Sparkles size={20} />
-                            <span>
-                              {singleCount > 1
-                                ? `Generate ${singleCount} Tokens & Slips`
-                                : 'Generate Token & Slip'}
-                            </span>
+                            <span>Generate Token &amp; Slip</span>
                           </span>
                         )}
                       </button>
