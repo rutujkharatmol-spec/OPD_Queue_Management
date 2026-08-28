@@ -853,19 +853,34 @@ export default function DoctorDashboard() {
             </div>
           </div>
 
-          {/* Quick Token Entry (Token # Only) Bar */}
+          {/* Quick Token Entry (Token # Only) Bar — supports multiple: "13, 14, 15" or "13 14 15" */}
           <form
             onSubmit={async (e) => {
               e.preventDefault();
-              const clean = sidebarQuickToken.trim();
-              if (!clean) return;
+              const raw = sidebarQuickToken.trim();
+              if (!raw) return;
+              // Split by comma, space, or newline — filter empty entries
+              const tokens = raw.split(/[\s,]+/).map(t => t.trim()).filter(Boolean);
+              if (tokens.length === 0) return;
               setIsSidebarQuickAdding(true);
+              const priority = sidebarQuickEmergency ? 'EMERGENCY' : 'NORMAL';
+              let added = 0;
               try {
-                await handleQuickAddToken(clean, sidebarQuickEmergency ? 'EMERGENCY' : 'NORMAL');
+                for (const tok of tokens) {
+                  await handleQuickAddToken(tok, priority);
+                  added++;
+                }
                 setSidebarQuickToken('');
                 setSidebarQuickEmergency(false);
+                if (tokens.length > 1) {
+                  showToast(`${added} tokens added to waiting line!`, 3000);
+                }
               } catch (err: any) {
-                alert(err?.message || 'Failed to add token');
+                if (added > 0) {
+                  showToast(`Added ${added}/${tokens.length} tokens. Error on remaining.`, 4000);
+                } else {
+                  alert(err?.message || 'Failed to add token');
+                }
               } finally {
                 setIsSidebarQuickAdding(false);
               }
@@ -878,7 +893,7 @@ export default function DoctorDashboard() {
                 type="text"
                 value={sidebarQuickToken}
                 onChange={(e) => setSidebarQuickToken(e.target.value)}
-                placeholder="Token # only (e.g. 105, A-1)..."
+                placeholder="Token #s (e.g. 13, 14, 15)..."
                 className="w-full bg-slate-950 border border-indigo-500/40 focus:border-indigo-400 rounded-xl pl-7 pr-3 py-2 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono tracking-wider"
               />
             </div>
@@ -900,14 +915,14 @@ export default function DoctorDashboard() {
               type="submit"
               disabled={!sidebarQuickToken.trim() || isSidebarQuickAdding}
               className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition-all shadow-xs flex items-center gap-1 shrink-0 cursor-pointer disabled:opacity-40 active:scale-95"
-              title="Add token directly to waiting line (Press Enter)"
+              title="Add token(s) directly to waiting line (Press Enter)"
             >
               {isSidebarQuickAdding ? (
                 <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
               ) : (
                 <Plus size={14} />
               )}
-              <span>Add Token</span>
+              <span>{sidebarQuickToken.split(/[\s,]+/).filter(Boolean).length > 1 ? `Add ${sidebarQuickToken.split(/[\s,]+/).filter(Boolean).length} Tokens` : 'Add Token'}</span>
             </button>
           </form>
 
@@ -3177,16 +3192,29 @@ export default function DoctorDashboard() {
             <form
               onSubmit={async (e) => {
                 e.preventDefault();
-                const clean = quickTokenVal.trim();
-                if (!clean) return;
+                const raw = quickTokenVal.trim();
+                if (!raw) return;
+                const tokens = raw.split(/[\s,]+/).map(t => t.trim()).filter(Boolean);
+                if (tokens.length === 0) return;
                 setIsQuickAddingToken(true);
                 setQuickTokenError(null);
+                let added = 0;
                 try {
-                  await handleQuickAddToken(clean, quickTokenPriority, quickTokenDestination);
+                  for (const tok of tokens) {
+                    await handleQuickAddToken(tok, quickTokenPriority, quickTokenDestination);
+                    added++;
+                  }
                   setIsQuickTokenModalOpen(false);
                   resetQuickTokenForm();
+                  if (tokens.length > 1) {
+                    showToast(`${added} tokens added!`, 3000);
+                  }
                 } catch (err: any) {
-                  setQuickTokenError(err?.message || 'Failed to add token');
+                  if (added > 0) {
+                    setQuickTokenError(`Added ${added}/${tokens.length}. Error on remaining: ${err?.message || 'Unknown error'}`);
+                  } else {
+                    setQuickTokenError(err?.message || 'Failed to add token');
+                  }
                 } finally {
                   setIsQuickAddingToken(false);
                 }
@@ -3203,7 +3231,7 @@ export default function DoctorDashboard() {
               {/* Big Token Number Input */}
               <div>
                 <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
-                  Token Number *
+                  Token Number(s) * <span className="text-slate-500 normal-case font-normal">(separate multiple with commas or spaces)</span>
                 </label>
                 <div className="relative">
                   <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xl font-black text-indigo-400 font-mono">#</span>
@@ -3213,10 +3241,15 @@ export default function DoctorDashboard() {
                     autoFocus
                     value={quickTokenVal}
                     onChange={(e) => setQuickTokenVal(e.target.value)}
-                    placeholder="e.g. 105, MED-01, 24"
-                    className="w-full bg-slate-950 border-2 border-indigo-500/50 focus:border-indigo-400 rounded-2xl pl-10 pr-4 py-3 text-2xl font-black text-white font-mono placeholder:text-slate-600 focus:outline-none focus:ring-4 focus:ring-indigo-500/20 tracking-wider transition-all"
+                    placeholder="e.g. 13, 14, 15 or 101 102 103"
+                    className="w-full bg-slate-950 border-2 border-indigo-500/50 focus:border-indigo-400 rounded-2xl pl-10 pr-4 py-3 text-2xl font-black text-white font-mono placeholder:text-slate-600 placeholder:text-base focus:outline-none focus:ring-4 focus:ring-indigo-500/20 tracking-wider transition-all"
                   />
                 </div>
+                {quickTokenVal.split(/[\s,]+/).filter(Boolean).length > 1 && (
+                  <p className="mt-1.5 text-xs text-indigo-400 font-bold">
+                    {quickTokenVal.split(/[\s,]+/).filter(Boolean).length} tokens will be added: {quickTokenVal.split(/[\s,]+/).filter(Boolean).join(', ')}
+                  </p>
+                )}
               </div>
 
               {/* Priority Selection */}
@@ -3302,12 +3335,18 @@ export default function DoctorDashboard() {
                   {isQuickAddingToken ? (
                     <>
                       <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                      <span>Adding Token...</span>
+                      <span>Adding...</span>
                     </>
                   ) : (
                     <>
                       <Plus size={15} />
-                      <span>{quickTokenDestination.startsWith('CALL_NOW:') ? 'Add & Call Now' : 'Add Token to Line'}</span>
+                      <span>
+                        {(() => {
+                          const count = quickTokenVal.split(/[\s,]+/).filter(Boolean).length;
+                          const label = quickTokenDestination.startsWith('CALL_NOW:') ? 'Add & Call' : 'Add';
+                          return count > 1 ? `${label} ${count} Tokens` : `${label} Token`;
+                        })()}
+                      </span>
                     </>
                   )}
                 </button>
