@@ -702,6 +702,21 @@ export default function DoctorDashboard() {
     showToast(`Pulled ${toPull.length} patient${toPull.length === 1 ? '' : 's'} into Room ${roomNumber} Queue.`, 3000);
   };
 
+  const handlePullWaitingToActiveRoom = async (roomNumber: string, count: number = 1) => {
+    const unstaged = (queueData.nextTokens || []).filter(t => !stagedRoomByToken.has(t.replace(' 🚨', '').trim()));
+    const candidates = unstaged.length > 0 ? unstaged : (queueData.nextTokens || []);
+    if (candidates.length === 0) {
+      showToast('No waiting patients in the line.', 3000);
+      return;
+    }
+    const toPull = candidates.slice(0, count);
+    for (const tok of toPull) {
+      const clean = tok.replace(' 🚨', '').trim();
+      await handleCallNext(roomNumber, clean);
+    }
+    showToast(`Pulled ${toPull.length} patient${toPull.length === 1 ? '' : 's'} directly into Room ${roomNumber}!`, 3000);
+  };
+
   const handleDirectCallOrStage = async (roomNumber: string, action: 'CALL' | 'STAGE') => {
     const clean = directTokenVal.trim();
     if (!clean) return;
@@ -1705,6 +1720,52 @@ export default function DoctorDashboard() {
                           <Plus size={11} className="text-blue-600" />
                           <span>Click to Enter Token # Directly</span>
                         </div>
+
+                        {/* Quick Pull Directly into Room Controls */}
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          className="mt-3 pt-2.5 border-t border-slate-200/80 w-full flex items-center justify-between"
+                        >
+                          <span className="text-[10px] font-bold text-slate-500 flex items-center gap-1">
+                            <CornerDownRight size={11} className="text-blue-600" />
+                            <span>Pull into room:</span>
+                          </span>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handlePullWaitingToActiveRoom(room.roomNumber, 1);
+                              }}
+                              className="px-2 py-0.5 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 text-[10px] font-bold transition-colors cursor-pointer"
+                              title="Pull next 1 patient directly into this room"
+                            >
+                              +1
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handlePullWaitingToActiveRoom(room.roomNumber, 2);
+                              }}
+                              className="px-2 py-0.5 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 text-[10px] font-bold transition-colors cursor-pointer"
+                              title="Pull next 2 patients directly into this room"
+                            >
+                              +2
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handlePullWaitingToActiveRoom(room.roomNumber, 3);
+                              }}
+                              className="px-2 py-0.5 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 text-[10px] font-bold transition-colors cursor-pointer"
+                              title="Pull next 3 patients directly into this room"
+                            >
+                              +3
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     )}
 
@@ -1830,18 +1891,81 @@ export default function DoctorDashboard() {
                             <span>Transfer...</span>
                           </button>
                         </div>
+
+                        {/* Quick Pull Controls for Currently In Room */}
+                        <div className="mt-2.5 pt-2 border-t border-blue-100/80 w-full flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-slate-500 flex items-center gap-1">
+                            <CornerDownRight size={11} className="text-blue-600" />
+                            <span>Pull into room:</span>
+                          </span>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handlePullWaitingToActiveRoom(room.roomNumber, 1);
+                              }}
+                              className="px-2 py-0.5 rounded-lg bg-white hover:bg-blue-100 border border-blue-200 text-blue-800 text-[10px] font-bold transition-colors cursor-pointer"
+                              title="Pull next 1 patient directly into this room"
+                            >
+                              +1
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handlePullWaitingToActiveRoom(room.roomNumber, 2);
+                              }}
+                              className="px-2 py-0.5 rounded-lg bg-white hover:bg-blue-100 border border-blue-200 text-blue-800 text-[10px] font-bold transition-colors cursor-pointer"
+                              title="Pull next 2 patients directly into this room"
+                            >
+                              +2
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handlePullWaitingToActiveRoom(room.roomNumber, 3);
+                              }}
+                              className="px-2 py-0.5 rounded-lg bg-white hover:bg-blue-100 border border-blue-200 text-blue-800 text-[10px] font-bold transition-colors cursor-pointer"
+                              title="Pull next 3 patients directly into this room"
+                            >
+                              +3
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     )}
 
                     {/* Multiple Active Patients In Same Room */}
                     {activeList.length > 1 && (
                       <div className="mb-4 space-y-2">
-                        <div className="flex items-center justify-between px-1">
+                        <div className="flex items-center justify-between px-1 flex-wrap gap-1.5">
                           <span className="text-[11px] font-black uppercase tracking-wider text-blue-700 flex items-center gap-1.5 bg-blue-50 px-2.5 py-1 rounded-full border border-blue-200 shadow-2xs">
                             <Users size={13} className="text-blue-600" />
-                            {activeList.length} Patients In Room
+                            {activeList.length} In Room
                           </span>
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {/* Quick Pull into Room */}
+                            <div className="flex items-center gap-1 bg-white px-2 py-0.5 rounded-lg border border-blue-200 shadow-2xs">
+                              <span className="text-[9px] font-bold text-slate-500">Pull:</span>
+                              <button
+                                type="button"
+                                onClick={() => handlePullWaitingToActiveRoom(room.roomNumber, 1)}
+                                className="px-1.5 py-0.5 rounded text-[10px] font-bold text-blue-700 hover:bg-blue-50 cursor-pointer"
+                                title="Pull next 1 patient directly into this room"
+                              >
+                                +1
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handlePullWaitingToActiveRoom(room.roomNumber, 2)}
+                                className="px-1.5 py-0.5 rounded text-[10px] font-bold text-blue-700 hover:bg-blue-50 cursor-pointer"
+                                title="Pull next 2 patients directly into this room"
+                              >
+                                +2
+                              </button>
+                            </div>
                             <button
                               type="button"
                               onClick={() => {
@@ -1851,7 +1975,7 @@ export default function DoctorDashboard() {
                               className="text-[10px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded-lg border border-blue-200 transition-colors cursor-pointer flex items-center gap-1"
                               title="Add another patient into this room"
                             >
-                              <Plus size={11} /> + Add Patient
+                              <Plus size={11} /> + Add
                             </button>
                             <button
                               type="button"
@@ -1863,7 +1987,7 @@ export default function DoctorDashboard() {
                               className="text-[10px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded-lg border border-emerald-200 transition-colors cursor-pointer"
                               title="Complete all patients in this room"
                             >
-                              ✓ Complete All
+                              ✓ Done All
                             </button>
                           </div>
                         </div>
@@ -2069,31 +2193,61 @@ export default function DoctorDashboard() {
 
                     {/* Action Buttons */}
                     <div className="space-y-2 mt-auto pt-3 border-t border-slate-100">
-                      <button
-                        onClick={() => {
-                          const targetTok = stagedList.length > 0 ? stagedList[0] : undefined;
-                          handleCallNext(room.roomNumber, targetTok);
-                        }}
-                        disabled={isCalling}
-                        className={`w-full py-3 rounded-2xl font-bold text-xs transition-all active:scale-95 shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
-                          stagedList.length > 0
-                            ? 'bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white shadow-indigo-500/20'
-                            : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-blue-500/20'
-                        }`}
-                      >
-                        {isCalling ? <AlertTriangle size={16} className="animate-spin" /> : <UserPlus size={16} />}
-                        <span>
-                          {isCalling
-                            ? 'Calling...'
-                            : stagedList.length > 0
-                              ? `Call Staged: ${stagedList[0].replace(' 🚨', '')} (${stagedList.length} queued)`
-                              : activeList.length > 0
-                                ? `+ Add Patient into Room ${room.roomNumber}`
-                                : queueData.nextTokens.length === 0
-                                  ? 'Call Next Patient (Queue 0)'
-                                  : 'Call Next Patient'}
-                        </span>
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => {
+                            const targetTok = stagedList.length > 0 ? stagedList[0] : undefined;
+                            handleCallNext(room.roomNumber, targetTok);
+                          }}
+                          disabled={isCalling}
+                          className={`flex-1 py-3 rounded-2xl font-bold text-xs transition-all active:scale-95 shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                            stagedList.length > 0
+                              ? 'bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white shadow-indigo-500/20'
+                              : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-blue-500/20'
+                          }`}
+                        >
+                          {isCalling ? <AlertTriangle size={16} className="animate-spin" /> : <UserPlus size={16} />}
+                          <span>
+                            {isCalling
+                              ? 'Calling...'
+                              : stagedList.length > 0
+                                ? `Call Staged: ${stagedList[0].replace(' 🚨', '')}`
+                                : activeList.length > 0
+                                  ? `+ Add Next Patient`
+                                  : queueData.nextTokens.length === 0
+                                    ? 'Call Next (0 in line)'
+                                    : 'Call Next Patient'}
+                          </span>
+                        </button>
+
+                        {/* Quick Pull Controls Directly into Room */}
+                        <div className="flex items-center gap-1 bg-slate-100 border border-slate-200/80 rounded-2xl p-1 shrink-0" title="Pull patients from waiting line directly into this room">
+                          <button
+                            type="button"
+                            onClick={() => handlePullWaitingToActiveRoom(room.roomNumber, 1)}
+                            className="px-2.5 py-2 rounded-xl bg-white hover:bg-blue-50 border border-slate-200 text-blue-700 font-black text-xs transition-all shadow-xs cursor-pointer active:scale-95"
+                            title="Pull next 1 patient directly into this room"
+                          >
+                            +1
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handlePullWaitingToActiveRoom(room.roomNumber, 2)}
+                            className="px-2.5 py-2 rounded-xl bg-white hover:bg-blue-50 border border-slate-200 text-blue-700 font-black text-xs transition-all shadow-xs cursor-pointer active:scale-95"
+                            title="Pull next 2 patients directly into this room"
+                          >
+                            +2
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handlePullWaitingToActiveRoom(room.roomNumber, 3)}
+                            className="px-2.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-black text-xs transition-all shadow-xs cursor-pointer active:scale-95"
+                            title="Pull next 3 patients directly into this room"
+                          >
+                            +3
+                          </button>
+                        </div>
+                      </div>
 
                       {activeList.length <= 1 && (
                         <div className="grid grid-cols-3 gap-2">
