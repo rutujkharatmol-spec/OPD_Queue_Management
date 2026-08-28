@@ -146,11 +146,10 @@ export default function TvDisplay() {
     }
   }, []);
 
-  // Audio & Speech Settings
-  const [audioEnabled, setAudioEnabled] = useState(false);
+  // Audio & Speech Settings (Always ON by default)
+  const [audioEnabled, setAudioEnabled] = useState(true);
   const [audioLang, setAudioLang] = useState<AudioLang>('dual');
   const [voiceGender, setVoiceGender] = useState<VoiceGender>('female');
-  const [audioPromptDismissed, setAudioPromptDismissed] = useState(false);
   const prevTokensSnapshotRef = useRef<string>('');
 
   useEffect(() => {
@@ -158,6 +157,10 @@ export default function TvDisplay() {
       const savedTheme = localStorage.getItem('tv_theme');
       if (savedTheme === 'dark') setIsDark(true);
       else if (savedTheme === 'light') setIsDark(false);
+
+      const savedAudio = localStorage.getItem('tv_audio_enabled');
+      if (savedAudio === 'false') setAudioEnabled(false);
+      else setAudioEnabled(true);
 
       const savedGender = localStorage.getItem('tv_voice_gender') as VoiceGender;
       if (savedGender === 'female' || savedGender === 'male') setVoiceGender(savedGender);
@@ -182,6 +185,17 @@ export default function TvDisplay() {
   const handleSetAudioLang = (lang: AudioLang) => {
     setAudioLang(lang);
     try { localStorage.setItem('tv_audio_lang', lang); } catch {}
+  };
+
+  const handleToggleAudio = () => {
+    const next = !audioEnabled;
+    setAudioEnabled(next);
+    if (next) {
+      playHospitalChime();
+    } else {
+      stopAudioAnnouncement();
+    }
+    try { localStorage.setItem('tv_audio_enabled', String(next)); } catch {}
   };
 
   useEffect(() => {
@@ -228,48 +242,12 @@ export default function TvDisplay() {
     }
   }, [queueData?.activeTokens, audioEnabled, audioLang, voiceGender]);
 
-  const handleEnableAudio = () => {
-    setAudioEnabled(true);
-    setAudioPromptDismissed(true);
-    playHospitalChime();
-  };
-
-  const handleDisableAudio = () => {
-    setAudioEnabled(false);
-    stopAudioAnnouncement();
-  };
-
   const activeTokens = queueData.activeTokens || [];
   const hasEmergency = activeTokens.some((t: any) => t.token?.includes('🚨')) || queueData.nextTokens.some(t => t.includes('🚨'));
 
   return (
     <div ref={containerRef} className={isDark ? "dark" : ""}>
       <div className="flex h-screen w-full flex-col bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-white overflow-hidden relative font-sans select-none transition-colors duration-500">
-
-        {/* Audio Enable Prompt Banner (First Load Autoplay Unlock) - only shown when not in fullscreen */}
-        {!isFullscreen && !audioEnabled && !audioPromptDismissed && (
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-4 border border-blue-400/40 animate-bounce">
-            <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-              <Volume2 size={22} className="text-white" />
-            </div>
-            <div>
-              <p className="font-bold text-sm">Enable Hospital Audio Announcements</p>
-              <p className="text-xs text-blue-100">Click to activate voice and chime alerts for patient calling</p>
-            </div>
-            <button
-              onClick={handleEnableAudio}
-              className="px-4 py-2 bg-white text-blue-700 font-black text-xs uppercase tracking-wider rounded-xl shadow hover:bg-blue-50 active:scale-95 transition-all"
-            >
-              Turn On Audio
-            </button>
-            <button
-              onClick={() => setAudioPromptDismissed(true)}
-              className="text-white/60 hover:text-white text-xs ml-1"
-            >
-              ✕
-            </button>
-          </div>
-        )}
 
         {/* Hospital Header & Controls */}
         <header className={`relative z-10 flex items-center justify-between bg-white/90 dark:bg-slate-900/80 backdrop-blur-xl px-6 lg:px-12 transition-all duration-500 gap-4 flex-wrap border-b border-slate-200 dark:border-white/10 shadow-sm dark:shadow-2xl ${
@@ -358,13 +336,7 @@ export default function TvDisplay() {
 
                 {/* Sound Toggle Button */}
                 <button
-                  onClick={() => {
-                    if (!audioEnabled) {
-                      handleEnableAudio();
-                    } else {
-                      handleDisableAudio();
-                    }
-                  }}
+                  onClick={handleToggleAudio}
                   className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl shadow-sm backdrop-blur-md border transition-all font-bold text-xs cursor-pointer ${audioEnabled
                     ? 'bg-emerald-600 text-white border-emerald-400 shadow-emerald-600/30'
                     : 'bg-slate-100 dark:bg-black/60 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-white/10'
