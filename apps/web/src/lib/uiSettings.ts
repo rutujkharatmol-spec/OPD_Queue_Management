@@ -15,7 +15,7 @@ export const DEFAULT_UI_SETTINGS: UiVisibilitySettings = {
   showQueueSidebar: true,
   showRoomStagedQueue: false,
   showDoctorNames: false,
-  showAutoCallToggle: false,
+  showAutoCallToggle: true,
   showQuickActions: false,
   showDeptSwitcher: true,
 };

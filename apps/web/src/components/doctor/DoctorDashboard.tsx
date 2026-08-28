@@ -29,7 +29,10 @@ import {
   clearRoomQueue,
   clearAllRoomQueues,
   getAutoCallRooms,
-  setAutoCallRoom
+  setAutoCallRoom,
+  getAutoPullLimits,
+  setAutoPullLimit,
+  DEFAULT_AUTO_PULL_LIMIT
 } from '../../lib/roomQueueSettings';
 import {
   UiVisibilitySettings,
@@ -45,6 +48,9 @@ interface Room {
   isActive: boolean;
   doctorName?: string;
 }
+
+/** Max patients that can be active in a single room when Auto-Call is ON. */
+const MAX_ROOM_PATIENTS = 4;
 
 /** Stable fallback so an empty queue does not produce a new object identity per render. */
 const EMPTY_QUEUE = { department: 'Medicine', activeTokens: [], nextTokens: [] as string[] };
@@ -105,6 +111,7 @@ export default function DoctorDashboard() {
   // Room Staged Queue & Auto-Call State
   const [roomStagedQueues, setRoomStagedQueues] = useState<Record<string, string[]>>({});
   const [autoCallRooms, setAutoCallRooms] = useState<Record<string, boolean>>({});
+  const [autoPullLimits, setAutoPullLimits] = useState<Record<string, number>>({});
 
   // Drag and Drop Queue State
   const [draggingToken, setDraggingToken] = useState<string | null>(null);
@@ -250,6 +257,8 @@ export default function DoctorDashboard() {
    */
   const timersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Guards against re-entrant auto-fill calls while an async fill is in progress. */
+  const autoFillInProgressRef = useRef<Set<string>>(new Set());
 
   const later = useCallback((fn: () => void, ms: number) => {
     const id = setTimeout(() => {
@@ -280,6 +289,7 @@ export default function DoctorDashboard() {
   const refreshRoomSettings = useCallback(() => {
     setRoomStagedQueues(getAllRoomStagedQueues(deptId));
     setAutoCallRooms(getAutoCallRooms(deptId));
+    setAutoPullLimits(getAutoPullLimits(deptId));
     setUiSettings(getUiVisibilitySettings());
   }, [deptId]);
 
@@ -299,19 +309,21 @@ export default function DoctorDashboard() {
     // same tab.  Listening for `storage` lets the Doctor Dashboard (typically
     // open in a second tab) pick up those changes immediately.
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key && (e.key.startsWith('opd_room_staged_queue_') || e.key.startsWith('opd_auto_call_rooms_'))) {
+      if (e.key && (e.key.startsWith('opd_room_staged_queue_') || e.key.startsWith('opd_auto_call_rooms_') || e.key.startsWith('opd_auto_pull_limits_'))) {
         refreshRoomSettings();
       }
     };
 
     window.addEventListener('room-queues-updated', handleQueuesUpdated);
     window.addEventListener('auto-call-updated', handleQueuesUpdated);
+    window.addEventListener('auto-pull-limits-updated', handleQueuesUpdated);
     window.addEventListener('opd-ui-visibility-updated', handleUiUpdated);
     window.addEventListener('storage', handleStorageChange);
 
     return () => {
       window.removeEventListener('room-queues-updated', handleQueuesUpdated);
       window.removeEventListener('auto-call-updated', handleQueuesUpdated);
+      window.removeEventListener('auto-pull-limits-updated', handleQueuesUpdated);
       window.removeEventListener('opd-ui-visibility-updated', handleUiUpdated);
       window.removeEventListener('storage', handleStorageChange);
     };
@@ -689,10 +701,10 @@ export default function DoctorDashboard() {
       await markTokenAction(tokenId, action, passCount);
       await useQueueStore.getState().fetchQueue(deptId);
 
-      // Auto-Call trigger: automatically call next patient if enabled for this room
+      // Auto-Call trigger: automatically fill room back to MAX_ROOM_PATIENTS if enabled
       if (roomNumber && autoCallRooms[roomNumber]) {
         later(() => {
-          handleCallNext(roomNumber);
+          autoFillRoom(roomNumber);
         }, 750);
       }
     } catch (err) {
@@ -757,11 +769,86 @@ export default function DoctorDashboard() {
     }
   };
 
+  /**
+   * Auto-fills a room by pulling patients from the waiting line until
+   * the room has its configured max patients (default 4) or the line is empty.
+   */
+  const autoFillRoom = useCallback(async (roomNumber: string) => {
+    if (autoFillInProgressRef.current.has(roomNumber)) return;
+    autoFillInProgressRef.current.add(roomNumber);
+    try {
+      const roomMaxPatients = getAutoPullLimits(deptId)[roomNumber] || DEFAULT_AUTO_PULL_LIMIT;
+      // Re-read live state each iteration to account for concurrent changes
+      let currentQueue = useQueueStore.getState().liveQueues[deptId] || EMPTY_QUEUE;
+      let currentActive = (currentQueue.activeTokens || []).filter((t: any) => (t.room || '101') === roomNumber);
+      let pulled = 0;
+
+      while (currentActive.length < roomMaxPatients) {
+        // Prefer staged tokens for this room, then unstaged waiting tokens
+        const currentStaged = getAllRoomStagedQueues(deptId)[roomNumber] || [];
+        const nextTokens = currentQueue.nextTokens || [];
+        const stagedToken = currentStaged.length > 0 ? currentStaged[0] : undefined;
+        let tokenToCall = stagedToken;
+
+        if (!tokenToCall) {
+          // Pick next unstaged waiting token
+          const stagedAll = getAllRoomStagedQueues(deptId);
+          const allStagedSet = new Set<string>();
+          for (const room of Object.keys(stagedAll)) {
+            for (const t of stagedAll[room] || []) {
+              allStagedSet.add(t.replace(' 🚨', '').trim().toLowerCase());
+            }
+          }
+          const unstaged = nextTokens.find(t => !allStagedSet.has(t.replace(' 🚨', '').trim().toLowerCase()));
+          if (!unstaged) break; // No more patients available
+          tokenToCall = unstaged;
+        }
+
+        const cleanToken = tokenToCall.replace(' 🚨', '').trim();
+        await ensureTokenCreated(cleanToken);
+        await callNextPatient(deptId, roomNumber, cleanToken);
+        removeTokenFromRoomQueue(deptId, roomNumber, cleanToken);
+        pulled++;
+
+        // Refresh state for next iteration
+        await useQueueStore.getState().fetchQueue(deptId);
+        currentQueue = useQueueStore.getState().liveQueues[deptId] || EMPTY_QUEUE;
+        currentActive = (currentQueue.activeTokens || []).filter((t: any) => (t.room || '101') === roomNumber);
+      }
+
+      if (pulled > 0) {
+        refreshRoomSettings();
+        showToast(`Auto-pulled ${pulled} patient${pulled === 1 ? '' : 's'} into Room ${roomNumber} ⚡ (Max: ${roomMaxPatients})`, 3000);
+      }
+    } catch (err) {
+      console.error('Auto-fill room failed:', err);
+    } finally {
+      autoFillInProgressRef.current.delete(roomNumber);
+    }
+  }, [deptId, refreshRoomSettings, showToast, ensureTokenCreated]);
+
+  const handleUpdateAutoPullLimit = (roomNumber: string, newLimit: number) => {
+    const valid = Math.max(1, Math.min(20, Math.floor(newLimit) || DEFAULT_AUTO_PULL_LIMIT));
+    setAutoPullLimit(deptId, roomNumber, valid);
+    setAutoPullLimits((prev) => ({ ...prev, [roomNumber]: valid }));
+    showToast(`Room ${roomNumber} Auto-Pull limit set to max ${valid} patient${valid === 1 ? '' : 's'}`, 2500);
+
+    if (autoCallRooms[roomNumber]) {
+      later(() => autoFillRoom(roomNumber), 200);
+    }
+  };
+
   const handleToggleAutoCall = (roomNumber: string) => {
     const newState = !autoCallRooms[roomNumber];
     setAutoCallRoom(deptId, roomNumber, newState);
     setAutoCallRooms((prev) => ({ ...prev, [roomNumber]: newState }));
-    showToast(`Auto-Call for Room ${roomNumber} is now ${newState ? 'ENABLED ⚡' : 'DISABLED'}`, 3000);
+    const currentLimit = autoPullLimits[roomNumber] || DEFAULT_AUTO_PULL_LIMIT;
+    showToast(`Auto-Call for Room ${roomNumber} is now ${newState ? `ENABLED ⚡ (Max: ${currentLimit})` : 'DISABLED'}`, 3000);
+
+    // Immediately auto-fill when toggled ON
+    if (newState) {
+      later(() => autoFillRoom(roomNumber), 300);
+    }
   };
 
   const handleAddPatientToRoomQueue = async (roomNumber: string, token: string) => {
@@ -1686,21 +1773,58 @@ export default function DoctorDashboard() {
                             Room {room.roomNumber}
                           </div>
 
-                          {/* Auto-Call Toggle Switch Button (Toggleable via Show UI) */}
+                          {/* Auto-Call Toggle & Configurable Max Pull Controls */}
                           {uiSettings.showAutoCallToggle && (
-                            <button
-                              type="button"
-                              onClick={() => handleToggleAutoCall(room.roomNumber)}
-                              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
-                                isAutoCallOn
-                                   ? 'bg-emerald-500 text-white border-emerald-400 shadow-sm shadow-emerald-500/30'
-                                  : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'
-                              }`}
-                              title={isAutoCallOn ? 'Auto-Call is ACTIVE: Automatically calls next patient when room is free' : 'Click to enable Auto-Call for this room'}
-                            >
-                              <Zap size={12} className={isAutoCallOn ? 'fill-white text-white animate-pulse' : 'text-slate-400'} />
-                              <span>Auto-Call {isAutoCallOn ? 'ON' : 'OFF'}</span>
-                            </button>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleAutoCall(room.roomNumber)}
+                                className={`px-2.5 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
+                                  isAutoCallOn
+                                     ? 'bg-emerald-500 text-white border-emerald-400 shadow-sm shadow-emerald-500/30'
+                                    : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'
+                                }`}
+                                title={isAutoCallOn ? `Auto-Call is ACTIVE: Automatically keeps up to ${autoPullLimits[room.roomNumber] || DEFAULT_AUTO_PULL_LIMIT} patients in room` : 'Click to enable Auto-Call for this room'}
+                              >
+                                <Zap size={12} className={isAutoCallOn ? 'fill-white text-white animate-pulse' : 'text-slate-400'} />
+                                <span>Auto-Call {isAutoCallOn ? 'ON' : 'OFF'}</span>
+                              </button>
+
+                              {/* Configurable Max Pull Stepper */}
+                              <div
+                                className="inline-flex items-center bg-slate-100/90 border border-slate-200 rounded-xl p-0.5 text-[11px] font-bold shadow-2xs"
+                                title={`Auto-Pull limit: Room ${room.roomNumber} can have up to ${autoPullLimits[room.roomNumber] || DEFAULT_AUTO_PULL_LIMIT} active patients max`}
+                              >
+                                <span className="text-[10px] text-slate-500 font-semibold px-1">Max:</span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const curr = autoPullLimits[room.roomNumber] || DEFAULT_AUTO_PULL_LIMIT;
+                                    handleUpdateAutoPullLimit(room.roomNumber, Math.max(1, curr - 1));
+                                  }}
+                                  className="w-5 h-5 flex items-center justify-center rounded-lg bg-white hover:bg-blue-50 hover:text-blue-700 text-slate-700 font-black text-xs cursor-pointer shadow-2xs border border-slate-200 transition-colors"
+                                  title="Decrease max patients auto-pulled"
+                                >
+                                  -
+                                </button>
+                                <span className="px-1.5 font-mono font-black text-blue-700 text-xs">
+                                  {autoPullLimits[room.roomNumber] || DEFAULT_AUTO_PULL_LIMIT}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const curr = autoPullLimits[room.roomNumber] || DEFAULT_AUTO_PULL_LIMIT;
+                                    handleUpdateAutoPullLimit(room.roomNumber, Math.min(10, curr + 1));
+                                  }}
+                                  className="w-5 h-5 flex items-center justify-center rounded-lg bg-white hover:bg-blue-50 hover:text-blue-700 text-slate-700 font-black text-xs cursor-pointer shadow-2xs border border-slate-200 transition-colors"
+                                  title="Increase max patients auto-pulled"
+                                >
+                                  +
+                                </button>
+                              </div>
+                            </div>
                           )}
                         </div>
 

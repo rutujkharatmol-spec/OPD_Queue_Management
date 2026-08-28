@@ -288,3 +288,42 @@ export function setAutoCallRoom(deptId: string, roomNumber: string, enabled: boo
     // ignore
   }
 }
+
+const AUTO_PULL_LIMITS_PREFIX = 'opd_auto_pull_limits_';
+export const DEFAULT_AUTO_PULL_LIMIT = 4;
+
+/**
+ * Retrieves the configured Auto-Pull limits per room (default 4).
+ */
+export function getAutoPullLimits(deptId?: string): Record<string, number> {
+  if (typeof window === 'undefined') return {};
+  try {
+    if (deptId) {
+      const data = readObjectKey<Record<string, number>>(
+        getStorageKey(AUTO_PULL_LIMITS_PREFIX, deptId)
+      );
+      if (data) return data;
+    }
+    const found = scanForPrefix<Record<string, number>>(AUTO_PULL_LIMITS_PREFIX, () => true);
+    if (found) return found;
+  } catch {
+    // ignore
+  }
+  return {};
+}
+
+/**
+ * Sets the Auto-Pull max patient limit for a specific room.
+ */
+export function setAutoPullLimit(deptId: string, roomNumber: string, limit: number): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const validLimit = Math.max(1, Math.min(20, Math.floor(limit) || DEFAULT_AUTO_PULL_LIMIT));
+    const current = { ...getAutoPullLimits(deptId), [roomNumber]: validLimit };
+    writeObjectKey(AUTO_PULL_LIMITS_PREFIX, deptId, current);
+    window.dispatchEvent(new CustomEvent('auto-pull-limits-updated', { detail: { deptId, roomNumber, limit: validLimit } }));
+  } catch {
+    // ignore
+  }
+}
+
