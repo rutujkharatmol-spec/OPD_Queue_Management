@@ -1058,27 +1058,6 @@ export default function DoctorDashboard() {
               >
                 <UserPlus size={18} />
               </button>
-              <Link
-                href={`/analytics?deptId=${deptId}`}
-                className="p-2.5 bg-slate-800 rounded-xl hover:bg-blue-600 transition-colors text-slate-300 hover:text-white"
-                title="OPD Analytics"
-              >
-                <BarChart2 size={18} />
-              </Link>
-              <button
-                onClick={() => setIsRoomModalOpen(true)}
-                className="p-2.5 bg-slate-800 rounded-xl hover:bg-blue-600 transition-colors text-slate-300 hover:text-white cursor-pointer"
-                title="Add / Configure Rooms"
-              >
-                <Settings size={18} />
-              </button>
-              <button
-                onClick={() => setIsShowUiModalOpen(true)}
-                className="p-2.5 bg-slate-800 rounded-xl hover:bg-blue-600 transition-colors text-slate-300 hover:text-white cursor-pointer"
-                title="Show UI / Customize View"
-              >
-                <Eye size={18} />
-              </button>
             </div>
           </div>
 
