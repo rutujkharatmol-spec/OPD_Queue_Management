@@ -77,10 +77,10 @@ export default function GuidePage() {
             <div className="p-5 bg-slate-950/80 border border-slate-800/80 rounded-2xl space-y-2.5">
               <div className="flex items-center gap-2 text-indigo-400 font-bold text-sm">
                 <Zap size={16} />
-                <h3>⚡ Bulk Tokens (Walk-ins)</h3>
+                <h3>Custom &amp; Staged Tokens</h3>
               </div>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Switch to <strong>"Create Multiple Tokens at Once"</strong>. Select a batch count (e.g. 5 or 10 tokens) and generate them instantly for walk-in queues.
+                Optionally provide a custom token number, or stage patients directly into a specific consultation room's upcoming queue.
               </p>
             </div>
 

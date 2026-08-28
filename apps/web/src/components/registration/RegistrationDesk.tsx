@@ -4,7 +4,7 @@ import Link from 'next/link';
 import {
   Menu, X, Search, Printer, CheckCircle2,
   Building2, ArrowRightLeft, HeartPulse, User, Phone, FileText, QrCode, Hash,
-  Layers, Copy, Check, Sparkles, ChevronRight, Plus, Minus
+  Copy, Check, Sparkles, ChevronRight, Plus, Minus
 } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { QRCodeSVG } from 'qrcode.react';
@@ -29,10 +29,7 @@ export default function RegistrationDesk() {
 
   const [isSidebarOpen, setSidebarOpen] = useState(false);
 
-  // Registration Mode: SINGLE vs BULK
-  const [regMode, setRegMode] = useState<'SINGLE' | 'BULK'>('SINGLE');
-
-  // Single Form State
+  // Form State
   const [patientData, setPatientData] = useState({
     uhid: '',
     name: '',
@@ -41,13 +38,6 @@ export default function RegistrationDesk() {
   const [customTokenNumber, setCustomTokenNumber] = useState('');
   const [priority, setPriority] = useState<'NORMAL' | 'SENIOR' | 'EMERGENCY'>('NORMAL');
   const [singleCount, setSingleCount] = useState<number>(1);
-
-  // Bulk Form State
-  const [bulkCount, setBulkCount] = useState<number>(5);
-  const [bulkPriority, setBulkPriority] = useState<'NORMAL' | 'SENIOR' | 'EMERGENCY'>('NORMAL');
-  const [bulkNamingType, setBulkNamingType] = useState<'WALKIN' | 'PREFIX' | 'LIST'>('WALKIN');
-  const [bulkPrefix, setBulkPrefix] = useState('Walk-in');
-  const [bulkListText, setBulkListText] = useState('');
 
   // Target Room / Queue Destination State
   const [availableRooms, setAvailableRooms] = useState<Array<{ id: string; roomNumber: string; doctorName?: string }>>([]);
@@ -97,146 +87,70 @@ export default function RegistrationDesk() {
       const formattedDate = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
       const formattedTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-      if (regMode === 'SINGLE') {
-        const randomPatientId = crypto.randomUUID();
-        const dummyDoctorId = "550e8400-e29b-41d4-a716-446655440000";
+      const randomPatientId = crypto.randomUUID();
+      const dummyDoctorId = "550e8400-e29b-41d4-a716-446655440000";
 
-        const trimmedName = patientData.name.trim();
-        const nameParts = trimmedName ? trimmedName.split(' ') : [];
-        const firstName = nameParts[0] || 'Patient';
-        const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
-        const phone = patientData.phone.trim();
-        const uhid = patientData.uhid.trim();
-        const cleanCustomToken = customTokenNumber.trim();
-        const count = Math.max(1, Math.min(100, singleCount));
+      const trimmedName = patientData.name.trim();
+      const nameParts = trimmedName ? trimmedName.split(' ') : [];
+      const firstName = nameParts[0] || 'Patient';
+      const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+      const phone = patientData.phone.trim();
+      const uhid = patientData.uhid.trim();
+      const cleanCustomToken = customTokenNumber.trim();
+      const count = Math.max(1, Math.min(100, singleCount));
 
-        const res = await generateToken(
-          deptId,
-          randomPatientId,
-          dummyDoctorId,
-          priority,
-          {
-            firstName: firstName,
-            lastName: lastName,
-            phone: phone,
-            uhid: uhid || undefined
-          },
-          cleanCustomToken || undefined,
-          count
-        );
+      const res = await generateToken(
+        deptId,
+        randomPatientId,
+        dummyDoctorId,
+        priority,
+        {
+          firstName: firstName,
+          lastName: lastName,
+          phone: phone,
+          uhid: uhid || undefined
+        },
+        cleanCustomToken || undefined,
+        count
+      );
 
-        const tokensArray = res.tokens || (Array.isArray(res) ? res : [res]);
-        const formattedTokens = tokensArray.map((t: any, idx: number) => ({
-          tokenNumber: t.tokenNumber,
-          name: t.patient?.firstName ? `${t.patient.firstName} ${t.patient.lastName || ''}`.trim() : (trimmedName || `Patient ${count > 1 ? idx + 1 : ''}`.trim()),
-          phone: t.patient?.phone || phone || '---',
-          uhid: t.patient?.uhid || uhid || '',
-          priority: t.priority || priority,
-          deptName: deptName || 'Medicine',
-          date: formattedDate,
-          issuedAt: formattedTime
-        }));
+      const tokensArray = res.tokens || (Array.isArray(res) ? res : [res]);
+      const formattedTokens = tokensArray.map((t: any, idx: number) => ({
+        tokenNumber: t.tokenNumber,
+        name: t.patient?.firstName ? `${t.patient.firstName} ${t.patient.lastName || ''}`.trim() : (trimmedName || `Patient ${count > 1 ? idx + 1 : ''}`.trim()),
+        phone: t.patient?.phone || phone || '---',
+        uhid: t.patient?.uhid || uhid || '',
+        priority: t.priority || priority,
+        deptName: deptName || 'Medicine',
+        date: formattedDate,
+        issuedAt: formattedTime
+      }));
 
-        setGeneratedBatchList(formattedTokens);
-        setGeneratedToken(formattedTokens[0].tokenNumber);
-        setGeneratedTokenData(formattedTokens[0]);
-        setSelectedTokenIndex(0);
-        setCustomTokenNumber('');
+      setGeneratedBatchList(formattedTokens);
+      setGeneratedToken(formattedTokens[0].tokenNumber);
+      setGeneratedTokenData(formattedTokens[0]);
+      setSelectedTokenIndex(0);
+      setCustomTokenNumber('');
 
-        // Auto-stage to room queue if target room selected
-        if (targetRoom && targetRoom !== 'GENERAL') {
-          const tokenNums = formattedTokens.map((t: any) => t.tokenNumber);
-          if (targetRoom === 'DISTRIBUTE' && availableRooms.length > 0) {
-            availableRooms.forEach((r, rIdx) => {
-              const roomToks = tokenNums.filter((_, idx) => idx % availableRooms.length === rIdx);
-              if (roomToks.length > 0) {
-                addMultipleTokensToRoomQueue(deptId, r.roomNumber, roomToks);
-              }
-            });
-          } else {
-            addMultipleTokensToRoomQueue(deptId, targetRoom, tokenNums);
-          }
+      // Auto-stage to room queue if target room selected
+      if (targetRoom && targetRoom !== 'GENERAL') {
+        const tokenNums = formattedTokens.map((t: any) => t.tokenNumber);
+        if (targetRoom === 'DISTRIBUTE' && availableRooms.length > 0) {
+          availableRooms.forEach((r, rIdx) => {
+            const roomToks = tokenNums.filter((_, idx) => idx % availableRooms.length === rIdx);
+            if (roomToks.length > 0) {
+              addMultipleTokensToRoomQueue(deptId, r.roomNumber, roomToks);
+            }
+          });
+        } else {
+          addMultipleTokensToRoomQueue(deptId, targetRoom, tokenNums);
         }
+      }
 
-        // Refresh the queue store immediately
-        await useQueueStore.getState().fetchQueue(deptId);
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('opd-queue-updated', { detail: { departmentId: deptId } }));
-        }
-      } else {
-        // BULK MULTI-TOKEN MODE
-        let patientsList: Array<{ firstName?: string; lastName?: string; phone?: string; uhid?: string }> | undefined = undefined;
-        let count = Math.max(1, Math.min(100, bulkCount));
-
-        if (bulkNamingType === 'LIST' && bulkListText.trim()) {
-          const lines = bulkListText.split('\n').map(l => l.trim()).filter(Boolean);
-          if (lines.length > 0) {
-            patientsList = lines.map(line => {
-              const parts = line.split(',').map(p => p.trim());
-              const nameParts = parts[0]?.split(' ') || [];
-              return {
-                firstName: nameParts[0] || 'Patient',
-                lastName: nameParts.slice(1).join(' ') || '',
-                phone: parts[1] || '',
-                uhid: parts[2] || undefined,
-              };
-            });
-            count = patientsList.length;
-          }
-        }
-
-        const basePrefix = bulkNamingType === 'PREFIX' && bulkPrefix.trim() ? bulkPrefix.trim() : 'Walk-in';
-
-        const res = await generateToken(
-          deptId,
-          undefined,
-          undefined,
-          bulkPriority,
-          { firstName: basePrefix },
-          undefined,
-          count,
-          patientsList
-        );
-
-        const tokensArray = res.tokens || (Array.isArray(res) ? res : [res]);
-        const formattedTokens = tokensArray.map((t: any, idx: number) => ({
-          tokenNumber: t.tokenNumber,
-          name: t.patient ? `${t.patient.firstName || ''} ${t.patient.lastName || ''}`.trim() : `Walk-in Patient #${idx + 1}`,
-          phone: t.patient?.phone || '---',
-          uhid: t.patient?.uhid || '',
-          priority: t.priority || bulkPriority,
-          deptName: deptName || 'Medicine',
-          date: formattedDate,
-          issuedAt: formattedTime
-        }));
-
-        setGeneratedBatchList(formattedTokens);
-        setGeneratedToken(formattedTokens[0].tokenNumber);
-        setGeneratedTokenData(formattedTokens[0]);
-        setSelectedTokenIndex(0);
-
-        // Auto-stage to room queue only when the user explicitly picks a
-        // specific room or 'DISTRIBUTE'.  'GENERAL' keeps tokens in the
-        // waiting line for any doctor to pull.
-        if (targetRoom && targetRoom !== 'GENERAL') {
-          const tokenNums = formattedTokens.map((t: any) => t.tokenNumber);
-          if (targetRoom === 'DISTRIBUTE' && availableRooms.length > 0) {
-            availableRooms.forEach((r, rIdx) => {
-              const roomToks = tokenNums.filter((_: string, idx: number) => idx % availableRooms.length === rIdx);
-              if (roomToks.length > 0) {
-                addMultipleTokensToRoomQueue(deptId, r.roomNumber, roomToks);
-              }
-            });
-          } else {
-            addMultipleTokensToRoomQueue(deptId, targetRoom, tokenNums);
-          }
-        }
-
-        // Refresh the queue store immediately
-        await useQueueStore.getState().fetchQueue(deptId);
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('opd-queue-updated', { detail: { departmentId: deptId } }));
-        }
+      // Refresh the queue store immediately
+      await useQueueStore.getState().fetchQueue(deptId);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('opd-queue-updated', { detail: { departmentId: deptId } }));
       }
     } catch (err: any) {
       console.error(err);
@@ -448,38 +362,7 @@ export default function RegistrationDesk() {
                   </Link>
                 </div>
 
-                {/* Mode Selector Tabs: Single vs Bulk */}
-                <div className="mb-6 flex p-1.5 bg-slate-100 rounded-2xl border border-slate-200">
-                  <button
-                    type="button"
-                    onClick={() => setRegMode('SINGLE')}
-                    className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                      regMode === 'SINGLE'
-                        ? 'bg-white text-blue-700 shadow-sm'
-                        : 'text-slate-500 hover:text-slate-800'
-                    }`}
-                  >
-                    <User size={15} />
-                    <span>Single Patient Registration</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setRegMode('BULK')}
-                    className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                      regMode === 'BULK'
-                        ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30'
-                        : 'text-slate-500 hover:text-slate-800'
-                    }`}
-                  >
-                    <Layers size={15} />
-                    <span>⚡ Create Multiple Tokens at Once</span>
-                  </button>
-                </div>
-
                 <form onSubmit={handleGenerateToken} className="space-y-6">
-                  {regMode === 'SINGLE' ? (
-                    <>
                       {/* Priority Selector */}
                       <div>
                         <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
@@ -618,261 +501,73 @@ export default function RegistrationDesk() {
                           </div>
                         </div>
                       </div>
-                    </>
-                  ) : (
-                    /* BULK MULTI-TOKEN GENERATION MODE */
-                    <>
-                      {/* Quantity Selector with Quick Pills */}
-                      <div className="bg-gradient-to-b from-blue-50/60 to-indigo-50/60 p-6 rounded-2xl border border-blue-200/80 space-y-4">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <label className="block text-sm font-black text-slate-900 flex items-center gap-2">
-                              <Layers size={18} className="text-blue-600" />
-                              Number of Tokens to Create
-                            </label>
-                            <p className="text-xs text-slate-500">Batch-generate sequential tokens in one instant operation</p>
-                          </div>
 
-                          <div className="flex items-center gap-1.5 bg-white border border-blue-300 rounded-xl p-1 shadow-sm">
-                            <button
-                              type="button"
-                              onClick={() => setBulkCount(Math.max(1, bulkCount - 5))}
-                              className="w-8 h-8 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 flex items-center justify-center font-bold transition-colors cursor-pointer"
-                            >
-                              <Minus size={14} />
-                            </button>
-                            <input
-                              type="number"
-                              min={1}
-                              max={100}
-                              value={bulkCount}
-                              onChange={e => setBulkCount(Math.max(1, Math.min(100, parseInt(e.target.value) || 1)))}
-                              className="w-12 text-center font-black text-blue-950 text-base outline-none"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => setBulkCount(Math.min(100, bulkCount + 5))}
-                              className="w-8 h-8 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 flex items-center justify-center font-bold transition-colors cursor-pointer"
-                            >
-                              <Plus size={14} />
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Quick Count Pills */}
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-xs font-bold text-slate-500 mr-1">Quick Select:</span>
-                          {[2, 5, 10, 20, 50, 100].map(cnt => (
-                            <button
-                              key={cnt}
-                              type="button"
-                              onClick={() => setBulkCount(cnt)}
-                              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
-                                bulkCount === cnt
-                                  ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/30 ring-2 ring-blue-500/20'
-                                  : 'bg-white text-slate-700 border border-slate-200 hover:border-blue-300'
-                              }`}
-                            >
-                              {cnt} Tokens
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Bulk Priority Selector */}
-                      <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
-                          Default Batch Priority
+                      {/* Target Room / Queue Destination Selector */}
+                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-1.5">
+                        <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center justify-between">
+                          <span className="flex items-center gap-1.5">
+                            <Building2 size={14} className="text-blue-600" />
+                            Target Doctor Room / Queue Destination
+                          </span>
+                          {targetRoom !== 'GENERAL' && (
+                            <span className="text-[10px] text-indigo-700 font-bold bg-indigo-100/80 px-2 py-0.5 rounded-md border border-indigo-200">
+                              Direct Staging Active
+                            </span>
+                          )}
                         </label>
-                        <div className="grid grid-cols-3 gap-3">
-                          <button
-                            type="button"
-                            onClick={() => setBulkPriority('NORMAL')}
-                            className={`p-3 rounded-2xl border text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                              bulkPriority === 'NORMAL'
-                                ? 'bg-blue-50 border-blue-500 text-blue-700 ring-2 ring-blue-500/20 shadow-sm'
-                                : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
-                            }`}
-                          >
-                            <span>🟢 Normal</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => setBulkPriority('SENIOR')}
-                            className={`p-3 rounded-2xl border text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                              bulkPriority === 'SENIOR'
-                                ? 'bg-amber-50 border-amber-500 text-amber-800 ring-2 ring-amber-500/20 shadow-sm'
-                                : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
-                            }`}
-                          >
-                            <span>🟡 Senior</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => setBulkPriority('EMERGENCY')}
-                            className={`p-3 rounded-2xl border text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                              bulkPriority === 'EMERGENCY'
-                                ? 'bg-red-50 border-red-500 text-red-700 ring-2 ring-red-500/20 shadow-sm'
-                                : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
-                            }`}
-                          >
-                            <span>🚨 Emergency</span>
-                          </button>
-                        </div>
+                        <select
+                          value={targetRoom}
+                          onChange={(e) => setTargetRoom(e.target.value)}
+                          className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-slate-800 text-xs font-bold focus:ring-2 focus:ring-blue-500 outline-none transition-all cursor-pointer"
+                        >
+                          <option value="GENERAL">🌐 General Waiting Line (Any Doctor Room can call/pull)</option>
+                          {availableRooms.length > 1 && (
+                            <option value="DISTRIBUTE">⚡ Distribute Evenly Across All Active Rooms ({availableRooms.map((r) => `Room ${r.roomNumber}`).join(', ')})</option>
+                          )}
+                          {availableRooms.map((r) => (
+                            <option key={r.id} value={r.roomNumber}>
+                              🚪 Stage Directly to Room {r.roomNumber} Queue {r.doctorName ? `(${r.doctorName})` : ''}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-[10px] text-slate-400">
+                          {targetRoom === 'GENERAL'
+                            ? 'Tokens enter the general line and can be called or staged by any room.'
+                            : targetRoom === 'DISTRIBUTE'
+                              ? 'Tokens will be distributed evenly into each doctor room’s dedicated queue.'
+                              : `Tokens will appear directly in Room ${targetRoom}'s dedicated staged queue.`}
+                        </p>
                       </div>
 
-                      {/* Naming Options */}
-                      <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 space-y-4">
-                        <div>
-                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
-                            Batch Patient Naming Method
-                          </label>
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                            <button
-                              type="button"
-                              onClick={() => setBulkNamingType('WALKIN')}
-                              className={`p-3 rounded-xl border text-xs font-bold text-left transition-all cursor-pointer ${
-                                bulkNamingType === 'WALKIN'
-                                  ? 'bg-blue-50 border-blue-500 text-blue-800 ring-2 ring-blue-500/20'
-                                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
-                              }`}
-                            >
-                              <p className="font-black">Auto Walk-in</p>
-                              <p className="text-[10px] text-slate-400 font-normal">Walk-in Patient #1, #2...</p>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => setBulkNamingType('PREFIX')}
-                              className={`p-3 rounded-xl border text-xs font-bold text-left transition-all cursor-pointer ${
-                                bulkNamingType === 'PREFIX'
-                                  ? 'bg-blue-50 border-blue-500 text-blue-800 ring-2 ring-blue-500/20'
-                                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
-                              }`}
-                            >
-                              <p className="font-black">Custom Prefix</p>
-                              <p className="text-[10px] text-slate-400 font-normal">e.g. Camp Patient, Eye OPD</p>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => setBulkNamingType('LIST')}
-                              className={`p-3 rounded-xl border text-xs font-bold text-left transition-all cursor-pointer ${
-                                bulkNamingType === 'LIST'
-                                  ? 'bg-blue-50 border-blue-500 text-blue-800 ring-2 ring-blue-500/20'
-                                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
-                              }`}
-                            >
-                              <p className="font-black">Paste Patient List</p>
-                              <p className="text-[10px] text-slate-400 font-normal">Multiple names per line</p>
-                            </button>
-                          </div>
-                        </div>
-
-                        {bulkNamingType === 'PREFIX' && (
-                          <div className="animate-in fade-in duration-150">
-                            <label className="block text-xs font-bold text-slate-700 mb-1">
-                              Custom Name Prefix
-                            </label>
-                            <input
-                              type="text"
-                              value={bulkPrefix}
-                              onChange={e => setBulkPrefix(e.target.value)}
-                              placeholder="E.g. Health Camp Patient, Referral Patient"
-                              className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-800 outline-none focus:border-blue-500"
-                            />
-                          </div>
+                      {/* Submit Button */}
+                      <button
+                        type="submit"
+                        disabled={isGenerating}
+                        className={`w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-3 transition-all transform active:scale-[0.98] shadow-lg cursor-pointer ${isGenerating
+                          ? 'bg-blue-400 cursor-not-allowed text-white/70'
+                          : 'bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-700 hover:to-indigo-800 text-white shadow-blue-500/30'
+                          }`}
+                      >
+                        {isGenerating ? (
+                          <span className="flex items-center gap-2">
+                            <svg className="animate-spin h-5 w-5 text-white" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            <span>Generating {singleCount > 1 ? `${singleCount} Tokens` : 'Token'}...</span>
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-2">
+                            <Sparkles size={20} />
+                            <span>
+                              {singleCount > 1
+                                ? `Generate ${singleCount} Tokens & Slips`
+                                : 'Generate Token & Slip'}
+                            </span>
+                          </span>
                         )}
-
-                        {bulkNamingType === 'LIST' && (
-                          <div className="animate-in fade-in duration-150">
-                            <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
-                              <span>Paste Patient Names (1 per line)</span>
-                              <span className="text-[10px] text-slate-400 font-normal">Format: Name, Phone, UHID</span>
-                            </label>
-                            <textarea
-                              rows={4}
-                              value={bulkListText}
-                              onChange={e => setBulkListText(e.target.value)}
-                              placeholder="Rahul Kumar, 9876543210&#10;Anita Roy, 9123456780, UHID-1002&#10;Suresh Sen"
-                              className="w-full bg-white border border-slate-300 rounded-xl p-3 text-xs text-slate-800 outline-none focus:border-blue-500 font-mono"
-                            />
-                          </div>
-                        )}
-                      </div>
-                    </>
-                  )}
-
-                  {/* Target Room / Queue Destination Selector */}
-                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-1.5">
-                    <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center justify-between">
-                      <span className="flex items-center gap-1.5">
-                        <Building2 size={14} className="text-blue-600" />
-                        Target Doctor Room / Queue Destination
-                      </span>
-                      {targetRoom !== 'GENERAL' && (
-                        <span className="text-[10px] text-indigo-700 font-bold bg-indigo-100/80 px-2 py-0.5 rounded-md border border-indigo-200">
-                          Direct Staging Active
-                        </span>
-                      )}
-                    </label>
-                    <select
-                      value={targetRoom}
-                      onChange={(e) => setTargetRoom(e.target.value)}
-                      className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-slate-800 text-xs font-bold focus:ring-2 focus:ring-blue-500 outline-none transition-all cursor-pointer"
-                    >
-                      <option value="GENERAL">🌐 General Waiting Line (Any Doctor Room can call/pull)</option>
-                      {availableRooms.length > 1 && (
-                        <option value="DISTRIBUTE">⚡ Distribute Evenly Across All Active Rooms ({availableRooms.map((r) => `Room ${r.roomNumber}`).join(', ')})</option>
-                      )}
-                      {availableRooms.map((r) => (
-                        <option key={r.id} value={r.roomNumber}>
-                          🚪 Stage Directly to Room {r.roomNumber} Queue {r.doctorName ? `(${r.doctorName})` : ''}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="text-[10px] text-slate-400">
-                      {targetRoom === 'GENERAL'
-                        ? 'Tokens enter the general line and can be called or staged by any room.'
-                        : targetRoom === 'DISTRIBUTE'
-                          ? 'Tokens will be distributed evenly into each doctor room’s dedicated queue.'
-                          : `Tokens will appear directly in Room ${targetRoom}'s dedicated staged queue.`}
-                    </p>
-                  </div>
-
-                  {/* Submit Button */}
-                  <button
-                    type="submit"
-                    disabled={isGenerating}
-                    className={`w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-3 transition-all transform active:scale-[0.98] shadow-lg cursor-pointer ${isGenerating
-                      ? 'bg-blue-400 cursor-not-allowed text-white/70'
-                      : 'bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-700 hover:to-indigo-800 text-white shadow-blue-500/30'
-                      }`}
-                  >
-                    {isGenerating ? (
-                      <span className="flex items-center gap-2">
-                        <svg className="animate-spin h-5 w-5 text-white" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        <span>Generating {regMode === 'BULK' ? `${bulkCount} Tokens` : singleCount > 1 ? `${singleCount} Tokens` : 'Token'}...</span>
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-2">
-                        <Sparkles size={20} />
-                        <span>
-                          {regMode === 'BULK'
-                            ? `Generate ${bulkCount} Tokens at Once`
-                            : singleCount > 1
-                              ? `Generate ${singleCount} Tokens & Slips`
-                              : 'Generate Token & Slip'}
-                        </span>
-                      </span>
-                    )}
-                  </button>
-                </form>
+                      </button>
+                    </form>
               </div>
             </div>
 

@@ -397,8 +397,8 @@ function NavbarContent() {
                   <h3>1. Registration Desk (/registration)</h3>
                 </div>
                 <ul className="space-y-1.5 text-slate-300 list-disc list-inside">
-                  <li><strong>Single Token:</strong> Enter patient name &amp; phone/UHID, click <em>Generate Token</em>.</li>
-                  <li><strong>⚡ Bulk Tokens:</strong> Switch to <em>"Create Multiple Tokens at Once"</em> to generate batches of 5–10 tokens instantly for walk-in rushes.</li>
+                  <li><strong>Patient Registration:</strong> Enter patient name &amp; phone/UHID, select priority, and click <em>Generate Token</em>.</li>
+                  <li><strong>Custom Tokens:</strong> Optionally enter a custom token number (or leave blank to auto-generate sequentially).</li>
                   <li><strong>🚨 Priority:</strong> Choose Emergency Priority to place emergency patients at the top of the queue.</li>
                 </ul>
               </div>
