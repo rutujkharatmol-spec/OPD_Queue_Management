@@ -47,6 +47,37 @@ interface Room {
 /** Stable fallback so an empty queue does not produce a new object identity per render. */
 const EMPTY_QUEUE = { department: 'Medicine', activeTokens: [], nextTokens: [] as string[] };
 
+/**
+ * Expands a token input string into individual token strings.
+ * Supports:
+ *  - Single tokens: "13"
+ *  - Comma/space separated: "13, 14, 15" or "13 14 15"
+ *  - Numeric ranges: "1-100" → ["1","2",...,"100"]
+ *  - Mixed: "1-5, 10, 20-25" → ["1","2","3","4","5","10","20","21","22","23","24","25"]
+ *  - Non-numeric tokens pass through as-is: "MED-01" stays "MED-01"
+ */
+function expandTokenInput(raw: string): string[] {
+  const parts = raw.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+  const result: string[] = [];
+  for (const part of parts) {
+    // Check if it's a pure numeric range like "1-100" (both sides must be integers)
+    const rangeMatch = part.match(/^(\d+)-(\d+)$/);
+    if (rangeMatch) {
+      const start = parseInt(rangeMatch[1], 10);
+      const end = parseInt(rangeMatch[2], 10);
+      if (!isNaN(start) && !isNaN(end) && end >= start && (end - start) <= 999) {
+        for (let i = start; i <= end; i++) {
+          result.push(String(i));
+        }
+        continue;
+      }
+    }
+    // Not a range — use as-is (handles "MED-01" style tokens)
+    result.push(part);
+  }
+  return result;
+}
+
 export default function DoctorDashboard() {
   const searchParams = useSearchParams();
   const requestedDeptId = searchParams.get('deptId');
@@ -859,8 +890,8 @@ export default function DoctorDashboard() {
               e.preventDefault();
               const raw = sidebarQuickToken.trim();
               if (!raw) return;
-              // Split by comma, space, or newline — filter empty entries
-              const tokens = raw.split(/[\s,]+/).map(t => t.trim()).filter(Boolean);
+              // Expand ranges (e.g. 1-100) and split by comma/space
+              const tokens = expandTokenInput(raw);
               if (tokens.length === 0) return;
               setIsSidebarQuickAdding(true);
               const priority = sidebarQuickEmergency ? 'EMERGENCY' : 'NORMAL';
@@ -893,7 +924,7 @@ export default function DoctorDashboard() {
                 type="text"
                 value={sidebarQuickToken}
                 onChange={(e) => setSidebarQuickToken(e.target.value)}
-                placeholder="Token #s (e.g. 13, 14, 15)..."
+                placeholder="e.g. 13, 14, 15 or 1-100..."
                 className="w-full bg-slate-950 border border-indigo-500/40 focus:border-indigo-400 rounded-xl pl-7 pr-3 py-2 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono tracking-wider"
               />
             </div>
@@ -922,7 +953,7 @@ export default function DoctorDashboard() {
               ) : (
                 <Plus size={14} />
               )}
-              <span>{sidebarQuickToken.split(/[\s,]+/).filter(Boolean).length > 1 ? `Add ${sidebarQuickToken.split(/[\s,]+/).filter(Boolean).length} Tokens` : 'Add Token'}</span>
+              <span>{(() => { const c = expandTokenInput(sidebarQuickToken).length; return c > 1 ? `Add ${c} Tokens` : 'Add Token'; })()}</span>
             </button>
           </form>
 
@@ -3194,7 +3225,7 @@ export default function DoctorDashboard() {
                 e.preventDefault();
                 const raw = quickTokenVal.trim();
                 if (!raw) return;
-                const tokens = raw.split(/[\s,]+/).map(t => t.trim()).filter(Boolean);
+                const tokens = expandTokenInput(raw);
                 if (tokens.length === 0) return;
                 setIsQuickAddingToken(true);
                 setQuickTokenError(null);
@@ -3245,9 +3276,9 @@ export default function DoctorDashboard() {
                     className="w-full bg-slate-950 border-2 border-indigo-500/50 focus:border-indigo-400 rounded-2xl pl-10 pr-4 py-3 text-2xl font-black text-white font-mono placeholder:text-slate-600 placeholder:text-base focus:outline-none focus:ring-4 focus:ring-indigo-500/20 tracking-wider transition-all"
                   />
                 </div>
-                {quickTokenVal.split(/[\s,]+/).filter(Boolean).length > 1 && (
+                {expandTokenInput(quickTokenVal).length > 1 && (
                   <p className="mt-1.5 text-xs text-indigo-400 font-bold">
-                    {quickTokenVal.split(/[\s,]+/).filter(Boolean).length} tokens will be added: {quickTokenVal.split(/[\s,]+/).filter(Boolean).join(', ')}
+                    {expandTokenInput(quickTokenVal).length} tokens will be added{expandTokenInput(quickTokenVal).length <= 20 ? `: ${expandTokenInput(quickTokenVal).join(', ')}` : ''}
                   </p>
                 )}
               </div>
@@ -3342,7 +3373,7 @@ export default function DoctorDashboard() {
                       <Plus size={15} />
                       <span>
                         {(() => {
-                          const count = quickTokenVal.split(/[\s,]+/).filter(Boolean).length;
+                          const count = expandTokenInput(quickTokenVal).length;
                           const label = quickTokenDestination.startsWith('CALL_NOW:') ? 'Add & Call' : 'Add';
                           return count > 1 ? `${label} ${count} Tokens` : `${label} Token`;
                         })()}
