@@ -203,7 +203,8 @@ function handleWithLocalStore(url: string, method: string, options: RequestInit)
   if (pathname.includes('/tokens/status/') && method === 'GET') {
     const tokenNum = pathname.split('/tokens/status/')[1]?.split('?')[0] || '';
     const date = searchParams.get('date') || undefined;
-    const data = getLocalTokenStatus(decodeURIComponent(tokenNum), date);
+    const deptId = searchParams.get('departmentId') || searchParams.get('deptId') || undefined;
+    const data = getLocalTokenStatus(decodeURIComponent(tokenNum), date, deptId);
     if (!data) return jsonResponse({ message: 'Token not found' }, 404);
     return jsonResponse(data, 200);
   }

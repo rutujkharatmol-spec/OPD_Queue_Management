@@ -127,6 +127,17 @@ const EN = {
 
   footerSystem: 'AIIMS Kalyani OPD Automated Queue System',
   footerHelp: 'For queue queries or assistance, please visit the central OPD reception.',
+
+  selectDepartment: 'Select OPD Department',
+  deptLiveQueue: '{dept} OPD Live Queue',
+  currentlyInRoom: 'Currently In Consultation',
+  nextWaitingTokens: 'Next In Line (Waiting)',
+  clickToTrackToken: 'Click any token to track live status',
+  trackYourTokenIn: 'Track Token ({dept})',
+  activeRoomsCount: '{count} Active Rooms',
+  waitingCountLabel: '{count} Waiting in Line',
+  noPatientsInRoom: 'No patients currently inside consultation rooms',
+  noPatientsWaitingDept: 'No patients currently waiting in this department',
 } as const;
 
 export type StringKey = keyof typeof EN;
@@ -219,6 +230,17 @@ const HI: Record<StringKey, string> = {
 
   footerSystem: 'एम्स कल्याणी ओपीडी स्वचालित कतार प्रणाली',
   footerHelp: 'कतार संबंधी सहायता के लिए कृपया मुख्य ओपीडी रिसेप्शन पर जाएँ।',
+
+  selectDepartment: 'ओपीडी विभाग चुनें',
+  deptLiveQueue: '{dept} ओपीडी लाइव कतार',
+  currentlyInRoom: 'वर्तमान में परामर्श में',
+  nextWaitingTokens: 'अगले प्रतीक्षारत टोकन',
+  clickToTrackToken: 'ट्रैक करने के लिए किसी टोकन पर क्लिक करें',
+  trackYourTokenIn: 'टोकन ट्रैक करें ({dept})',
+  activeRoomsCount: '{count} सक्रिय कमरे',
+  waitingCountLabel: '{count} कतार में प्रतीक्षारत',
+  noPatientsInRoom: 'वर्तमान में कमरों में कोई मरीज नहीं है',
+  noPatientsWaitingDept: 'इस विभाग में कोई मरीज प्रतीक्षारत नहीं है',
 };
 
 const BN: Record<StringKey, string> = {
@@ -307,6 +329,17 @@ const BN: Record<StringKey, string> = {
 
   footerSystem: 'এইমস কল্যাণী ওপিডি স্বয়ংক্রিয় সারি ব্যবস্থা',
   footerHelp: 'সারি সংক্রান্ত সহায়তার জন্য অনুগ্রহ করে কেন্দ্রীয় ওপিডি অভ্যর্থনায় যোগাযোগ করুন।',
+
+  selectDepartment: 'ওপিডি বিভাগ নির্বাচন করুন',
+  deptLiveQueue: '{dept} ওপিডি লাইভ কিউ',
+  currentlyInRoom: 'বর্তমানে চিকিৎসাধীন',
+  nextWaitingTokens: 'পরবর্তী অপেক্ষমাণ টোকেন',
+  clickToTrackToken: 'ট্র্যাক করতে যেকোনো টোকেনে ক্লিক করুন',
+  trackYourTokenIn: 'টোকেন ট্র্যাক করুন ({dept})',
+  activeRoomsCount: '{count}টি সক্রিয় রুম',
+  waitingCountLabel: '{count} জন লাইনে অপেক্ষমাণ',
+  noPatientsInRoom: 'বর্তমানে কক্ষের ভেতরে কোনো রোগী নেই',
+  noPatientsWaitingDept: 'এই বিভাগে বর্তমানে কোনো রোগী অপেক্ষায় নেই',
 };
 
 const STRINGS: Record<PatientLang, Record<StringKey, string>> = { en: EN, hi: HI, bn: BN };

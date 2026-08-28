@@ -214,7 +214,8 @@ export default function RegistrationDesk() {
   };
 
   const todayDateStr = new Intl.DateTimeFormat('en-CA').format(new Date());
-  const qrUrl = generatedToken ? `${appOrigin}/patient?token=${generatedToken}&date=${todayDateStr}` : '';
+  // Department-specific QR Code: points to the department's live queue & token tracker
+  const qrUrl = deptId ? `${appOrigin}/patient?deptId=${deptId}` : `${appOrigin}/patient`;
 
   return (
     <div className="flex h-screen w-full bg-slate-100 font-sans overflow-hidden print:overflow-visible print:bg-white print:h-auto">
@@ -630,7 +631,7 @@ export default function RegistrationDesk() {
                           />
                         )}
                         <p className="text-[10px] font-bold text-slate-500 mt-2 flex items-center gap-1 justify-center">
-                          <QrCode size={12} /> Scan with phone to track live position
+                          <QrCode size={12} /> Scan to track {generatedTokenData.deptName} OPD Queue
                         </p>
                       </div>
 

@@ -641,18 +641,27 @@ export function localSearchTokens(query: string, departmentId?: string): LocalTo
     .map((entry) => entry.token);
 }
 
-export function getLocalTokenStatus(tokenNumber: string, dateStr?: string) {
+export function getLocalTokenStatus(tokenNumber: string, dateStr?: string, departmentId?: string) {
   const tokens = getLocalTokens();
   const depts = getLocalDepartments();
   const targetDate = dateStr || getTodayString();
   const normToken = (tokenNumber || '').trim().toLowerCase();
 
-  // Find token matching tokenNumber and date (or latest token if date not specified)
+  // Find token matching tokenNumber, date, and optional departmentId (or latest token if date not specified)
   const token =
-    tokens.find((t) => (t.tokenNumber || '').toLowerCase() === normToken && t.serviceDate === targetDate) ||
+    tokens.find(
+      (t) =>
+        (t.tokenNumber || '').toLowerCase() === normToken &&
+        t.serviceDate === targetDate &&
+        (!departmentId || t.departmentId === departmentId)
+    ) ||
     (!dateStr
       ? tokens
-          .filter((t) => (t.tokenNumber || '').toLowerCase() === normToken)
+          .filter(
+            (t) =>
+              (t.tokenNumber || '').toLowerCase() === normToken &&
+              (!departmentId || t.departmentId === departmentId)
+          )
           .sort((a, b) => new Date(b.issuedAt).getTime() - new Date(a.issuedAt).getTime())[0]
       : null);
 

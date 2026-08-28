@@ -120,15 +120,25 @@ export interface TokenStatusResponse {
 export async function getTokenStatus(
   tokenNumber: string,
   date?: string,
+  departmentId?: string,
   signal?: AbortSignal,
 ): Promise<TokenStatusResponse> {
-  const query = date ? `?date=${encodeURIComponent(date)}` : '';
+  const params = new URLSearchParams();
+  if (date) params.set('date', date);
+  if (departmentId) params.set('departmentId', departmentId);
+  const query = params.toString() ? `?${params.toString()}` : '';
   const response = await fetchWithOfflineSync(`${API_BASE_URL}/tokens/status/${encodeURIComponent(tokenNumber)}${query}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json' },
     signal,
   });
   if (!response.ok) throw new Error('Failed to fetch token status');
+  return response.json();
+}
+
+export async function getLiveQueue(departmentId: string) {
+  const response = await fetchWithOfflineSync(`${API_BASE_URL}/queue/live/${departmentId}`);
+  if (!response.ok) throw new Error('Failed to fetch live queue');
   return response.json();
 }
 

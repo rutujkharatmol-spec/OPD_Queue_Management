@@ -28,6 +28,7 @@ export const GET = route(async (_request: Request, { params }: { params: Promise
   const { tokenNumber } = await params;
   const { searchParams } = new URL(_request.url);
   const dateQuery = searchParams.get('date');
+  const deptQuery = searchParams.get('departmentId') || searchParams.get('deptId');
 
   let serviceDate: Date;
   if (dateQuery) {
@@ -51,6 +52,7 @@ export const GET = route(async (_request: Request, { params }: { params: Promise
       tokenNumber: { equals: tokenNumber, mode: 'insensitive' },
       serviceDate,
       deletedAt: null,
+      ...(deptQuery ? { departmentId: deptQuery } : {}),
     },
     select: {
       tokenNumber: true,
