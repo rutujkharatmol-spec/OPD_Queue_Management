@@ -232,6 +232,7 @@ async function notify(title: string, body: string, tag: string, sticky: boolean)
 export type TurnAlert = {
   tokenNumber: string;
   roomNumber: string | null;
+  patientName?: string | null;
   lang: PatientLang;
   speak: boolean;
   isRecall?: boolean;
@@ -245,6 +246,7 @@ export type TurnAlert = {
 export async function notifyTurn({
   tokenNumber,
   roomNumber,
+  patientName,
   lang,
   speak = true,
   isRecall = false,
@@ -270,8 +272,12 @@ export async function notifyTurn({
   // 2. Set Lock Screen Media Metadata so the turn shows on phone lock screen
   if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
     try {
+      const lockTitle = patientName
+        ? (isRecall ? `🔔 RECALL: Token ${tokenNumber} - ${patientName}` : `🔔 YOUR TURN: Token ${tokenNumber} - ${patientName}`)
+        : (isRecall ? `🔔 RECALL: Token ${tokenNumber}` : `🔔 YOUR TURN: Token ${tokenNumber}`);
+
       navigator.mediaSession.metadata = new MediaMetadata({
-        title: isRecall ? `🔔 RECALL: Token ${tokenNumber}` : `🔔 YOUR TURN: Token ${tokenNumber}`,
+        title: lockTitle,
         artist: roomNumber ? `Proceed to Room ${roomNumber}` : `AIIMS Kalyani OPD`,
         album: `AIIMS Kalyani OPD Queue Tracker`,
         artwork: [
@@ -282,15 +288,22 @@ export async function notifyTurn({
     } catch {}
   }
 
-  // 3. Play Hospital Chime + Speech Announcement (just like TV)
-  try {
-    await announcePatientCall({
-      tokenNumber,
-      roomNumber: roomNumber || '',
-      lang: toAudioLang(lang),
-    });
-  } catch (err) {
-    console.error('Audio announcement failed, falling back to hospital chime:', err);
+  // 3. Play Hospital Chime + Speech Announcement (both Token Number & Patient Name)
+  if (speak) {
+    try {
+      await announcePatientCall({
+        tokenNumber,
+        patientName,
+        roomNumber: roomNumber || '',
+        lang: toAudioLang(lang),
+      });
+    } catch (err) {
+      console.error('Audio announcement failed, falling back to hospital chime:', err);
+      try {
+        await playHospitalChime();
+      } catch {}
+    }
+  } else {
     try {
       await playHospitalChime();
     } catch {}
@@ -324,6 +337,7 @@ export async function testAlert(lang: PatientLang): Promise<void> {
   try {
     await announcePatientCall({
       tokenNumber: 'A-001',
+      patientName: 'Demo Patient',
       roomNumber: '101',
       lang: toAudioLang(lang),
     });

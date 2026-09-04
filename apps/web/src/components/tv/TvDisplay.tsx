@@ -227,6 +227,7 @@ export default function TvDisplay() {
           const isEmerg = changedItem.token?.includes('🚨');
           announcePatientCall({
             tokenNumber: changedItem.token,
+            patientName: changedItem.patientName,
             roomNumber: changedItem.room,
             isEmergency: isEmerg,
             lang: audioLang,

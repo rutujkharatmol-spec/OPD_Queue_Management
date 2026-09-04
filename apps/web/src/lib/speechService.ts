@@ -13,6 +13,7 @@ export type VoiceEngineMode = 'online' | 'offline';
 
 export interface AnnouncementOptions {
   tokenNumber: string;
+  patientName?: string | null;
   roomNumber: string;
   isEmergency?: boolean;
   lang?: AudioLang;
@@ -276,10 +277,35 @@ function formatTokenForSpeech(token: string): string {
 }
 
 /**
- * Main announcement entry point
+ * Filter out auto-generated placeholder names like "Patient #10", "Patient #11", "Patient", "Walk-in Patient",
+ * and sanitize valid patient names for spoken pronunciation.
+ */
+export function sanitizePatientNameForSpeech(name?: string | null): string | null {
+  if (!name) return null;
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  const lower = trimmed.toLowerCase();
+  if (
+    lower === 'unknown patient' ||
+    lower === 'patient' ||
+    lower === 'walk-in patient' ||
+    lower.startsWith('patient #') ||
+    lower.startsWith('patient#') ||
+    /^patient\s*#?\s*\d+/i.test(lower)
+  ) {
+    return null;
+  }
+  // Strip trailing/leading punctuation or symbols
+  const clean = trimmed.replace(/^[\s,.-]+|[\s,.-]+$/g, '').trim();
+  return clean.length > 0 ? clean : null;
+}
+
+/**
+ * Main announcement entry point — calls both token number and patient name on voice
  */
 export async function announcePatientCall({
   tokenNumber,
+  patientName,
   roomNumber,
   isEmergency = false,
   lang = 'dual',
@@ -289,6 +315,11 @@ export async function announcePatientCall({
   const mode = engineMode || getVoiceEngineMode();
   const spokenToken = formatTokenForSpeech(tokenNumber);
   const cleanToken = spokenToken;
+  const validName = sanitizePatientNameForSpeech(patientName);
+
+  const roomEn = roomNumber ? `Room ${roomNumber}` : 'the OPD room';
+  const roomHi = roomNumber ? `कमरा नंबर ${roomNumber}` : 'ओपीडी कमरे';
+  const roomBn = roomNumber ? `রুম নম্বর ${roomNumber} এ` : 'ওপিডি রুমে';
 
   // 1. Stop any ongoing audio/speech first
   stopAudioAnnouncement();
@@ -298,39 +329,59 @@ export async function announcePatientCall({
 
   // 3. Announce according to selected language and mode
   if (lang === 'dual') {
-    // English announcement
+    // English announcement (Token Number + Patient Name + Room)
     const enText = isEmergency
-      ? `Emergency! Token number ${spokenToken}, please proceed to Room ${roomNumber}.`
-      : `Token number ${spokenToken}, please proceed to Room ${roomNumber}.`;
+      ? (validName
+          ? `Emergency! Token number ${spokenToken}, ${validName}, please proceed to ${roomEn}.`
+          : `Emergency! Token number ${spokenToken}, please proceed to ${roomEn}.`)
+      : (validName
+          ? `Token number ${spokenToken}, ${validName}, please proceed to ${roomEn}.`
+          : `Token number ${spokenToken}, please proceed to ${roomEn}.`);
 
     await speakAccordingToMode(enText, 'en-in', gender, mode);
 
     // Pause between languages
     await new Promise((r) => setTimeout(r, 450));
 
-    // Hindi announcement
+    // Hindi announcement (Token Number + Patient Name + Room)
     const hiText = isEmergency
-      ? `इमरजेंसी! टोकन नंबर ${cleanToken}, कृपया कमरा नंबर ${roomNumber} में जाएं।`
-      : `टोकन नंबर ${cleanToken}, कृपया कमरा नंबर ${roomNumber} में जाएं।`;
+      ? (validName
+          ? `इमरजेंसी! टोकन नंबर ${cleanToken}, ${validName}, कृपया ${roomHi} में जाएं।`
+          : `इमरजेंसी! टोकन नंबर ${cleanToken}, कृपया ${roomHi} में जाएं।`)
+      : (validName
+          ? `टोकन नंबर ${cleanToken}, ${validName}, कृपया ${roomHi} में जाएं।`
+          : `टोकन नंबर ${cleanToken}, कृपया ${roomHi} में जाएं।`);
 
     await speakAccordingToMode(hiText, 'hi', gender, mode);
   } else if (lang === 'hi') {
     const hiText = isEmergency
-      ? `इमरजेंसी! टोकन नंबर ${cleanToken}, कृपया कमरा नंबर ${roomNumber} में जाएं।`
-      : `टोकन नंबर ${cleanToken}, कृपया कमरा नंबर ${roomNumber} में जाएं।`;
+      ? (validName
+          ? `इमरजेंसी! टोकन नंबर ${cleanToken}, ${validName}, कृपया ${roomHi} में जाएं।`
+          : `इमरजेंसी! टोकन नंबर ${cleanToken}, कृपया ${roomHi} में जाएं।`)
+      : (validName
+          ? `टोकन नंबर ${cleanToken}, ${validName}, कृपया ${roomHi} में जाएं।`
+          : `टोकन नंबर ${cleanToken}, कृपया ${roomHi} में जाएं।`);
 
     await speakAccordingToMode(hiText, 'hi', gender, mode);
   } else if (lang === 'bn') {
     const bnText = isEmergency
-      ? `জরুরী! টোকেন নম্বর ${cleanToken}, অনুগ্রহ করে রুম নম্বর ${roomNumber} এ যান।`
-      : `টোকেন নম্বর ${cleanToken}, অনুগ্রহ করে রুম নম্বর ${roomNumber} এ যান।`;
+      ? (validName
+          ? `জরুরী! টোকেন নম্বর ${cleanToken}, ${validName}, অনুগ্রহ করে ${roomBn} যান।`
+          : `জরুরী! টোকেন নম্বর ${cleanToken}, অনুগ্রহ করে ${roomBn} যান।`)
+      : (validName
+          ? `টোকেন নম্বর ${cleanToken}, ${validName}, অনুগ্রহ করে ${roomBn} যান।`
+          : `টোকেন নম্বর ${cleanToken}, অনুগ্রহ করে ${roomBn} যান।`);
 
     await speakAccordingToMode(bnText, 'bn', gender, mode);
   } else {
     // English Only
     const enText = isEmergency
-      ? `Emergency! Token number ${spokenToken}, please proceed to Room ${roomNumber}.`
-      : `Token number ${spokenToken}, please proceed to Room ${roomNumber}.`;
+      ? (validName
+          ? `Emergency! Token number ${spokenToken}, ${validName}, please proceed to ${roomEn}.`
+          : `Emergency! Token number ${spokenToken}, please proceed to ${roomEn}.`)
+      : (validName
+          ? `Token number ${spokenToken}, ${validName}, please proceed to ${roomEn}.`
+          : `Token number ${spokenToken}, please proceed to ${roomEn}.`);
 
     await speakAccordingToMode(enText, 'en-in', gender, mode);
   }

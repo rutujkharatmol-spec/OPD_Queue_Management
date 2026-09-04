@@ -809,6 +809,7 @@ export function getLocalTokenStatus(tokenNumber: string, dateStr?: string, depar
 
   return {
     tokenNumber: token.tokenNumber,
+    patientName: token.patient ? `${token.patient.firstName || ''} ${token.patient.lastName || ''}`.trim() || null : null,
     status: token.status,
     priority: token.priority,
     serviceDate: token.serviceDate,
@@ -861,7 +862,21 @@ export function getLocalAnalytics(departmentId?: string, dateStr?: string) {
     hourlyDistribution[`${String(h).padStart(2, '0')}:00`] = 0;
   }
 
-  const roomStatsMap = new Map<string, number>();
+  const rooms = getLocalRooms(departmentId);
+  const doctorByRoom = new Map<string, string>();
+  rooms.forEach((r) => {
+    if (r.doctorName) doctorByRoom.set(r.roomNumber, r.doctorName);
+  });
+
+  const roomStatsMap = new Map<string, {
+    roomNumber: string;
+    totalPatients: number;
+    completedCount: number;
+    activeCount: number;
+    absentCount: number;
+    consultationTotalMins: number;
+    consultationCount: number;
+  }>();
 
   for (const t of tokens) {
     if (departmentId && t.departmentId !== departmentId) continue;
@@ -899,16 +914,52 @@ export function getLocalAnalytics(departmentId?: string, dateStr?: string) {
       hourlyDistribution[hr]++;
     }
 
-    if (isCompleted) {
-      const r = t.roomNumber || '101';
-      roomStatsMap.set(r, (roomStatsMap.get(r) || 0) + 1);
+    // Track detailed room stats for any token assigned or called into a room
+    const r = t.roomNumber;
+    if (r) {
+      if (!roomStatsMap.has(r)) {
+        roomStatsMap.set(r, {
+          roomNumber: r,
+          totalPatients: 0,
+          completedCount: 0,
+          activeCount: 0,
+          absentCount: 0,
+          consultationTotalMins: 0,
+          consultationCount: 0,
+        });
+      }
+      const acc = roomStatsMap.get(r)!;
+      acc.totalPatients++;
+
+      if (isCompleted) {
+        acc.completedCount++;
+        if (t.calledAt && t.completedAt) {
+          acc.consultationTotalMins += (new Date(t.completedAt).getTime() - calledAtMs) / 60_000;
+          acc.consultationCount++;
+        }
+      } else if (t.status === 'CALLED') {
+        acc.activeCount++;
+      } else if (t.status === 'ABSENT' || t.status === 'SKIPPED') {
+        acc.absentCount++;
+      }
     }
   }
 
-  const roomStats = Array.from(roomStatsMap, ([roomNumber, totalServed]) => ({
-    roomNumber,
-    totalServed,
-  }));
+  const roomStats = Array.from(roomStatsMap.values())
+    .sort((a, b) => a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true }))
+    .map((acc) => ({
+      roomNumber: acc.roomNumber,
+      doctorName: doctorByRoom.get(acc.roomNumber),
+      totalPatients: acc.totalPatients,
+      completedCount: acc.completedCount,
+      activeCount: acc.activeCount,
+      absentCount: acc.absentCount,
+      totalServed: acc.completedCount,
+      avgConsultMins:
+        acc.consultationCount > 0
+          ? Math.round((acc.consultationTotalMins / acc.consultationCount) * 10) / 10
+          : 0,
+    }));
 
   return {
     date: targetDate,

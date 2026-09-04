@@ -351,6 +351,7 @@ export default function PatientTracker() {
       void notifyTurn({
         tokenNumber: statusData.tokenNumber,
         roomNumber: statusData.roomNumber,
+        patientName: statusData.patientName,
         lang,
         speak: voiceOn,
         isRecall: true,
@@ -362,6 +363,7 @@ export default function PatientTracker() {
       void notifyTurn({
         tokenNumber: statusData.tokenNumber,
         roomNumber: statusData.roomNumber,
+        patientName: statusData.patientName,
         lang,
         speak: voiceOn,
         isRecall: false,

@@ -147,6 +147,7 @@ export type TokenPriorityValue = 'NORMAL' | 'SENIOR' | 'EMERGENCY';
  */
 export interface TokenStatusResponse {
   tokenNumber: string;
+  patientName?: string | null;
   status: TokenStatusValue;
   priority: TokenPriorityValue;
   serviceDate: string;

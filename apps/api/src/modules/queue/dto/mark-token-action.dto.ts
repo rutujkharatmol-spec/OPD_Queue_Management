@@ -8,6 +8,7 @@ export enum TokenAction {
   COMPLETE = 'COMPLETE',
   RETURN_TO_QUEUE = 'RETURN_TO_QUEUE',
   RESET_TO_WAITING = 'RESET_TO_WAITING',
+  WAITING = 'WAITING',
 }
 
 export class MarkTokenActionDto {

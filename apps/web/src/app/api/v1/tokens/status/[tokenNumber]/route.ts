@@ -66,6 +66,7 @@ export const GET = route(async (_request: Request, { params }: { params: Promise
       departmentId: true,
       department: { select: { name: true } },
       doctor: { select: { roomNumber: true } },
+      patient: { select: { firstName: true, lastName: true } },
     },
   });
 
@@ -145,6 +146,7 @@ export const GET = route(async (_request: Request, { params }: { params: Promise
 
   return ok({
     tokenNumber: token.tokenNumber,
+    patientName: token.patient ? `${token.patient.firstName || ''} ${token.patient.lastName || ''}`.trim() || null : null,
     status: token.status,
     priority: token.priority,
     serviceDate: token.serviceDate,

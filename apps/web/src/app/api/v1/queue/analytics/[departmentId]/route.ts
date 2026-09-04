@@ -14,14 +14,25 @@ export const GET = route(async (request: Request, { params }: Context) => {
 
   const targetDate = dateQuery ? serviceDateFor(new Date(dateQuery)) : serviceDateFor();
 
-  const tokens = await db.token.findMany({
-    where: {
-      departmentId,
-      serviceDate: targetDate,
-      deletedAt: null,
-    },
-    select: ANALYTICS_TOKEN_SELECT,
-  });
+  const [tokens, rooms] = await Promise.all([
+    db.token.findMany({
+      where: {
+        departmentId,
+        serviceDate: targetDate,
+        deletedAt: null,
+      },
+      select: ANALYTICS_TOKEN_SELECT,
+    }),
+    db.room.findMany({
+      where: { departmentId, deletedAt: null },
+      select: { roomNumber: true, doctorName: true },
+    }),
+  ]);
 
-  return ok(summariseTokens(tokens, targetDate.toISOString().slice(0, 10)));
+  const doctorByRoom = new Map<string, string>();
+  for (const r of rooms) {
+    if (r.doctorName) doctorByRoom.set(r.roomNumber, r.doctorName);
+  }
+
+  return ok(summariseTokens(tokens, targetDate.toISOString().slice(0, 10), doctorByRoom));
 });

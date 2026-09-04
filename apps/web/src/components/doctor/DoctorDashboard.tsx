@@ -6,12 +6,13 @@ import {
   PhoneOff, AlertTriangle, UserPlus, Settings, Bell, BarChart2, Stethoscope, ArrowRight,
   Plus, Trash2, Edit2, Check, X, Building2, SkipForward, Sliders, RotateCcw, Minus,
   CheckCircle2, GripVertical, UserCheck, CornerDownRight, Sparkles, Zap, ListOrdered,
-  Play, ShieldCheck, Eye, Layers, LayoutGrid, ArrowRightLeft, ArrowLeftCircle, Undo2, Search, Hash
+  Play, ShieldCheck, Eye, Layers, LayoutGrid, ArrowRightLeft, ArrowLeftCircle, Undo2, Search, Hash, Volume2
 } from 'lucide-react';
 import {
   API_BASE_URL, callNextPatient, markTokenAction, recallPatient, bulkDeleteTokens,
   getRooms, createRoom, updateRoom, deleteRoom, searchTokens, generateToken
 } from '../../lib/api';
+import { announcePatientCall } from '../../lib/speechService';
 import { useQueueStore } from '../../store/useQueueStore';
 import { useSearchParams } from 'next/navigation';
 import { useDepartmentStore } from '../../store/useDepartmentStore';
@@ -2192,6 +2193,25 @@ export default function DoctorDashboard() {
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
+                              announcePatientCall({
+                                tokenNumber: activePatient.token,
+                                patientName: activePatient.patientName,
+                                roomNumber: room.roomNumber,
+                                isEmergency: activePatient.token?.includes('🚨'),
+                              });
+                              showToast(`Announcing Token ${activePatient.token}${activePatient.patientName ? ` (${activePatient.patientName})` : ''} on voice!`, 3000);
+                            }}
+                            className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 hover:border-emerald-300 font-bold text-[11px] rounded-lg transition-all flex items-center gap-1 cursor-pointer active:scale-95 shadow-xs"
+                            title="Call this patient out loud with their token number and name"
+                          >
+                            <Volume2 size={12} className="text-emerald-600" />
+                            <span>Voice Call</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
                               setTransferModalToken({
                                 token: activePatient.token,
                                 tokenId: activePatient.id,
@@ -2386,6 +2406,22 @@ export default function DoctorDashboard() {
                                     title="Mark absent"
                                   >
                                     Abs
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      announcePatientCall({
+                                        tokenNumber: p.token,
+                                        patientName: p.patientName,
+                                        roomNumber: room.roomNumber,
+                                        isEmergency: p.token?.includes('🚨'),
+                                      });
+                                      showToast(`Voice calling Token ${p.token}${p.patientName ? ` (${p.patientName})` : ''}!`, 3000);
+                                    }}
+                                    className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
+                                    title={`Announce Token ${p.token}${p.patientName ? ` (${p.patientName})` : ''} on voice`}
+                                  >
+                                    <Volume2 size={12} />
                                   </button>
                                   <button
                                     type="button"

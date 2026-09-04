@@ -27,16 +27,35 @@ export const ANALYTICS_TOKEN_SELECT = {
   completedAt: true,
 } as const;
 
+export type RoomPatientStats = {
+  roomNumber: string;
+  doctorName?: string;
+  totalPatients: number;
+  completedCount: number;
+  activeCount: number;
+  absentCount: number;
+  totalServed: number;
+  avgConsultMins: number;
+};
+
+type RoomStatAccumulator = {
+  roomNumber: string;
+  totalPatients: number;
+  completedCount: number;
+  activeCount: number;
+  absentCount: number;
+  consultationTotalMins: number;
+  consultationCount: number;
+};
+
 /**
  * Rolls a day's tokens up into the analytics payload in one pass.
- *
- * The previous version swept the same array twelve times — once per status, once per
- * priority, twice for the timing averages, once for the hour histogram and once for the
- * room table — allocating an intermediate array each time. Averages are accumulated in
- * the same left-to-right order the old `reduce` calls used, so the rounded results are
- * unchanged.
  */
-export function summariseTokens(tokens: SummarisableToken[], date: string) {
+export function summariseTokens(
+  tokens: SummarisableToken[],
+  date: string,
+  doctorByRoom?: Map<string, string>
+) {
   let completedCount = 0;
   let waitingCount = 0;
   let calledCount = 0;
@@ -56,7 +75,7 @@ export function summariseTokens(tokens: SummarisableToken[], date: string) {
     hourlyDistribution[`${String(h).padStart(2, '0')}:00`] = 0;
   }
 
-  const roomStatsMap = new Map<string, number>();
+  const roomStatsMap = new Map<string, RoomStatAccumulator>();
 
   for (const t of tokens) {
     const isCompleted = t.status === 'COMPLETED';
@@ -70,8 +89,6 @@ export function summariseTokens(tokens: SummarisableToken[], date: string) {
     else if (t.priority === 'SENIOR') senior++;
     else if (t.priority === 'NORMAL') normal++;
 
-    // These are already Date objects from the driver; the old code wrapped each one in
-    // `new Date(...)` again on every read.
     const issuedAtMs = t.issuedAt.getTime();
     const calledAtMs = t.calledAt ? t.calledAt.getTime() : 0;
 
@@ -90,11 +107,52 @@ export function summariseTokens(tokens: SummarisableToken[], date: string) {
       hourlyDistribution[hour]++;
     }
 
-    if (isCompleted) {
-      const room = t.roomNumber || '101';
-      roomStatsMap.set(room, (roomStatsMap.get(room) || 0) + 1);
+    // Track room-wise statistics for any token assigned to or called in a room
+    const room = t.roomNumber;
+    if (room) {
+      if (!roomStatsMap.has(room)) {
+        roomStatsMap.set(room, {
+          roomNumber: room,
+          totalPatients: 0,
+          completedCount: 0,
+          activeCount: 0,
+          absentCount: 0,
+          consultationTotalMins: 0,
+          consultationCount: 0,
+        });
+      }
+      const acc = roomStatsMap.get(room)!;
+      acc.totalPatients++;
+
+      if (isCompleted) {
+        acc.completedCount++;
+        if (t.calledAt && t.completedAt) {
+          acc.consultationTotalMins += (t.completedAt.getTime() - calledAtMs) / 60_000;
+          acc.consultationCount++;
+        }
+      } else if (t.status === 'CALLED') {
+        acc.activeCount++;
+      } else if (t.status === 'ABSENT' || t.status === 'SKIPPED') {
+        acc.absentCount++;
+      }
     }
   }
+
+  const roomStats: RoomPatientStats[] = Array.from(roomStatsMap.values())
+    .sort((a, b) => a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true }))
+    .map((acc) => ({
+      roomNumber: acc.roomNumber,
+      doctorName: doctorByRoom?.get(acc.roomNumber),
+      totalPatients: acc.totalPatients,
+      completedCount: acc.completedCount,
+      activeCount: acc.activeCount,
+      absentCount: acc.absentCount,
+      totalServed: acc.completedCount,
+      avgConsultMins:
+        acc.consultationCount > 0
+          ? Math.round((acc.consultationTotalMins / acc.consultationCount) * 10) / 10
+          : 0,
+    }));
 
   return {
     date,
@@ -109,9 +167,6 @@ export function summariseTokens(tokens: SummarisableToken[], date: string) {
     avgConsultationTimeMins:
       consultationCount > 0 ? Math.round(consultationTotal / consultationCount) : 0,
     hourlyDistribution,
-    roomStats: Array.from(roomStatsMap, ([roomNumber, totalServed]) => ({
-      roomNumber,
-      totalServed,
-    })),
+    roomStats,
   };
 }
