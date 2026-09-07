@@ -36,6 +36,23 @@ function NavbarContent() {
   const [uiSettings, setUiSettingsState] = useState<UiVisibilitySettings>(DEFAULT_UI_SETTINGS);
   const [isShowUiOpen, setIsShowUiOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const logoClickRef = useRef<{ count: number; timer: NodeJS.Timeout | null }>({ count: 0, timer: null });
+
+  const handleLogoClick = (e: React.MouseEvent) => {
+    logoClickRef.current.count += 1;
+    if (logoClickRef.current.timer) {
+      clearTimeout(logoClickRef.current.timer);
+    }
+    if (logoClickRef.current.count >= 5) {
+      e.preventDefault();
+      logoClickRef.current.count = 0;
+      window.dispatchEvent(new CustomEvent('opd:trigger-provenance'));
+      return;
+    }
+    logoClickRef.current.timer = setTimeout(() => {
+      logoClickRef.current.count = 0;
+    }, 2500);
+  };
 
   useEffect(() => {
     loadDepartments(urlDeptId);
@@ -120,7 +137,11 @@ function NavbarContent() {
           
           {/* Brand Logo */}
           <div className="flex-shrink-0 flex items-center">
-            <Link href={getHref('/')} className="text-xl font-black text-white tracking-wide flex items-center gap-2 hover:opacity-90 transition-opacity">
+            <Link 
+              href={getHref('/')} 
+              onClick={handleLogoClick}
+              className="text-xl font-black text-white tracking-wide flex items-center gap-2 hover:opacity-90 transition-opacity select-none"
+            >
               <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></span>
               OPD <span className="text-blue-400">Queue</span>
             </Link>

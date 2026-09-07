@@ -3,11 +3,17 @@ import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AllExceptionsFilter } from './shared/filters/all-exceptions.filter';
+import { PROVENANCE_HEADER_TAG } from './shared/provenance';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.enableCors();
   app.setGlobalPrefix('api/v1');
+
+  app.use((_req: any, res: any, next: any) => {
+    res.setHeader('X-System-Origin', PROVENANCE_HEADER_TAG);
+    next();
+  });
 
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true,

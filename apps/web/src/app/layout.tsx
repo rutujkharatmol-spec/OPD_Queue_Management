@@ -4,6 +4,7 @@ import { Navbar } from '../components/Navbar'
 import { AuthWrapper } from '../components/AuthWrapper'
 import { NetworkProvider } from '../components/NetworkProvider'
 import { ServiceWorkerRegister } from '../components/ServiceWorkerRegister'
+import { SystemWatermark } from '../components/SystemWatermark'
 
 export const metadata: Metadata = {
   title: 'AIIMS Kalyani OPD Queue Management',
@@ -38,6 +39,7 @@ export default function RootLayout({
       </head>
       <body className="bg-slate-950 min-h-screen text-white">
         <ServiceWorkerRegister />
+        <SystemWatermark />
         <NetworkProvider>
           <AuthWrapper>
             <Navbar />
