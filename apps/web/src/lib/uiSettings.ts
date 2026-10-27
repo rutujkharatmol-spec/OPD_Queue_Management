@@ -1,6 +1,9 @@
 // src/lib/uiSettings.ts
+import { useEffect, useState } from 'react';
 
 export interface UiVisibilitySettings {
+  /** Simple UI: hides advanced controls everywhere and keeps only the everyday actions. */
+  simpleMode: boolean;
   showQueueSidebar: boolean;
   showRoomStagedQueue: boolean;
   showDoctorNames: boolean;
@@ -12,6 +15,7 @@ export interface UiVisibilitySettings {
 const UI_SETTINGS_KEY = 'opd_ui_visibility_settings_v3';
 
 export const DEFAULT_UI_SETTINGS: UiVisibilitySettings = {
+  simpleMode: true,
   showQueueSidebar: true,
   showRoomStagedQueue: false,
   showDoctorNames: false,
@@ -57,6 +61,25 @@ export function setUiVisibilitySettings(settings: Partial<UiVisibilitySettings>)
   } catch {
     return DEFAULT_UI_SETTINGS;
   }
+}
+
+/**
+ * React hook: true while Simple UI is on. Stays in sync with the navbar toggle
+ * (same tab) and with other open tabs.
+ */
+export function useSimpleMode(): boolean {
+  const [simple, setSimple] = useState(DEFAULT_UI_SETTINGS.simpleMode);
+  useEffect(() => {
+    const sync = () => setSimple(getUiVisibilitySettings().simpleMode);
+    sync();
+    window.addEventListener('opd-ui-visibility-updated', sync);
+    window.addEventListener('storage', sync);
+    return () => {
+      window.removeEventListener('opd-ui-visibility-updated', sync);
+      window.removeEventListener('storage', sync);
+    };
+  }, []);
+  return simple;
 }
 
 /**

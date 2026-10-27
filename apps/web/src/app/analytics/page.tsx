@@ -11,6 +11,7 @@ import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 
 import { useDepartmentStore } from '../../store/useDepartmentStore';
+import { useSimpleMode } from '../../lib/uiSettings';
 
 function AnalyticsContent() {
   const searchParams = useSearchParams();
@@ -23,6 +24,8 @@ function AnalyticsContent() {
   const getEffectiveDeptId = useDepartmentStore((state) => state.getEffectiveDeptId);
 
   const deptId = getEffectiveDeptId(initialDeptId);
+  // Simple UI: headline numbers and per-room counts only.
+  const simple = useSimpleMode();
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [analytics, setAnalytics] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -96,7 +99,7 @@ function AnalyticsContent() {
                 AIIMS Kalyani
               </span>
             </div>
-            <p className="text-xs text-slate-500 font-medium mt-0.5">
+            <p className={`text-xs text-slate-500 font-medium mt-0.5 ${simple ? 'hidden' : ''}`}>
               Live consultation metrics, patient throughput, and triage distribution.
             </p>
           </div>
@@ -229,7 +232,7 @@ function AnalyticsContent() {
         </div>
 
         {/* Middle Section: Triage & Durations */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className={`grid grid-cols-1 lg:grid-cols-3 gap-6 ${simple ? '!hidden' : ''}`}>
 
           {/* Triage Priority Distribution */}
           <div className="lg:col-span-2 bg-white rounded-3xl p-6 lg:p-8 shadow-sm border border-slate-200">
@@ -457,7 +460,7 @@ function AnalyticsContent() {
               </div>
 
               {/* Detailed Room Table for Clean Auditing & Printing */}
-              <div className="overflow-x-auto rounded-2xl border border-slate-200">
+              <div className={`overflow-x-auto rounded-2xl border border-slate-200 ${simple ? '!hidden' : ''}`}>
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
                     <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200">
@@ -521,7 +524,7 @@ function AnalyticsContent() {
         </div>
 
         {/* Hourly Inflow Chart */}
-        <div className="bg-white rounded-3xl p-6 lg:p-8 shadow-sm border border-slate-200">
+        <div className={`bg-white rounded-3xl p-6 lg:p-8 shadow-sm border border-slate-200 ${simple ? '!hidden' : ''}`}>
           <div className="flex justify-between items-center mb-6">
             <div>
               <h3 className="text-lg font-black text-slate-900">Hourly Patient Inflow</h3>

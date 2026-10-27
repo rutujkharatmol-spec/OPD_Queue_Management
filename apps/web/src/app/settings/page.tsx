@@ -20,12 +20,15 @@ import {
   setStaffAuthenticated,
   DEFAULT_STAFF_PASSWORD
 } from '../../lib/authStore';
+import { useSimpleMode } from '../../lib/uiSettings';
 
 export default function SettingsPage() {
   // Narrow selectors: destructuring the hook subscribes this page to every store field,
   // so an unrelated department switch elsewhere re-rendered the whole settings screen.
   const departments = useDepartmentStore((state) => state.departments);
   const loadDepartments = useDepartmentStore((state) => state.loadDepartments);
+  // Simple UI: hide the technical cards (app updates, offline storage).
+  const simple = useSimpleMode();
 
   // App Update State
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
@@ -347,7 +350,7 @@ export default function SettingsPage() {
         </section>
 
         {/* 3. Web App Updates & Version Card */}
-        <section className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+        <section className={`bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden ${simple ? 'hidden' : ''}`}>
           <div className="p-6 lg:p-8 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h2 className="text-lg font-black text-slate-800 flex items-center gap-2">
@@ -418,7 +421,7 @@ export default function SettingsPage() {
         </section>
 
         {/* 4. Offline Storage & Data Sync Hub */}
-        <section className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+        <section className={`bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden ${simple ? 'hidden' : ''}`}>
           <div className="p-6 lg:p-8 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h2 className="text-lg font-black text-slate-800 flex items-center gap-2">

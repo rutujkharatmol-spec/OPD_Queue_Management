@@ -5,6 +5,7 @@ import {
   Zap, Search, PhoneCall, Volume2, ShieldAlert, RotateCcw, Plus,
   Layers, Clock, Bell, UserCheck, HelpCircle, BookOpen
 } from 'lucide-react';
+import { AdvancedOnly, SimpleOnly } from '../../components/SimpleMode';
 
 export default function GuidePage() {
   return (
@@ -74,6 +75,7 @@ export default function GuidePage() {
               </p>
             </div>
 
+            <AdvancedOnly>
             <div className="p-5 bg-slate-950/80 border border-slate-800/80 rounded-2xl space-y-2.5">
               <div className="flex items-center gap-2 text-indigo-400 font-bold text-sm">
                 <Zap size={16} />
@@ -83,6 +85,7 @@ export default function GuidePage() {
                 Optionally provide a custom token number, or stage patients directly into a specific consultation room's upcoming queue.
               </p>
             </div>
+            </AdvancedOnly>
 
             <div className="p-5 bg-slate-950/80 border border-slate-800/80 rounded-2xl space-y-2.5">
               <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
@@ -119,6 +122,7 @@ export default function GuidePage() {
               </p>
             </div>
 
+            <AdvancedOnly>
             <div className="p-5 bg-slate-950/80 border border-slate-800/80 rounded-2xl space-y-2.5">
               <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
                 <Zap size={16} />
@@ -148,6 +152,20 @@ export default function GuidePage() {
                 Use <strong>Pass (+3)</strong> if a patient is temporarily away, <strong>Recall (🔔)</strong> to ring the chime again, or <strong>Complete</strong> when finished.
               </p>
             </div>
+            </AdvancedOnly>
+
+            {/* Simple UI version of the room buttons */}
+            <SimpleOnly>
+            <div className="p-5 bg-slate-950/80 border border-slate-800/80 rounded-2xl space-y-2.5">
+              <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm">
+                <CheckCircle2 size={16} />
+                <h3>Complete, Absent &amp; Recall</h3>
+              </div>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Press <strong>Complete</strong> when the patient is done, <strong>Absent</strong> if they did not come, or <strong>Recall (🔔)</strong> to call them again.
+              </p>
+            </div>
+            </SimpleOnly>
           </div>
         </section>
 
@@ -174,6 +192,7 @@ export default function GuidePage() {
               </p>
             </div>
 
+            <AdvancedOnly>
             <div className="p-5 bg-slate-950/80 border border-slate-800/80 rounded-2xl space-y-2.5">
               <div className="flex items-center gap-2 text-blue-400 font-bold text-sm">
                 <Sparkles size={16} />
@@ -183,6 +202,7 @@ export default function GuidePage() {
                 Defaults to high-contrast Light Mode for bright waiting rooms. Toggle to Dark Mode anytime via the theme button.
               </p>
             </div>
+            </AdvancedOnly>
 
             <div className="p-5 bg-slate-950/80 border border-slate-800/80 rounded-2xl space-y-2.5">
               <div className="flex items-center gap-2 text-indigo-400 font-bold text-sm">

@@ -958,6 +958,15 @@ export default function DoctorDashboard() {
     }
   };
 
+  // Simple UI: only the everyday actions (call, recall, complete, absent, add token).
+  const simple = uiSettings.simpleMode;
+  const showSidebar = simple || uiSettings.showQueueSidebar;
+
+  // The search box is hidden in Simple UI, so a leftover query must not keep filtering the list.
+  useEffect(() => {
+    if (simple) setTokenSearchQuery('');
+  }, [simple]);
+
   return (
     <div className="flex flex-col lg:flex-row min-h-screen w-full bg-slate-100 font-sans">
 
@@ -972,7 +981,7 @@ export default function DoctorDashboard() {
       )}
 
       {/* Sidebar - Waiting Queue List with Room Badges & Drag/Drop (Toggleable via Show UI) */}
-      {uiSettings.showQueueSidebar && (
+      {showSidebar && (
         <aside
           onDragOver={(e) => {
             e.preventDefault();
@@ -1028,12 +1037,13 @@ export default function DoctorDashboard() {
                 </h2>
               </div>
               <div className="flex items-center gap-2 mt-1">
-                <p className="text-blue-300 text-xs font-semibold">
-                  {queueData.nextTokens.length} Patients in Waiting Line
+                <p className={`text-blue-300 font-semibold ${simple ? 'text-sm' : 'text-xs'}`}>
+                  {queueData.nextTokens.length} Patients Waiting
                 </p>
 
                 {/* Sits with the count rather than in the icon row above, so a destructive
                     clear is never a slipped click away from "Add Patient". */}
+                {!simple && (
                 <button
                   type="button"
                   onClick={handleDeleteAllWaiting}
@@ -1056,9 +1066,10 @@ export default function DoctorDashboard() {
                   )}
                   <span>{isBulkDeleting === 'WAITING' ? 'Clearing...' : 'Delete All'}</span>
                 </button>
+                )}
               </div>
             </div>
-            <div className="flex gap-2">
+            <div className={`flex gap-2 ${simple ? 'hidden' : ''}`}>
               <button
                 type="button"
                 onClick={() => {
@@ -1124,8 +1135,8 @@ export default function DoctorDashboard() {
                 type="text"
                 value={sidebarQuickToken}
                 onChange={(e) => setSidebarQuickToken(e.target.value)}
-                placeholder="e.g. 13, 14, 15 or 1-100..."
-                className="w-full bg-slate-950 border border-indigo-500/40 focus:border-indigo-400 rounded-xl pl-7 pr-3 py-2 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono tracking-wider"
+                placeholder={simple ? 'Type token number, e.g. 13' : 'e.g. 13, 14, 15 or 1-100...'}
+                className={`w-full bg-slate-950 border border-indigo-500/40 focus:border-indigo-400 rounded-xl pl-7 pr-3 ${simple ? 'py-3 text-base' : 'py-2 text-xs'} text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono tracking-wider`}
               />
             </div>
 
@@ -1145,7 +1156,7 @@ export default function DoctorDashboard() {
             <button
               type="submit"
               disabled={!sidebarQuickToken.trim() || isSidebarQuickAdding}
-              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition-all shadow-xs flex items-center gap-1 shrink-0 cursor-pointer disabled:opacity-40 active:scale-95"
+              className={`px-3.5 ${simple ? 'py-3 text-sm' : 'py-2 text-xs'} bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl transition-all shadow-xs flex items-center gap-1 shrink-0 cursor-pointer disabled:opacity-40 active:scale-95`}
               title="Add token(s) directly to waiting line (Press Enter)"
             >
               {isSidebarQuickAdding ? (
@@ -1157,8 +1168,8 @@ export default function DoctorDashboard() {
             </button>
           </form>
 
-          {/* Token Search Bar */}
-          <div className="p-3 bg-slate-900 border-b border-slate-800 space-y-2">
+          {/* Token Search Bar (hidden in Simple UI) */}
+          <div className={`p-3 bg-slate-900 border-b border-slate-800 space-y-2 ${simple ? 'hidden' : ''}`}>
             <div className="relative flex items-center">
               <Search size={15} className="absolute left-3 text-slate-400 pointer-events-none" />
               <input
@@ -1224,7 +1235,7 @@ export default function DoctorDashboard() {
                     : 'Drop here to put back in general waiting queue'}
               </span>
             </div>
-          ) : queueData.nextTokens.length > 0 ? (
+          ) : queueData.nextTokens.length > 0 && !simple ? (
             <div className="px-4 py-2.5 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-blue-100 flex items-center justify-between text-[11px] text-blue-950 font-bold">
               <span className="flex items-center gap-1.5">
                 <GripVertical size={14} className="text-blue-600 shrink-0" />
@@ -1291,7 +1302,14 @@ export default function DoctorDashboard() {
                         <Clock size={11} /> #{idx + 1}
                       </span>
 
+                      {simple && isEmergency && (
+                        <span className="text-[11px] font-black px-2 py-0.5 rounded-full bg-red-600 text-white">
+                          Emergency
+                        </span>
+                      )}
+
                       {/* Quick Assign / Action Button */}
+                      {!simple && (<>
                       <button
                         type="button"
                         onClick={(e) => {
@@ -1316,10 +1334,11 @@ export default function DoctorDashboard() {
                       >
                         <Trash2 size={14} />
                       </button>
+                      </>)}
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100">
+                  <div className={`flex items-center justify-between text-xs pt-1 border-t border-slate-100 ${simple ? 'hidden' : ''}`}>
                     <div className="flex items-center gap-2">
                       <span className={`w-2 h-2 rounded-full ${isEmergency ? 'bg-red-500' : 'bg-blue-500'}`}></span>
                       <span className="font-bold opacity-75 uppercase tracking-wider text-[10px]">
@@ -1542,7 +1561,7 @@ export default function DoctorDashboard() {
                 <CheckCircle size={44} className="mb-3 text-emerald-500 opacity-60" />
                 <p className="font-bold text-slate-700">Waiting Line Clear</p>
                 <p className="text-xs text-slate-400 mt-1">No new patients waiting in this department.</p>
-                <div className="flex flex-wrap items-center justify-center gap-2 mt-4">
+                <div className={`flex flex-wrap items-center justify-center gap-2 mt-4 ${simple ? 'hidden' : ''}`}>
                   <button
                     type="button"
                     onClick={() => {
@@ -1583,11 +1602,13 @@ export default function DoctorDashboard() {
               </span>
             </div>
             <p className="text-slate-500 text-xs font-medium mt-1">
-              Toggle Auto-Call for zero-touch consultations, or queue specific patients per room.
+              {simple
+                ? 'Press "Call Next Patient" in a room. Press "Complete" when the patient is done.'
+                : 'Toggle Auto-Call for zero-touch consultations, or queue specific patients per room.'}
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className={`flex flex-wrap items-center gap-2.5 ${simple ? 'hidden' : ''}`}>
             {/* If sidebar is hidden, show quick Restore Sidebar button */}
             {!uiSettings.showQueueSidebar && (
               <button
@@ -1776,7 +1797,7 @@ export default function DoctorDashboard() {
                           </div>
 
                           {/* Auto-Call Toggle & Configurable Max Pull Controls */}
-                          {uiSettings.showAutoCallToggle && (
+                          {uiSettings.showAutoCallToggle && !simple && (
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <button
                                 type="button"
@@ -1831,7 +1852,7 @@ export default function DoctorDashboard() {
                         </div>
 
                         {/* Doctor Name Badge (Toggleable via Show UI) */}
-                        {uiSettings.showDoctorNames && room.doctorName && (
+                        {(uiSettings.showDoctorNames || simple) && room.doctorName && (
                           <p className="text-xs font-bold text-slate-600 mt-2 flex items-center gap-1.5">
                             <Stethoscope size={13} className="text-blue-600" />
                             {room.doctorName}
@@ -1859,6 +1880,7 @@ export default function DoctorDashboard() {
 
                         {/* Clears the room: patients called into it, plus everything staged for it. */}
                         {(() => {
+                          if (simple) return null;
                           const roomTotal = activeList.length + stagedList.length;
                           const busy = isBulkDeleting === room.roomNumber;
                           return (
@@ -2000,8 +2022,21 @@ export default function DoctorDashboard() {
                       </div>
                     )}
 
+                    {/* Simple UI: plain free-room message */}
+                    {simple && activeList.length === 0 && directInputRoom !== room.roomNumber && (
+                      <div className="border border-slate-200 rounded-2xl p-6 mb-4 flex flex-col items-center justify-center text-center bg-slate-50">
+                        <CheckCircle size={32} className="text-emerald-500 mb-2" />
+                        <p className="text-base font-black text-slate-800">Room is free</p>
+                        <p className="text-sm text-slate-500 mt-1">
+                          {queueData.nextTokens.length > 0
+                            ? 'Press "Call Next Patient" below'
+                            : 'No patients waiting'}
+                        </p>
+                      </div>
+                    )}
+
                     {/* Free Room State (when room is empty and direct input not active) */}
-                    {activeList.length === 0 && directInputRoom !== room.roomNumber && (
+                    {!simple && activeList.length === 0 && directInputRoom !== room.roomNumber && (
                       <div
                         role="button"
                         tabIndex={0}
@@ -2123,7 +2158,7 @@ export default function DoctorDashboard() {
                               setDirectInputRoom(room.roomNumber);
                               setDirectTokenVal('');
                             }}
-                            className="text-[10px] text-blue-700 bg-blue-100 hover:bg-blue-200 font-bold px-2 py-0.5 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                            className={`text-[10px] text-blue-700 bg-blue-100 hover:bg-blue-200 font-bold px-2 py-0.5 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${simple ? 'hidden' : ''}`}
                             title="Click to add another patient into this room"
                           >
                             <Plus size={11} />
@@ -2137,22 +2172,23 @@ export default function DoctorDashboard() {
                           tabIndex={0}
                           onClick={(e) => {
                             e.stopPropagation();
+                            if (simple) return;
                             setDirectInputRoom(room.roomNumber);
                             setDirectTokenVal('');
                           }}
-                          className="my-0.5 px-4 py-1 rounded-2xl hover:bg-blue-100/70 border border-transparent hover:border-blue-300 transition-all cursor-pointer group/tok flex flex-col items-center"
-                          title="Click on token to add more patients into this room"
+                          className={`my-0.5 px-4 py-1 rounded-2xl border border-transparent transition-all group/tok flex flex-col items-center ${simple ? '' : 'hover:bg-blue-100/70 hover:border-blue-300 cursor-pointer'}`}
+                          title={simple ? undefined : 'Click on token to add more patients into this room'}
                         >
-                          <span className="text-3xl font-black text-slate-900 tracking-tight group-hover/tok:text-blue-700 transition-colors">
+                          <span className={`${simple ? 'text-5xl' : 'text-3xl group-hover/tok:text-blue-700'} font-black text-slate-900 tracking-tight transition-colors`}>
                             {activePatient.token}
                           </span>
-                          <span className="text-[10px] text-blue-600 font-bold opacity-0 group-hover/tok:opacity-100 transition-opacity flex items-center gap-0.5 -mt-0.5">
+                          <span className={`text-[10px] text-blue-600 font-bold opacity-0 group-hover/tok:opacity-100 transition-opacity flex items-center gap-0.5 -mt-0.5 ${simple ? 'hidden' : ''}`}>
                             <Plus size={10} /> Click to add more patient
                           </span>
                         </div>
 
                         {shouldShowPatientName(activePatient.patientName) && (
-                          <p className="text-xs font-bold text-slate-700 mt-0.5">{activePatient.patientName}</p>
+                          <p className={`${simple ? 'text-base' : 'text-xs'} font-bold text-slate-700 mt-0.5`}>{activePatient.patientName}</p>
                         )}
                         {activePatient.uhid && (
                           <span className="text-[10px] font-semibold text-slate-400">
@@ -2161,7 +2197,7 @@ export default function DoctorDashboard() {
                         )}
 
                         {/* Quick Action Buttons: Add Patient, Put Back in Queue & Transfer Room */}
-                        <div className="mt-3 pt-2 border-t border-blue-100/80 w-full flex items-center justify-center gap-1.5 flex-wrap">
+                        <div className={`mt-3 pt-2 border-t border-blue-100/80 w-full flex items-center justify-center gap-1.5 flex-wrap ${simple ? 'hidden' : ''}`}>
                           <button
                             type="button"
                             onClick={(e) => {
@@ -2228,7 +2264,7 @@ export default function DoctorDashboard() {
                         </div>
 
                         {/* Quick Pull Controls for Currently In Room */}
-                        <div className="mt-2.5 pt-2 border-t border-blue-100/80 w-full flex items-center justify-between">
+                        <div className={`mt-2.5 pt-2 border-t border-blue-100/80 w-full flex items-center justify-between ${simple ? 'hidden' : ''}`}>
                           <span className="text-[10px] font-bold text-slate-500 flex items-center gap-1">
                             <CornerDownRight size={11} className="text-blue-600" />
                             <span>Pull into room:</span>
@@ -2282,7 +2318,7 @@ export default function DoctorDashboard() {
                           </span>
                           <div className="flex items-center gap-1.5 flex-wrap">
                             {/* Quick Pull into Room */}
-                            <div className="flex items-center gap-1 bg-white px-2 py-0.5 rounded-lg border border-blue-200 shadow-2xs">
+                            <div className={`flex items-center gap-1 bg-white px-2 py-0.5 rounded-lg border border-blue-200 shadow-2xs ${simple ? 'hidden' : ''}`}>
                               <span className="text-[9px] font-bold text-slate-500">Pull:</span>
                               <button
                                 type="button"
@@ -2307,7 +2343,7 @@ export default function DoctorDashboard() {
                                 setDirectInputRoom(room.roomNumber);
                                 setDirectTokenVal('');
                               }}
-                              className="text-[10px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded-lg border border-blue-200 transition-colors cursor-pointer flex items-center gap-1"
+                              className={`text-[10px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded-lg border border-blue-200 transition-colors cursor-pointer flex items-center gap-1 ${simple ? 'hidden' : ''}`}
                               title="Add another patient into this room"
                             >
                               <Plus size={11} /> + Add
@@ -2391,6 +2427,7 @@ export default function DoctorDashboard() {
                                   >
                                     Done
                                   </button>
+                                  {!simple && (
                                   <button
                                     type="button"
                                     onClick={() => handleTokenAction(p.id, 'NOT_AVAILABLE', room.roomNumber)}
@@ -2399,14 +2436,16 @@ export default function DoctorDashboard() {
                                   >
                                     +{passCount}
                                   </button>
+                                  )}
                                   <button
                                     type="button"
                                     onClick={() => handleTokenAction(p.id, 'ABSENT', room.roomNumber)}
                                     className="px-1.5 py-1 bg-rose-100 hover:bg-rose-200 text-rose-800 font-bold text-[10px] rounded-lg transition-colors cursor-pointer"
                                     title="Mark absent"
                                   >
-                                    Abs
+                                    {simple ? 'Absent' : 'Abs'}
                                   </button>
+                                  {!simple && (<>
                                   <button
                                     type="button"
                                     onClick={() => {
@@ -2439,6 +2478,7 @@ export default function DoctorDashboard() {
                                   >
                                     <ArrowRightLeft size={12} />
                                   </button>
+                                  </>)}
                                 </div>
                               </div>
                             </div>
@@ -2448,7 +2488,7 @@ export default function DoctorDashboard() {
                     )}
 
                     {/* Room-Specific Dedicated Staged Queue Area (Toggleable via Show UI) */}
-                    {uiSettings.showRoomStagedQueue && (
+                    {uiSettings.showRoomStagedQueue && !simple && (
                       <div
                         onDragEnter={(e) => {
                           e.stopPropagation();
@@ -2553,7 +2593,7 @@ export default function DoctorDashboard() {
                             handleCallNext(room.roomNumber, targetTok);
                           }}
                           disabled={isCalling}
-                          className={`flex-1 py-3 rounded-2xl font-bold text-xs transition-all active:scale-95 shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                          className={`flex-1 ${simple ? 'py-4 text-base font-black' : 'py-3 text-xs font-bold'} rounded-2xl transition-all active:scale-95 shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
                             stagedList.length > 0
                               ? 'bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white shadow-indigo-500/20'
                               : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-blue-500/20'
@@ -2563,6 +2603,8 @@ export default function DoctorDashboard() {
                           <span>
                             {isCalling
                               ? 'Calling...'
+                              : simple
+                                ? (queueData.nextTokens.length === 0 && stagedList.length === 0 ? 'No Patients Waiting' : 'Call Next Patient')
                               : stagedList.length > 0
                                 ? `Call Staged: ${stagedList[0].replace(' 🚨', '')}`
                                 : activeList.length > 0
@@ -2574,7 +2616,7 @@ export default function DoctorDashboard() {
                         </button>
 
                         {/* Quick Pull Controls Directly into Room */}
-                        <div className="flex items-center gap-1 bg-slate-100 border border-slate-200/80 rounded-2xl p-1 shrink-0" title="Pull patients from waiting line directly into this room">
+                        <div className={`flex items-center gap-1 bg-slate-100 border border-slate-200/80 rounded-2xl p-1 shrink-0 ${simple ? 'hidden' : ''}`} title="Pull patients from waiting line directly into this room">
                           <button
                             type="button"
                             onClick={() => handlePullWaitingToActiveRoom(room.roomNumber, 1)}
@@ -2603,16 +2645,17 @@ export default function DoctorDashboard() {
                       </div>
 
                       {activeList.length <= 1 && (
-                        <div className="grid grid-cols-3 gap-2">
+                        <div className={`grid ${simple ? 'grid-cols-2' : 'grid-cols-3'} gap-2`}>
                           <button
                             onClick={() => activePatient && handleTokenAction(activePatient.id, 'COMPLETE', room.roomNumber)}
                             disabled={!activePatient}
-                            className="py-2.5 rounded-xl bg-emerald-50 text-emerald-700 font-bold text-xs hover:bg-emerald-100 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                            className={`${simple ? 'py-3.5 text-sm font-black bg-emerald-600 text-white hover:bg-emerald-700' : 'py-2.5 text-xs font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100'} rounded-xl transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer`}
                           >
-                            Complete {isAutoCallOn ? '⚡' : ''}
+                            {simple ? '✓ Complete' : `Complete ${isAutoCallOn ? '⚡' : ''}`}
                           </button>
-                          
+
                           {/* Dynamic Configurable Pass (+N) Button */}
+                          {!simple && (
                           <button
                             onClick={() => activePatient && handleTokenAction(activePatient.id, 'NOT_AVAILABLE', room.roomNumber)}
                             disabled={!activePatient}
@@ -2621,11 +2664,12 @@ export default function DoctorDashboard() {
                           >
                             <span>Pass (+{passCount})</span>
                           </button>
+                          )}
 
                           <button
                             onClick={() => activePatient && handleTokenAction(activePatient.id, 'ABSENT', room.roomNumber)}
                             disabled={!activePatient}
-                            className="py-2.5 rounded-xl bg-rose-50 text-rose-700 font-bold text-xs hover:bg-rose-100 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                            className={`${simple ? 'py-3.5 text-sm font-black' : 'py-2.5 text-xs font-bold'} rounded-xl bg-rose-50 text-rose-700 hover:bg-rose-100 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer`}
                           >
                             Absent
                           </button>

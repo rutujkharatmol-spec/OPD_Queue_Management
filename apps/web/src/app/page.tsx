@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { getDepartments, createDepartment, updateDepartment, deleteDepartment } from '../lib/api';
 
 import { useDepartmentStore } from '../store/useDepartmentStore';
+import { useSimpleMode } from '../lib/uiSettings';
 
 interface Department {
   id: string;
@@ -23,6 +24,9 @@ function HomeContent() {
   const departments = useDepartmentStore((state) => state.departments);
   const setSelectedDeptId = useDepartmentStore((state) => state.setSelectedDeptId);
   const loadDepartments = useDepartmentStore((state) => state.loadDepartments);
+
+  // Simple UI: department picker + three big buttons, no admin actions or decoration.
+  const simple = useSimpleMode();
 
   const [isAddingDept, setIsAddingDept] = useState(false);
   const [newDeptName, setNewDeptName] = useState('');
@@ -98,7 +102,7 @@ function HomeContent() {
     <div className="min-h-screen bg-slate-950 text-white overflow-hidden relative selection:bg-blue-500/30">
       
       {/* Top Navigation */}
-      <div className="absolute top-0 left-0 right-0 p-4 sm:p-6 z-20 flex flex-col sm:flex-row justify-between items-center gap-3">
+      <div className={`absolute top-0 left-0 right-0 p-4 sm:p-6 z-20 flex flex-col sm:flex-row justify-between items-center gap-3 ${simple ? '!hidden' : ''}`}>
         <button 
           onClick={openManageModal}
           disabled={!selectedDeptId}
@@ -115,32 +119,36 @@ function HomeContent() {
       </div>
 
       {/* Dynamic Background Elements */}
+      {!simple && (<>
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[500px] opacity-20 pointer-events-none">
         <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-purple-600 blur-[100px] rounded-full animate-pulse-slow"></div>
       </div>
       <div className="absolute bottom-[-20%] left-[-10%] w-[500px] h-[500px] opacity-10 pointer-events-none animate-float">
         <div className="absolute inset-0 bg-emerald-500 blur-[120px] rounded-full"></div>
       </div>
+      </>)}
 
-      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 pt-32 pb-12 md:py-20 flex flex-col items-center justify-center min-h-screen">
-        
+      <div className={`relative z-10 max-w-7xl mx-auto px-4 sm:px-6 ${simple ? 'py-12' : 'pt-32 pb-12 md:py-20'} flex flex-col items-center justify-center min-h-screen`}>
+
         {/* Header Section */}
         <div className="text-center mb-10 space-y-4">
-          <div className="inline-flex items-center justify-center px-4 py-1.5 mb-4 rounded-full border border-blue-500/30 bg-blue-500/10 text-blue-300 text-sm font-semibold tracking-wide backdrop-blur-md">
+          <div className={`inline-flex items-center justify-center px-4 py-1.5 mb-4 rounded-full border border-blue-500/30 bg-blue-500/10 text-blue-300 text-sm font-semibold tracking-wide backdrop-blur-md ${simple ? '!hidden' : ''}`}>
             <span className="w-2 h-2 rounded-full bg-blue-400 mr-2 animate-pulse"></span>
             System Online & Connected
           </div>
-          <h1 className="text-5xl md:text-7xl font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-br from-white via-blue-100 to-slate-400 drop-shadow-sm">
+          <h1 className={`${simple ? 'text-4xl md:text-5xl text-white' : 'text-5xl md:text-7xl bg-clip-text text-transparent bg-gradient-to-br from-white via-blue-100 to-slate-400 drop-shadow-sm'} font-black tracking-tight`}>
             AIIMS Kalyani <br/> OPD Queue System
           </h1>
-          <p className="text-lg md:text-xl text-slate-400 max-w-2xl mx-auto font-light leading-relaxed">
+          <p className={`text-lg md:text-xl text-slate-400 max-w-2xl mx-auto font-light leading-relaxed ${simple ? 'hidden' : ''}`}>
             Enterprise-grade queue management hub.
           </p>
         </div>
 
         {/* Department Selector */}
-        <div className="mb-16 flex flex-col items-center w-full max-w-md">
-          <label className="text-sm font-semibold text-slate-400 uppercase tracking-widest mb-3">Which department do you want to manage?</label>
+        <div className={`${simple ? 'mb-10' : 'mb-16'} flex flex-col items-center w-full max-w-md`}>
+          <label className="text-sm font-semibold text-slate-400 uppercase tracking-widest mb-3">
+            {simple ? 'Choose your department' : 'Which department do you want to manage?'}
+          </label>
           {departments.length === 0 ? (
             <div className="text-slate-500 text-sm py-3">No departments found. Please add one first.</div>
           ) : (
@@ -169,10 +177,10 @@ function HomeContent() {
                   <svg className="w-7 h-7 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M15 19l-7-7 7-7"></path></svg>
                 </div>
                 <h3 className="text-2xl font-bold text-white mb-2 tracking-wide">Registration</h3>
-                <p className="text-slate-400 text-sm leading-relaxed">Generate new tokens, assign priorities, and manage patient entry into the OPD.</p>
+                <p className={`text-slate-400 text-sm leading-relaxed ${simple ? 'hidden' : ''}`}>Generate new tokens, assign priorities, and manage patient entry into the OPD.</p>
               </div>
               <div className="mt-8 flex items-center text-blue-400 font-semibold text-sm group-hover:translate-x-2 transition-transform duration-300">
-                Launch Module &rarr;
+                {simple ? 'Open' : 'Launch Module'} &rarr;
               </div>
             </div>
           </Link>
@@ -187,10 +195,10 @@ function HomeContent() {
                   <svg className="w-7 h-7 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
                 </div>
                 <h3 className="text-2xl font-bold text-white mb-2 tracking-wide">Doctor Room</h3>
-                <p className="text-slate-400 text-sm leading-relaxed">High-efficiency control panel to call the next patient and view the live waiting queue.</p>
+                <p className={`text-slate-400 text-sm leading-relaxed ${simple ? 'hidden' : ''}`}>High-efficiency control panel to call the next patient and view the live waiting queue.</p>
               </div>
               <div className="mt-8 flex items-center text-emerald-400 font-semibold text-sm group-hover:translate-x-2 transition-transform duration-300">
-                Launch Module &rarr;
+                {simple ? 'Open' : 'Launch Module'} &rarr;
               </div>
             </div>
           </Link>
@@ -205,10 +213,10 @@ function HomeContent() {
                   <svg className="w-7 h-7 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
                 </div>
                 <h3 className="text-2xl font-bold text-white mb-2 tracking-wide">TV Monitor</h3>
-                <p className="text-slate-400 text-sm leading-relaxed">High-contrast, large font display for waiting areas. Syncs instantly via WebSockets.</p>
+                <p className={`text-slate-400 text-sm leading-relaxed ${simple ? 'hidden' : ''}`}>High-contrast, large font display for waiting areas. Syncs instantly via WebSockets.</p>
               </div>
               <div className="mt-8 flex items-center text-rose-400 font-semibold text-sm group-hover:translate-x-2 transition-transform duration-300">
-                Launch Module &rarr;
+                {simple ? 'Open' : 'Launch Module'} &rarr;
               </div>
             </div>
           </Link>

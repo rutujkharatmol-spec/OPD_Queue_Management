@@ -10,6 +10,7 @@ import { useSearchParams } from 'next/navigation';
 import { QRCodeSVG } from 'qrcode.react';
 import { generateToken, searchTokens, getRooms } from '../../lib/api';
 import { addMultipleTokensToRoomQueue } from '../../lib/roomQueueSettings';
+import { useSimpleMode } from '../../lib/uiSettings';
 
 import { useDepartmentStore } from '../../store/useDepartmentStore';
 import { useQueueStore } from '../../store/useQueueStore';
@@ -28,6 +29,8 @@ export default function RegistrationDesk() {
   const deptName = currentDept?.name || 'Department';
 
   const [isSidebarOpen, setSidebarOpen] = useState(false);
+  // Simple UI: only priority, name, phone, Generate and Print.
+  const simple = useSimpleMode();
 
   // Form State
   const [patientData, setPatientData] = useState({
@@ -94,8 +97,10 @@ export default function RegistrationDesk() {
       const firstName = nameParts[0] || 'Patient';
       const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
       const phone = patientData.phone.trim();
-      const uhid = patientData.uhid.trim();
-      const cleanCustomToken = customTokenNumber.trim();
+      // Fields hidden in Simple UI are ignored, so stale values typed earlier can't sneak in.
+      const uhid = simple ? '' : patientData.uhid.trim();
+      const cleanCustomToken = simple ? '' : customTokenNumber.trim();
+      const destination = simple ? 'GENERAL' : targetRoom;
 
       const res = await generateToken(
         deptId,
@@ -131,9 +136,9 @@ export default function RegistrationDesk() {
       setCustomTokenNumber('');
 
       // Auto-stage to room queue if target room selected
-      if (targetRoom && targetRoom !== 'GENERAL') {
+      if (destination && destination !== 'GENERAL') {
         const tokenNums = formattedTokens.map((t: any) => t.tokenNumber);
-        if (targetRoom === 'DISTRIBUTE' && availableRooms.length > 0) {
+        if (destination === 'DISTRIBUTE' && availableRooms.length > 0) {
           availableRooms.forEach((r, rIdx) => {
             const roomToks = tokenNums.filter((_, idx) => idx % availableRooms.length === rIdx);
             if (roomToks.length > 0) {
@@ -141,7 +146,7 @@ export default function RegistrationDesk() {
             }
           });
         } else {
-          addMultipleTokensToRoomQueue(deptId, targetRoom, tokenNums);
+          addMultipleTokensToRoomQueue(deptId, destination, tokenNums);
         }
       }
 
@@ -227,7 +232,7 @@ export default function RegistrationDesk() {
       )}
 
       {/* Sidebar Navigation */}
-      <aside className={`fixed lg:static top-0 bottom-0 left-0 w-64 bg-slate-900 text-white z-50 flex flex-col justify-between transition-transform duration-300 ease-in-out print:hidden ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+      <aside className={`fixed lg:static top-0 bottom-0 left-0 w-64 bg-slate-900 text-white z-50 flex flex-col justify-between transition-transform duration-300 ease-in-out print:hidden ${simple ? '!hidden' : ''} ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}>
         <div>
           <div className="p-6 border-b border-slate-800 flex items-center justify-between">
@@ -300,7 +305,7 @@ export default function RegistrationDesk() {
           <div className="flex items-center gap-4">
             <button
               onClick={() => setSidebarOpen(true)}
-              className="lg:hidden p-2 rounded-xl text-slate-600 hover:bg-slate-100 cursor-pointer"
+              className={`lg:hidden p-2 rounded-xl text-slate-600 hover:bg-slate-100 cursor-pointer ${simple ? '!hidden' : ''}`}
             >
               <Menu size={20} />
             </button>
@@ -325,7 +330,7 @@ export default function RegistrationDesk() {
 
             <Link
               href={`/doctor?deptId=${deptId}`}
-              className="px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs rounded-xl transition-colors border border-blue-200 flex items-center gap-1.5"
+              className={`px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs rounded-xl transition-colors border border-blue-200 flex items-center gap-1.5 ${simple ? '!hidden' : ''}`}
             >
               <span>Doctor Station</span>
               <ChevronRight size={14} />
@@ -340,7 +345,7 @@ export default function RegistrationDesk() {
             <div className="xl:col-span-7 bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-200 print:hidden">
               <div>
                 {/* Active Dept Header Card */}
-                <div className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 text-white flex items-center justify-between shadow-md shadow-blue-500/20">
+                <div className={`mb-6 p-4 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 text-white flex items-center justify-between shadow-md shadow-blue-500/20 ${simple ? '!hidden' : ''}`}>
                   <div className="flex items-center gap-3.5">
                     <div className="w-12 h-12 rounded-xl bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-white">
                       <HeartPulse size={24} />
@@ -435,7 +440,7 @@ export default function RegistrationDesk() {
                             />
                           </div>
 
-                          <div>
+                          <div className={simple ? 'hidden' : ''}>
                             <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
                               <FileText size={16} className="text-slate-400" /> UHID (Optional)
                             </label>
@@ -450,7 +455,7 @@ export default function RegistrationDesk() {
                         </div>
 
                         {/* Custom Token Number Input */}
-                        <div>
+                        <div className={simple ? 'hidden' : ''}>
                           <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center justify-between">
                             <span className="flex items-center gap-2">
                               <Hash size={16} className="text-slate-400" /> Custom Token Number (Optional)
@@ -470,7 +475,7 @@ export default function RegistrationDesk() {
                       </div>
 
                       {/* Target Room / Queue Destination Selector */}
-                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-1.5">
+                      <div className={`bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-1.5 ${simple ? 'hidden' : ''}`}>
                         <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center justify-between">
                           <span className="flex items-center gap-1.5">
                             <Building2 size={14} className="text-blue-600" />

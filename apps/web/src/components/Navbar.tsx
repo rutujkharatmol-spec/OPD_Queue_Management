@@ -121,14 +121,17 @@ function NavbarContent() {
     setUiSettingsState(res);
   };
 
-  const links = [
-    { href: '/', label: 'Home' },
-    { href: '/registration', label: 'Registration' },
-    { href: '/doctor', label: 'Doctor Room' },
-    { href: '/tv', label: 'TV Monitor' },
-    { href: '/analytics', label: 'Analytics' },
-    { href: '/settings', label: 'Settings' },
+  const simple = uiSettings.simpleMode;
+
+  const allLinks = [
+    { href: '/', label: 'Home', advanced: false },
+    { href: '/registration', label: 'Registration', advanced: false },
+    { href: '/doctor', label: 'Doctor Room', advanced: false },
+    { href: '/tv', label: 'TV Monitor', advanced: false },
+    { href: '/analytics', label: 'Analytics', advanced: true },
+    { href: '/settings', label: 'Settings', advanced: true },
   ];
+  const links = simple ? allLinks.filter((l) => !l.advanced) : allLinks;
 
   return (
     <nav className="sticky top-0 z-50 border-b border-slate-800 bg-slate-950/90 backdrop-blur-md print:hidden">
@@ -172,7 +175,8 @@ function NavbarContent() {
           {/* Right Section: Show UI Dropdown Button + Navigation Links */}
           <div className="flex items-center gap-2 sm:gap-3">
             
-            {/* Show UI Controls Dropdown */}
+            {/* Show UI Controls Dropdown (advanced, hidden in Simple UI) */}
+            {!simple && (
             <div className="relative" ref={menuRef}>
               <button
                 type="button"
@@ -354,6 +358,7 @@ function NavbarContent() {
                 </div>
               )}
             </div>
+            )}
 
             {/* Navigation Links */}
             <div className="flex overflow-x-auto scrollbar-none">
@@ -376,6 +381,29 @@ function NavbarContent() {
                 })}
               </div>
             </div>
+
+            {/* Simple UI switch — always the last item, top-right corner */}
+            <button
+              type="button"
+              role="switch"
+              aria-checked={simple}
+              onClick={() => handleToggle('simpleMode')}
+              className={`shrink-0 flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-full text-xs sm:text-sm font-black border-2 transition-all cursor-pointer ${
+                simple
+                  ? 'bg-emerald-600 border-emerald-400 text-white shadow-md shadow-emerald-500/30'
+                  : 'bg-slate-900 border-slate-600 text-slate-200 hover:border-slate-400'
+              }`}
+              title={simple ? 'Simple UI is ON — click to show all controls' : 'Click to turn on Simple UI (hide extra controls)'}
+            >
+              <span className="whitespace-nowrap">Simple UI</span>
+              <span
+                className={`px-2 py-0.5 rounded-full text-[11px] ${
+                  simple ? 'bg-white text-emerald-700' : 'bg-slate-700 text-slate-300'
+                }`}
+              >
+                {simple ? 'ON' : 'OFF'}
+              </span>
+            </button>
 
           </div>
 
