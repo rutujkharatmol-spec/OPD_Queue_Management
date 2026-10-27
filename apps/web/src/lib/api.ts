@@ -303,6 +303,38 @@ export async function updateRoom(id: string, roomNumber?: string, isActive?: boo
   return response.json();
 }
 
+export type DoctorListItem = { name: string; departmentId: string | null; roomNumber: string | null };
+
+export async function getDoctors(): Promise<DoctorListItem[]> {
+  const response = await fetchWithOfflineSync(`${API_BASE_URL}/doctors`);
+  if (!response.ok) return [];
+  const data = await response.json();
+  return Array.isArray(data) ? data : [];
+}
+
+/** Puts the doctor's name on the room (shown on TV, credited in analytics). */
+export async function assignDoctorToRoom(doctorName: string, departmentId: string, roomId: string) {
+  const response = await fetchWithOfflineSync(`${API_BASE_URL}/doctors/assign`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ doctorName, departmentId, roomId }),
+  });
+  if (!response.ok) {
+    let message = 'Could not save your room. Please try again.';
+    try {
+      const parsed = await response.json();
+      if (parsed?.message) message = parsed.message;
+    } catch {}
+    throw new Error(message);
+  }
+  const result = await response.json();
+  broadcastQueueUpdate(departmentId);
+  return result as {
+    doctor: { id: string; name: string };
+    room: { id: string; roomNumber: string; departmentId: string | null; doctorName: string | null };
+  };
+}
+
 export async function deleteRoom(id: string) {
   const response = await fetchWithOfflineSync(`${API_BASE_URL}/settings/rooms/${id}`, {
     method: 'DELETE',

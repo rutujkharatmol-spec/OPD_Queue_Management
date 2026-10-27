@@ -17,6 +17,8 @@ import {
   localSearchTokens,
   getLocalTokenStatus,
   getLocalAnalytics,
+  getLocalDoctors,
+  localAssignDoctorToRoom,
 } from './localStore';
 
 export const OFFLINE_QUEUE_KEY = 'offlineSyncQueue';
@@ -176,6 +178,15 @@ function handleWithLocalStore(url: string, method: string, options: RequestInit)
     const id = pathname.split('/').pop() || '';
     deleteLocalRoom(id);
     return jsonResponse({ ok: true }, 200);
+  }
+
+  // 2b. DOCTORS
+  if (pathname.endsWith('/doctors') && method === 'GET') {
+    return jsonResponse(getLocalDoctors(), 200);
+  }
+  if (pathname.endsWith('/doctors/assign') && method === 'POST') {
+    const data = localAssignDoctorToRoom(parsedBody.doctorName, parsedBody.departmentId, parsedBody.roomId);
+    return data ? jsonResponse(data, 200) : jsonResponse({ message: 'Room not found.' }, 400);
   }
 
   // 3. TOKENS

@@ -7,7 +7,7 @@ import { useDepartmentStore } from '../store/useDepartmentStore';
 import {
   Building2, ChevronDown, Eye, Sliders, Check, X, RotateCcw,
   LayoutGrid, Users, Stethoscope, Zap, Sparkles, Layers,
-  PhoneCall, Volume2, ShieldAlert, CheckCircle2
+  PhoneCall, Volume2, ShieldAlert, CheckCircle2, Menu
 } from 'lucide-react';
 import {
   UiVisibilitySettings,
@@ -35,6 +35,8 @@ function NavbarContent() {
 
   const [uiSettings, setUiSettingsState] = useState<UiVisibilitySettings>(DEFAULT_UI_SETTINGS);
   const [isShowUiOpen, setIsShowUiOpen] = useState(false);
+  // Phone/tablet menu holding the page links and the Simple UI switch.
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const logoClickRef = useRef<{ count: number; timer: NodeJS.Timeout | null }>({ count: 0, timer: null });
 
@@ -90,6 +92,11 @@ function NavbarContent() {
     };
   }, [isShowUiOpen]);
 
+  // Close the phone menu after navigating.
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+  }, [pathname]);
+
   // Hide Navbar completely on the patient page as requested
   if (pathname.startsWith('/patient')) {
     return null;
@@ -127,6 +134,7 @@ function NavbarContent() {
     { href: '/', label: 'Home', advanced: false },
     { href: '/registration', label: 'Registration', advanced: false },
     { href: '/doctor', label: 'Doctor Room', advanced: false },
+    { href: '/doctor-desk', label: 'Doctor Desk', advanced: false },
     { href: '/tv', label: 'TV Monitor', advanced: false },
     { href: '/analytics', label: 'Analytics', advanced: true },
     { href: '/settings', label: 'Settings', advanced: true },
@@ -136,14 +144,14 @@ function NavbarContent() {
   return (
     <nav className="sticky top-0 z-50 border-b border-slate-800 bg-slate-950/90 backdrop-blur-md print:hidden">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16 gap-3">
+        <div className="flex items-center justify-between h-16 gap-2 sm:gap-3">
           
           {/* Brand Logo */}
           <div className="flex-shrink-0 flex items-center">
             <Link 
               href={getHref('/')} 
               onClick={handleLogoClick}
-              className="text-xl font-black text-white tracking-wide flex items-center gap-2 hover:opacity-90 transition-opacity select-none"
+              className="text-lg sm:text-xl font-black text-white tracking-wide flex items-center gap-2 hover:opacity-90 transition-opacity select-none whitespace-nowrap"
             >
               <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></span>
               OPD <span className="text-blue-400">Queue</span>
@@ -152,13 +160,14 @@ function NavbarContent() {
 
           {/* Department Quick Switcher */}
           {uiSettings.showDeptSwitcher && departments.length > 0 && (
-            <div className="relative flex items-center">
-              <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-700/80 hover:border-slate-600 rounded-xl px-3 py-1.5 text-xs text-slate-200 transition-all shadow-inner">
+            <div className="relative flex items-center min-w-0">
+              <div className="flex items-center gap-1.5 min-w-0 bg-slate-900 border border-slate-700/80 hover:border-slate-600 rounded-xl px-2.5 sm:px-3 py-0 sm:py-1.5 text-xs text-slate-200 transition-all shadow-inner">
                 <Building2 className="w-3.5 h-3.5 text-blue-400 shrink-0" />
                 <select
                   value={activeDeptId}
                   onChange={(e) => handleDeptChange(e.target.value)}
-                  className="bg-transparent text-white font-semibold text-xs focus:outline-none appearance-none pr-4 cursor-pointer"
+                  aria-label="Department"
+                  className="min-w-0 w-full truncate bg-transparent text-white font-semibold text-xs focus:outline-none appearance-none pr-4 cursor-pointer h-10 sm:h-auto"
                   title="Switch Active Department"
                 >
                   {departments.map((d) => (
@@ -173,7 +182,7 @@ function NavbarContent() {
           )}
 
           {/* Right Section: Show UI Dropdown Button + Navigation Links */}
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 shrink-0 lg:shrink">
             
             {/* Show UI Controls Dropdown (advanced, hidden in Simple UI) */}
             {!simple && (
@@ -181,21 +190,23 @@ function NavbarContent() {
               <button
                 type="button"
                 onClick={() => setIsShowUiOpen(!isShowUiOpen)}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer shadow-xs ${
+                aria-label="Show UI settings"
+                aria-expanded={isShowUiOpen}
+                className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-2 min-h-10 rounded-xl text-xs font-bold border transition-all cursor-pointer shadow-xs ${
                   isShowUiOpen
                     ? 'bg-blue-600 border-blue-500 text-white shadow-md shadow-blue-500/25'
                     : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-700/80 hover:border-slate-600'
                 }`}
                 title="Customize which UI sections are visible"
               >
-                <Eye size={14} className={isShowUiOpen ? 'text-white' : 'text-blue-400'} />
-                <span>Show UI</span>
-                <ChevronDown size={12} className={`transition-transform duration-200 ${isShowUiOpen ? 'rotate-180 text-white' : 'text-slate-400'}`} />
+                <Eye size={16} className={isShowUiOpen ? 'text-white' : 'text-blue-400'} />
+                <span className="hidden sm:inline">Show UI</span>
+                <ChevronDown size={12} className={`hidden sm:block transition-transform duration-200 ${isShowUiOpen ? 'rotate-180 text-white' : 'text-slate-400'}`} />
               </button>
 
               {/* Show UI Popover Modal / Menu */}
               {isShowUiOpen && (
-                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl p-5 z-50 animate-in fade-in zoom-in-95 duration-150 text-white flex flex-col gap-4">
+                <div className="absolute right-0 mt-2 w-80 sm:w-96 max-w-[calc(100vw-2rem)] bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl p-5 z-50 animate-in fade-in zoom-in-95 duration-150 text-white flex flex-col gap-4">
                   
                   {/* Header */}
                   <div className="flex items-center justify-between pb-3 border-b border-slate-800">
@@ -360,8 +371,8 @@ function NavbarContent() {
             </div>
             )}
 
-            {/* Navigation Links */}
-            <div className="flex overflow-x-auto scrollbar-none">
+            {/* Navigation Links (large screens; phones use the menu below) */}
+            <div className="hidden lg:flex min-w-0 overflow-x-auto scrollbar-none">
               <div className="flex items-baseline space-x-1 sm:space-x-2 md:space-x-3">
                 {links.map((link) => {
                   const isActive = pathname === link.href || (link.href !== '/' && pathname.startsWith(link.href));
@@ -388,7 +399,7 @@ function NavbarContent() {
               role="switch"
               aria-checked={simple}
               onClick={() => handleToggle('simpleMode')}
-              className={`shrink-0 flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-full text-xs sm:text-sm font-black border-2 transition-all cursor-pointer ${
+              className={`shrink-0 hidden lg:flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-full text-xs sm:text-sm font-black border-2 transition-all cursor-pointer ${
                 simple
                   ? 'bg-emerald-600 border-emerald-400 text-white shadow-md shadow-emerald-500/30'
                   : 'bg-slate-900 border-slate-600 text-slate-200 hover:border-slate-400'
@@ -405,10 +416,63 @@ function NavbarContent() {
               </span>
             </button>
 
+            {/* Menu button (phones and tablets) */}
+            <button
+              type="button"
+              onClick={() => setIsMobileMenuOpen((open) => !open)}
+              aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={isMobileMenuOpen}
+              aria-controls="mobile-nav-menu"
+              className="lg:hidden shrink-0 w-11 h-11 flex items-center justify-center rounded-xl bg-slate-900 border border-slate-700/80 text-white active:bg-slate-800"
+            >
+              {isMobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+            </button>
+
           </div>
 
         </div>
       </div>
+
+      {/* Phone / tablet menu */}
+      {isMobileMenuOpen && (
+        <div id="mobile-nav-menu" className="lg:hidden border-t border-slate-800 bg-slate-950 max-h-[calc(100dvh-4rem)] overflow-y-auto">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-col gap-1">
+            {links.map((link) => {
+              const isActive = pathname === link.href || (link.href !== '/' && pathname.startsWith(link.href));
+              return (
+                <Link
+                  key={link.href}
+                  href={getHref(link.href)}
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  aria-current={isActive ? 'page' : undefined}
+                  className={`min-h-12 px-4 flex items-center rounded-xl text-base font-bold transition-colors ${
+                    isActive ? 'bg-blue-600 text-white' : 'text-slate-200 active:bg-slate-800 hover:bg-slate-900'
+                  }`}
+                >
+                  {link.label}
+                </Link>
+              );
+            })}
+
+            <button
+              type="button"
+              role="switch"
+              aria-checked={simple}
+              onClick={() => handleToggle('simpleMode')}
+              className="mt-2 min-h-12 px-4 flex items-center justify-between rounded-xl border border-slate-700 bg-slate-900 text-base font-bold text-slate-100 active:bg-slate-800"
+            >
+              <span>Simple UI</span>
+              <span
+                className={`px-3 py-1 rounded-full text-xs font-black ${
+                  simple ? 'bg-emerald-500 text-white' : 'bg-slate-700 text-slate-300'
+                }`}
+              >
+                {simple ? 'ON' : 'OFF'}
+              </span>
+            </button>
+          </div>
+        </div>
+      )}
     </nav>
   );
 }

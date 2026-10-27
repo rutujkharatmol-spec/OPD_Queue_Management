@@ -272,7 +272,8 @@ export default function SettingsPage() {
                     <button
                       type="button"
                       onClick={() => setShowPasswordText(!showPasswordText)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer transition-colors"
+                      className="absolute right-1 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer transition-colors"
+                      aria-label={showPasswordText ? "Hide password" : "Show password"}
                       title={showPasswordText ? "Hide password" : "Show password"}
                     >
                       {showPasswordText ? <EyeOff size={16} /> : <Eye size={16} />}

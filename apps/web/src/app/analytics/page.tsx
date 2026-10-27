@@ -121,12 +121,12 @@ function AnalyticsContent() {
 
         <div className="flex flex-wrap items-center gap-3 print:hidden">
           {/* Department Picker */}
-          <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
+          <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-0 sm:py-2">
             <Building2 size={16} className="text-slate-500" />
             <select
               value={deptId}
               onChange={(e) => setSelectedDeptId(e.target.value)}
-              className="bg-transparent font-bold text-xs text-slate-800 outline-none cursor-pointer"
+              className="bg-transparent font-bold text-xs text-slate-800 outline-none cursor-pointer py-2 sm:py-0 min-w-0"
             >
               <option value="">All Departments</option>
               {departments.map((d: any) => (
@@ -136,13 +136,13 @@ function AnalyticsContent() {
           </div>
 
           {/* Date Picker */}
-          <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
+          <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-0 sm:py-2">
             <Calendar size={16} className="text-slate-500" />
             <input
               type="date"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
-              className="bg-transparent font-bold text-xs text-slate-800 outline-none cursor-pointer"
+              className="bg-transparent font-bold text-xs text-slate-800 outline-none cursor-pointer py-2 sm:py-0 min-w-0"
             />
           </div>
 

@@ -983,6 +983,7 @@ export default function DoctorDashboard() {
       {/* Sidebar - Waiting Queue List with Room Badges & Drag/Drop (Toggleable via Show UI) */}
       {showSidebar && (
         <aside
+          id="waiting-line"
           onDragOver={(e) => {
             e.preventDefault();
             e.dataTransfer.dropEffect = 'move';
@@ -1024,7 +1025,7 @@ export default function DoctorDashboard() {
             setDraggingToken(null);
             setDraggingActiveToken(null);
           }}
-          className={`w-full lg:w-[420px] bg-white border-b lg:border-b-0 lg:border-r border-slate-200 shadow-sm flex flex-col z-20 order-2 lg:order-1 h-[50vh] lg:h-screen animate-in fade-in duration-200 transition-colors ${
+          className={`scroll-mt-16 w-full lg:w-[420px] bg-white border-b lg:border-b-0 lg:border-r border-slate-200 shadow-sm flex flex-col z-20 order-2 lg:order-1 h-[50vh] lg:h-screen animate-in fade-in duration-200 transition-colors ${
             isOverQueueSidebar ? 'ring-4 ring-blue-500/30 bg-blue-50/30' : ''
           }`}
         >
@@ -1048,7 +1049,7 @@ export default function DoctorDashboard() {
                   type="button"
                   onClick={handleDeleteAllWaiting}
                   disabled={queueData.nextTokens.length === 0 || isBulkDeleting !== null}
-                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wide border transition-all ${
+                  className={`inline-flex items-center gap-1 px-2.5 py-1.5 sm:px-2 sm:py-0.5 rounded-lg text-[11px] sm:text-[10px] font-black uppercase tracking-wide border transition-all ${
                     queueData.nextTokens.length === 0 || isBulkDeleting !== null
                       ? 'bg-slate-900 text-slate-600 border-slate-800 cursor-not-allowed'
                       : 'bg-red-950/60 text-red-300 border-red-800/70 hover:bg-red-600 hover:text-white hover:border-red-500 cursor-pointer active:scale-95'
@@ -1695,6 +1696,18 @@ export default function DoctorDashboard() {
               <span>+ Add / Manage Rooms</span>
             </button>
           </div>
+
+          {showSidebar && (
+            <button
+              type="button"
+              onClick={() => document.getElementById('waiting-line')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+              className="lg:hidden w-full sm:w-auto min-h-11 px-4 bg-slate-900 active:bg-slate-800 text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2"
+            >
+              <Users size={16} />
+              <span>Waiting line ({queueData.nextTokens.length})</span>
+              <ArrowRight size={16} className="rotate-90" />
+            </button>
+          )}
         </header>
 
         {/* Rooms Grid */}
@@ -1789,7 +1802,7 @@ export default function DoctorDashboard() {
                     }`}
                   >
                     {/* Room Top Bar */}
-                    <div className="flex justify-between items-start mb-4 gap-2">
+                    <div className="flex flex-wrap justify-between items-start mb-4 gap-2">
                       <div>
                         <div className="flex items-center gap-2">
                           <div className="inline-flex items-center gap-1.5 bg-blue-50 border border-blue-200 text-blue-700 font-black px-3.5 py-1 rounded-xl text-sm">
@@ -1826,7 +1839,7 @@ export default function DoctorDashboard() {
                                     const curr = autoPullLimits[room.roomNumber] || DEFAULT_AUTO_PULL_LIMIT;
                                     handleUpdateAutoPullLimit(room.roomNumber, Math.max(1, curr - 1));
                                   }}
-                                  className="w-5 h-5 flex items-center justify-center rounded-lg bg-white hover:bg-blue-50 hover:text-blue-700 text-slate-700 font-black text-xs cursor-pointer shadow-2xs border border-slate-200 transition-colors"
+                                  className="w-8 h-8 sm:w-5 sm:h-5 flex items-center justify-center rounded-lg bg-white hover:bg-blue-50 hover:text-blue-700 text-slate-700 font-black text-xs cursor-pointer shadow-2xs border border-slate-200 transition-colors"
                                   title="Decrease max patients auto-pulled"
                                 >
                                   -
@@ -1841,7 +1854,7 @@ export default function DoctorDashboard() {
                                     const curr = autoPullLimits[room.roomNumber] || DEFAULT_AUTO_PULL_LIMIT;
                                     handleUpdateAutoPullLimit(room.roomNumber, Math.min(10, curr + 1));
                                   }}
-                                  className="w-5 h-5 flex items-center justify-center rounded-lg bg-white hover:bg-blue-50 hover:text-blue-700 text-slate-700 font-black text-xs cursor-pointer shadow-2xs border border-slate-200 transition-colors"
+                                  className="w-8 h-8 sm:w-5 sm:h-5 flex items-center justify-center rounded-lg bg-white hover:bg-blue-50 hover:text-blue-700 text-slate-700 font-black text-xs cursor-pointer shadow-2xs border border-slate-200 transition-colors"
                                   title="Increase max patients auto-pulled"
                                 >
                                   +
@@ -2086,7 +2099,7 @@ export default function DoctorDashboard() {
                                 e.stopPropagation();
                                 handlePullWaitingToActiveRoom(room.roomNumber, 1);
                               }}
-                              className="px-2 py-0.5 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 text-[10px] font-bold transition-colors cursor-pointer"
+                              className="min-w-9 px-3 py-2 sm:min-w-0 sm:px-2 sm:py-0.5 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 text-xs sm:text-[10px] font-bold transition-colors cursor-pointer"
                               title="Pull next 1 patient directly into this room"
                             >
                               +1
@@ -2097,7 +2110,7 @@ export default function DoctorDashboard() {
                                 e.stopPropagation();
                                 handlePullWaitingToActiveRoom(room.roomNumber, 2);
                               }}
-                              className="px-2 py-0.5 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 text-[10px] font-bold transition-colors cursor-pointer"
+                              className="min-w-9 px-3 py-2 sm:min-w-0 sm:px-2 sm:py-0.5 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 text-xs sm:text-[10px] font-bold transition-colors cursor-pointer"
                               title="Pull next 2 patients directly into this room"
                             >
                               +2
@@ -2108,7 +2121,7 @@ export default function DoctorDashboard() {
                                 e.stopPropagation();
                                 handlePullWaitingToActiveRoom(room.roomNumber, 3);
                               }}
-                              className="px-2 py-0.5 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 text-[10px] font-bold transition-colors cursor-pointer"
+                              className="min-w-9 px-3 py-2 sm:min-w-0 sm:px-2 sm:py-0.5 rounded-lg bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 text-xs sm:text-[10px] font-bold transition-colors cursor-pointer"
                               title="Pull next 3 patients directly into this room"
                             >
                               +3

@@ -326,6 +326,55 @@ export function deleteLocalRoom(id: string): boolean {
   return true;
 }
 
+// ----------------- DOCTORS -----------------
+
+const DOCTORS_KEY = 'opd_local_doctors';
+
+export interface LocalDoctor {
+  name: string;
+  departmentId: string | null;
+  roomNumber: string | null;
+}
+
+const cleanDoctorName = (name?: string | null) => name?.trim().replace(/\s+/g, ' ') || '';
+
+/** Offline mirror of GET /doctors: saved doctors plus names set on rooms. */
+export function getLocalDoctors(): LocalDoctor[] {
+  const byKey = new Map<string, LocalDoctor>();
+  const add = (name: string | null | undefined, departmentId: string | null, roomNumber: string | null) => {
+    const clean = cleanDoctorName(name);
+    if (!clean || /^doctor for /i.test(clean)) return;
+    if (!byKey.has(clean.toLowerCase())) byKey.set(clean.toLowerCase(), { name: clean, departmentId, roomNumber });
+  };
+  for (const d of getStorage<LocalDoctor[]>(DOCTORS_KEY, [])) add(d.name, d.departmentId, d.roomNumber);
+  for (const r of getLocalRooms()) add(r.doctorName, r.departmentId ?? null, r.roomNumber);
+  return Array.from(byKey.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Offline mirror of POST /doctors/assign. */
+export function localAssignDoctorToRoom(doctorName: string, departmentId: string, roomId: string) {
+  const name = cleanDoctorName(doctorName);
+  const rooms = getLocalRooms();
+  const room = rooms.find((r) => r.id === roomId);
+  if (!name || !room) return null;
+
+  const key = name.toLowerCase();
+  const doctors = getStorage<LocalDoctor[]>(DOCTORS_KEY, []).filter((d) => d.name.toLowerCase() !== key);
+  doctors.push({ name, departmentId, roomNumber: room.roomNumber });
+  setStorage(DOCTORS_KEY, doctors);
+
+  for (const r of rooms) {
+    if (r.id !== roomId && r.doctorName?.trim().toLowerCase() === key) r.doctorName = undefined;
+  }
+  room.doctorName = name;
+  saveLocalRooms(rooms);
+
+  return {
+    doctor: { id: `local-${key}`, name },
+    room: { id: room.id, roomNumber: room.roomNumber, departmentId: room.departmentId ?? null, doctorName: name },
+  };
+}
+
 // ----------------- TOKENS & QUEUE -----------------
 
 export function getLocalTokens(): LocalToken[] {
