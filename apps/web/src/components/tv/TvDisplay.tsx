@@ -4,10 +4,13 @@ import { useQueueStore, requestQueueWake } from '../../store/useQueueStore';
 import { Moon, Sun, Volume2, VolumeX, Stethoscope, Sparkles, Maximize2, Minimize2 } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { useDepartmentStore } from '../../store/useDepartmentStore';
+import { useSimpleMode } from '../../lib/uiSettings';
 import {
   VoiceGender, AudioLang, announcePatientCall,
   playHospitalChime, stopAudioAnnouncement
 } from '../../lib/speechService';
+import { requestWakeLock, releaseWakeLock } from '../../lib/patientAlerts';
+import { startTvKeepAwake, stopTvKeepAwake } from '../../lib/tvKeepAwake';
 
 /**
  * Shared fallback for a department with no data yet.
@@ -52,11 +55,32 @@ export default function TvDisplay() {
   const [pulseScale, setPulseScale] = useState(false);
   const [isDark, setIsDark] = useState(false); // Default to clean, high-contrast light mode for TV screens
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // Simple UI: only Audio ON/OFF and Full Screen in the header.
+  const simple = useSimpleMode();
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadDepartments(requestedDeptId);
   }, [requestedDeptId, loadDepartments]);
+
+  // Keep the board's screen from sleeping. Once the OS blanks or locks the display, the
+  // browser treats the page as hidden and stops repainting it, so the board looked frozen
+  // until someone moved the mouse. The browser drops the lock whenever the page is hidden,
+  // so take it again each time the page comes back.
+  useEffect(() => {
+    void requestWakeLock();
+    // Stops the browser freezing the board while its window counts as hidden.
+    startTvKeepAwake();
+    const reacquire = () => {
+      if (document.visibilityState === 'visible') void requestWakeLock();
+    };
+    document.addEventListener('visibilitychange', reacquire);
+    return () => {
+      document.removeEventListener('visibilitychange', reacquire);
+      releaseWakeLock();
+      stopTvKeepAwake();
+    };
+  }, []);
 
   // Fullscreen event listener, window resize/focus/visibility synchronization
   useEffect(() => {
@@ -270,7 +294,7 @@ export default function TvDisplay() {
           {/* Right Controls: Status & Settings/Fullscreen */}
           <div className="flex items-center gap-2.5 sm:gap-3.5 flex-wrap justify-end">
             {/* Live Calling Indicator */}
-            <div className="hidden md:flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-xl">
+            <div className={`${simple ? 'hidden' : 'hidden md:flex'} items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-xl`}>
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
               <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Active Calling</span>
             </div>
@@ -289,7 +313,7 @@ export default function TvDisplay() {
               /* NORMAL MODE: Setting Functions + Full Screen button */
               <>
                 {/* Audio Language Selector */}
-                <div className="flex items-center bg-slate-100 dark:bg-black/60 backdrop-blur-md rounded-xl p-1 border border-slate-200 dark:border-white/10 shadow-sm text-xs font-bold">
+                <div className={`${simple ? 'hidden' : 'flex'} items-center bg-slate-100 dark:bg-black/60 backdrop-blur-md rounded-xl p-1 border border-slate-200 dark:border-white/10 shadow-sm text-xs font-bold`}>
                   <button
                     onClick={() => handleSetAudioLang('dual')}
                     className={`px-2.5 py-1 rounded-lg transition-all text-xs ${audioLang === 'dual' ? 'bg-blue-600 text-white shadow' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
@@ -318,7 +342,7 @@ export default function TvDisplay() {
                 </div>
 
                 {/* Voice Gender Selector */}
-                <div className="flex items-center bg-slate-100 dark:bg-black/60 backdrop-blur-md rounded-xl p-1 border border-slate-200 dark:border-white/10 shadow-sm text-xs font-bold">
+                <div className={`${simple ? 'hidden' : 'flex'} items-center bg-slate-100 dark:bg-black/60 backdrop-blur-md rounded-xl p-1 border border-slate-200 dark:border-white/10 shadow-sm text-xs font-bold`}>
                   <button
                     onClick={() => handleSetVoiceGender('female')}
                     className={`px-2.5 py-1 rounded-lg transition-all text-xs flex items-center gap-1 ${voiceGender === 'female' ? 'bg-pink-600 text-white shadow' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'}`}
@@ -359,7 +383,7 @@ export default function TvDisplay() {
                 {/* Theme Toggle Button */}
                 <button
                   onClick={handleToggleTheme}
-                  className="p-2.5 bg-slate-100 dark:bg-black/60 backdrop-blur-md rounded-xl shadow-sm border border-slate-200 dark:border-white/10 hover:bg-slate-200 dark:hover:bg-black/80 transition-all text-slate-600 dark:text-slate-300 cursor-pointer"
+                  className={`p-2.5 bg-slate-100 dark:bg-black/60 backdrop-blur-md rounded-xl shadow-sm border border-slate-200 dark:border-white/10 hover:bg-slate-200 dark:hover:bg-black/80 transition-all text-slate-600 dark:text-slate-300 cursor-pointer ${simple ? 'hidden' : ''}`}
                   title="Toggle Light / Dark Theme"
                 >
                   {isDark ? <Sun size={16} /> : <Moon size={16} />}

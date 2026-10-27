@@ -19,7 +19,7 @@ export interface TokenDisplayData {
 
 interface QueueStore {
   liveQueues: Record<string, TokenDisplayData>; // key: departmentId
-  activeInterval: NodeJS.Timeout | null;
+  activeInterval: (() => void) | null; // cancels the pending poll tick
   updateQueueData: (departmentId: string, data: TokenDisplayData) => void;
   fetchQueue: (departmentId: string) => Promise<void>;
   initializeWebSocket: (departmentId: string) => void; // Keeping the name to prevent breaking other files
@@ -27,6 +27,80 @@ interface QueueStore {
 }
 
 const POLL_INTERVAL_MS = 2500;
+
+/**
+ * Upper bound on one live-queue request.
+ *
+ * The poll loop only schedules its next tick once the current request settles, and every
+ * wake-up event joins the request already in flight. So a request that never answers (a
+ * dropped Wi-Fi connection the browser still thinks is open, a stalled Neon wake-up)
+ * froze the board until someone interacted with it. Aborting it lets the loop carry on.
+ */
+const FETCH_TIMEOUT_MS = 8000;
+
+/**
+ * Timers that keep their pace while the page is hidden.
+ *
+ * Chrome and Edge throttle main-thread timers on hidden pages, down to once a minute
+ * after five minutes for chained timers like the poll loop. Windows can report the TV
+ * window as hidden when its display sleeps, the PC locks, or another window covers it.
+ * Timers in a dedicated worker are not throttled that way, so the worker keeps the beat
+ * and the fetch still runs here on the main thread.
+ */
+let timerWorker: Worker | null | undefined; // undefined: not tried yet; null: unavailable
+let nextTimerId = 0;
+const timerCallbacks = new Map<number, () => void>();
+
+function getTimerWorker(): Worker | null {
+  if (timerWorker !== undefined) return timerWorker;
+  timerWorker = null;
+  if (typeof window === 'undefined' || typeof Worker === 'undefined') return null;
+
+  try {
+    const source =
+      'const t=new Map();onmessage=(e)=>{const{id,ms}=e.data;' +
+      'if(ms<0){clearTimeout(t.get(id));t.delete(id);return;}' +
+      't.set(id,setTimeout(()=>{t.delete(id);postMessage(id);},ms));};';
+    const worker = new Worker(URL.createObjectURL(new Blob([source], { type: 'text/javascript' })));
+
+    worker.onmessage = (e: MessageEvent<number>) => {
+      const callback = timerCallbacks.get(e.data);
+      timerCallbacks.delete(e.data);
+      callback?.();
+    };
+    // If the worker cannot start, hand its waiting callbacks to ordinary timers rather
+    // than leaving the poll loop waiting for a message that will never come.
+    worker.onerror = () => {
+      timerWorker = null;
+      worker.terminate();
+      for (const [id, callback] of timerCallbacks) {
+        timerCallbacks.delete(id);
+        setTimeout(callback, 0);
+      }
+    };
+
+    timerWorker = worker;
+  } catch {
+    timerWorker = null;
+  }
+  return timerWorker;
+}
+
+/** Like setTimeout, but backed by the worker when possible. Returns a cancel function. */
+function scheduleTimer(callback: () => void, ms: number): () => void {
+  const worker = getTimerWorker();
+  if (!worker) {
+    const handle = setTimeout(callback, ms);
+    return () => clearTimeout(handle);
+  }
+
+  const id = ++nextTimerId;
+  timerCallbacks.set(id, callback);
+  worker.postMessage({ id, ms });
+  return () => {
+    if (timerCallbacks.delete(id)) worker.postMessage({ id, ms: -1 });
+  };
+}
 
 /**
  * Signature of the last payload stored per department.
@@ -94,8 +168,14 @@ export const useQueueStore = create<QueueStore>((set, get) => ({
     if (existing) return existing;
 
     const request = (async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
       try {
-        const res = await fetchWithOfflineSync(`${API_BASE_URL}/queue/live/${departmentId}`);
+        const res = await fetchWithOfflineSync(`${API_BASE_URL}/queue/live/${departmentId}`, {
+          signal: controller.signal,
+          // A cached copy of this response is by definition an old queue.
+          cache: 'no-store',
+        });
         if (res.ok) {
           const data = await res.json();
           if (data && (data.activeTokens || data.nextTokens)) {
@@ -103,10 +183,12 @@ export const useQueueStore = create<QueueStore>((set, get) => ({
           }
         }
       } catch (err) {
-        if (err instanceof Error && err.name !== 'TypeError') {
+        // TypeError is a network failure and AbortError our own timeout; the next tick retries both.
+        if (err instanceof Error && err.name !== 'TypeError' && err.name !== 'AbortError') {
           console.error(`Failed to fetch queue updates from ${API_BASE_URL}/queue/live/${departmentId}`, err);
         }
       } finally {
+        clearTimeout(timeout);
         inFlightByDept.delete(departmentId);
       }
     })();
@@ -129,7 +211,7 @@ export const useQueueStore = create<QueueStore>((set, get) => ({
       await get().fetchQueue(departmentId);
       // A newer poller started, or disconnect ran, while this request was in flight.
       if (generation !== pollGeneration) return;
-      set({ activeInterval: setTimeout(tick, POLL_INTERVAL_MS) });
+      set({ activeInterval: scheduleTimer(tick, POLL_INTERVAL_MS) });
     };
 
     // Fetch immediately, as the interval version did, then settle into the loop.
@@ -141,7 +223,7 @@ export const useQueueStore = create<QueueStore>((set, get) => ({
 
     const { activeInterval } = get();
     if (activeInterval) {
-      clearTimeout(activeInterval);
+      activeInterval();
       set({ activeInterval: null });
     }
   }
