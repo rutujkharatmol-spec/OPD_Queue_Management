@@ -1,4 +1,5 @@
 import type { TokenPriority, TokenStatus } from '@/generated/prisma/enums';
+import { summariseByDoctor } from '@/lib/doctorStats';
 
 /**
  * The columns the summary actually reads.
@@ -12,6 +13,7 @@ export type SummarisableToken = {
   status: TokenStatus;
   priority: TokenPriority;
   roomNumber: string | null;
+  servedByDoctorName: string | null;
   issuedAt: Date;
   calledAt: Date | null;
   completedAt: Date | null;
@@ -22,6 +24,7 @@ export const ANALYTICS_TOKEN_SELECT = {
   status: true,
   priority: true,
   roomNumber: true,
+  servedByDoctorName: true,
   issuedAt: true,
   calledAt: true,
   completedAt: true,
@@ -168,5 +171,6 @@ export function summariseTokens(
       consultationCount > 0 ? Math.round(consultationTotal / consultationCount) : 0,
     hourlyDistribution,
     roomStats,
+    doctorStats: summariseByDoctor(tokens, doctorByRoom),
   };
 }

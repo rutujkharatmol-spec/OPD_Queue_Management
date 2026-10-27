@@ -165,6 +165,9 @@ model Token {
   status      TokenStatus   @default(WAITING)
   priority    TokenPriority @default(NORMAL)
   roomNumber  String?       @map("room_number")
+  /// The room's doctor at the moment this token was called in. Copied rather than
+  /// joined so a past day's doctor-wise report stays right after rooms are reassigned.
+  servedByDoctorName String? @map("served_by_doctor_name")
 
   issuedAt    DateTime      @default(now()) @map("issued_at") @db.Timestamp(6)
   calledAt    DateTime?     @map("called_at") @db.Timestamp(6)

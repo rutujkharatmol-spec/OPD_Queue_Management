@@ -10,6 +10,7 @@
 
 import { getStoredPassCount } from './queueSettings';
 import { popNextFromRoomQueue } from './roomQueueSettings';
+import { summariseByDoctor } from './doctorStats';
 
 export interface LocalDepartment {
   id: string;
@@ -43,6 +44,8 @@ export interface LocalToken {
   status: 'WAITING' | 'CALLED' | 'COMPLETED' | 'ABSENT' | 'SKIPPED';
   priority: 'NORMAL' | 'SENIOR' | 'EMERGENCY';
   roomNumber?: string | null;
+  /** The room's doctor when this token was called in (for doctor-wise analytics). */
+  servedByDoctorName?: string | null;
   issuedAt: string;
   calledAt?: string | null;
   recalledAt?: string | null;
@@ -551,8 +554,14 @@ export function localCallNextPatient(departmentId: string, roomNumber: string, t
     return null;
   }
 
+  const allRooms = getLocalRooms();
+  const roomInfo =
+    allRooms.find((r) => r.roomNumber === roomNumber && r.departmentId === targetDeptId) ??
+    allRooms.find((r) => r.roomNumber === roomNumber && !r.departmentId);
+
   nextToken.status = 'CALLED';
   nextToken.roomNumber = roomNumber;
+  nextToken.servedByDoctorName = roomInfo?.doctorName?.trim() || null;
   nextToken.calledAt = new Date().toISOString();
   nextToken.recalledAt = null;
   if (targetDeptId) {
@@ -614,11 +623,13 @@ export function localMarkTokenAction(
   } else if (action === 'RETURN_TO_QUEUE' || action === 'RESET_TO_WAITING') {
     token.status = 'WAITING';
     token.roomNumber = null;
+    token.servedByDoctorName = null;
     token.calledAt = null;
     token.recalledAt = null;
   } else if (action === 'NOT_AVAILABLE' || action === 'SKIP') {
     token.status = 'WAITING';
     token.roomNumber = null;
+    token.servedByDoctorName = null;
     token.calledAt = null;
     token.absentCount = (token.absentCount || 0) + 1;
 
@@ -878,11 +889,14 @@ export function getLocalAnalytics(departmentId?: string, dateStr?: string) {
     consultationCount: number;
   }>();
 
+  const dayTokens: LocalToken[] = [];
+
   for (const t of tokens) {
     if (departmentId && t.departmentId !== departmentId) continue;
     if (t.serviceDate !== targetDate) continue;
 
     totalGenerated++;
+    if (!t.deletedAt) dayTokens.push(t);
 
     const isCompleted = t.status === 'COMPLETED';
     if (isCompleted) completedCount++;
@@ -975,5 +989,6 @@ export function getLocalAnalytics(departmentId?: string, dateStr?: string) {
       consultationCount > 0 ? Math.round(consultationTotal / consultationCount) : 0,
     hourlyDistribution,
     roomStats,
+    doctorStats: summariseByDoctor(dayTokens, doctorByRoom),
   };
 }

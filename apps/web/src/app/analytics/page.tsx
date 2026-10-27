@@ -78,10 +78,24 @@ function AnalyticsContent() {
     avgConsultMins: number;
   }> = analytics?.roomStats || [];
 
+  const doctorStats: Array<{
+    doctorName: string | null;
+    rooms: string[];
+    servedCount: number;
+    inConsultationCount: number;
+    noShowCount: number;
+    avgConsultMins: number;
+  }> = analytics?.doctorStats || [];
+
+  const totalServedByDoctors = doctorStats.reduce((sum, d) => sum + d.servedCount, 0);
+  const maxServedByDoctor = Math.max(...doctorStats.map((d) => d.servedCount), 1);
+
   const totalPatientsInRooms = roomStats.reduce(
     (sum, r) => sum + (r.totalPatients ?? r.totalServed ?? 0),
     0
   );
+  const servedInRoom = (r: (typeof roomStats)[number]) => r.completedCount ?? r.totalServed ?? 0;
+  const totalServedInRooms = roomStats.reduce((sum, r) => sum + servedInRoom(r), 0);
 
   return (
     <div className="min-h-screen bg-slate-100 font-sans text-slate-900 p-4 lg:p-10 print:bg-white print:p-0">
@@ -347,7 +361,7 @@ function AnalyticsContent() {
                     </span>
                   </h3>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Exact count of how many patients went into each consultation room, including completed, active, and absent cases.
+                    How many patients each consultation room served, plus everyone who went in (still in the room or absent).
                   </p>
                 </div>
               </div>
@@ -358,7 +372,10 @@ function AnalyticsContent() {
                 {roomStats.length} {roomStats.length === 1 ? 'Room Active' : 'Rooms Active'}
               </span>
               <span className="text-xs font-bold bg-emerald-50 text-emerald-800 px-3 py-1.5 rounded-xl border border-emerald-200">
-                {totalPatientsInRooms} Total Patients in Rooms
+                {totalServedInRooms} Patients Served
+              </span>
+              <span className="text-xs font-bold bg-blue-50 text-blue-800 px-3 py-1.5 rounded-xl border border-blue-200">
+                {totalPatientsInRooms} Went Into Rooms
               </span>
             </div>
           </div>
@@ -379,7 +396,8 @@ function AnalyticsContent() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {roomStats.map((room) => {
                   const patientCount = room.totalPatients ?? room.totalServed ?? 0;
-                  const pct = totalPatientsInRooms > 0 ? Math.round((patientCount / totalPatientsInRooms) * 100) : 0;
+                  const served = servedInRoom(room);
+                  const pct = totalServedInRooms > 0 ? Math.round((served / totalServedInRooms) * 100) : 0;
 
                   return (
                     <div
@@ -399,36 +417,36 @@ function AnalyticsContent() {
                         )}
                       </div>
 
-                      {/* Hero Counter: How many patients went into this room */}
+                      {/* Hero Counter: How many patients this room served */}
                       <div className="flex items-baseline justify-between pt-1">
                         <div>
-                          <div className="text-3xl font-black text-slate-900 tracking-tight">
-                            {patientCount}
+                          <div className="text-3xl font-black text-emerald-700 tracking-tight">
+                            {served}
                           </div>
                           <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mt-0.5">
-                            Patients Went In
+                            Patients Served
                           </p>
                         </div>
-                        <span className="text-xs font-black text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-lg">
-                          {pct}% of OPD
+                        <span className="text-xs font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-lg">
+                          {pct}% of served
                         </span>
                       </div>
 
-                      {/* Progress Bar (Share of Total OPD Patients) */}
+                      {/* Progress Bar (Share of all patients served) */}
                       <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
                         <div
-                          className="h-full bg-gradient-to-r from-blue-600 to-indigo-600 rounded-full transition-all duration-500"
+                          className="h-full bg-gradient-to-r from-emerald-500 to-teal-600 rounded-full transition-all duration-500"
                           style={{ width: `${pct}%` }}
                         />
                       </div>
 
                       {/* Status Breakdown Pills */}
                       <div className="grid grid-cols-3 gap-1.5 pt-1 text-center">
-                        <div className="p-2 rounded-xl bg-emerald-50/70 border border-emerald-100">
-                          <span className="block text-xs font-black text-emerald-800">
-                            {room.completedCount ?? room.totalServed ?? 0}
+                        <div className="p-2 rounded-xl bg-slate-50 border border-slate-200">
+                          <span className="block text-xs font-black text-slate-800">
+                            {patientCount}
                           </span>
-                          <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-tight">Completed</span>
+                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tight">Went In</span>
                         </div>
                         <div className="p-2 rounded-xl bg-blue-50/70 border border-blue-100">
                           <span className="block text-xs font-black text-blue-800 flex items-center justify-center gap-1">
@@ -466,8 +484,8 @@ function AnalyticsContent() {
                     <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200">
                       <th className="p-3.5">Consultation Room</th>
                       <th className="p-3.5">Assigned Doctor</th>
+                      <th className="p-3.5 text-center">Patients Served</th>
                       <th className="p-3.5 text-center">Total Patients Entered</th>
-                      <th className="p-3.5 text-center">Completed</th>
                       <th className="p-3.5 text-center">In Room Now</th>
                       <th className="p-3.5 text-center">Absent / Skipped</th>
                       <th className="p-3.5 text-center">Share (%)</th>
@@ -477,7 +495,8 @@ function AnalyticsContent() {
                   <tbody className="divide-y divide-slate-100">
                     {roomStats.map((room) => {
                       const patientCount = room.totalPatients ?? room.totalServed ?? 0;
-                      const pct = totalPatientsInRooms > 0 ? Math.round((patientCount / totalPatientsInRooms) * 100) : 0;
+                      const served = servedInRoom(room);
+                      const pct = totalServedInRooms > 0 ? Math.round((served / totalServedInRooms) * 100) : 0;
                       return (
                         <tr key={room.roomNumber} className="hover:bg-slate-50/80 transition-colors">
                           <td className="p-3.5 font-black text-slate-900 flex items-center gap-2">
@@ -489,13 +508,13 @@ function AnalyticsContent() {
                           <td className="p-3.5 text-slate-700 font-medium">
                             {room.doctorName || <span className="text-slate-400 italic">Unassigned</span>}
                           </td>
-                          <td className="p-3.5 text-center font-black text-slate-900 text-sm">
-                            {patientCount}
-                          </td>
                           <td className="p-3.5 text-center">
-                            <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                              {room.completedCount ?? room.totalServed ?? 0}
+                            <span className="font-black text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-md border border-emerald-200 text-sm">
+                              {served}
                             </span>
+                          </td>
+                          <td className="p-3.5 text-center font-bold text-slate-700">
+                            {patientCount}
                           </td>
                           <td className="p-3.5 text-center">
                             <span className="font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200">
@@ -519,6 +538,96 @@ function AnalyticsContent() {
                   </tbody>
                 </table>
               </div>
+            </div>
+          )}
+        </div>
+
+        {/* Doctor-Wise Patients Served (how many patients each doctor saw that day) */}
+        <div className="bg-white rounded-3xl p-6 lg:p-8 shadow-sm border border-slate-200 print:break-inside-avoid">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+            <div className="flex items-center gap-2.5">
+              <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-600 text-white flex items-center justify-center font-bold shadow-md shadow-emerald-500/20">
+                <UserCheck size={20} />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-slate-900 tracking-tight">Doctor-Wise Patients Served</h3>
+                <p className={`text-xs text-slate-500 mt-0.5 ${simple ? 'hidden' : ''}`}>
+                  Consultations completed by each doctor on this date. The doctor is the one assigned to the room when the patient was called in.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-bold bg-slate-100 text-slate-700 px-3 py-1.5 rounded-xl border border-slate-200">
+                {doctorStats.filter((d) => d.doctorName).length} {doctorStats.filter((d) => d.doctorName).length === 1 ? 'Doctor' : 'Doctors'}
+              </span>
+              <span className="text-xs font-bold bg-emerald-50 text-emerald-800 px-3 py-1.5 rounded-xl border border-emerald-200">
+                {totalServedByDoctors} Patients Served
+              </span>
+            </div>
+          </div>
+
+          {doctorStats.length === 0 ? (
+            <div className="py-12 flex flex-col items-center justify-center text-center text-slate-400">
+              <Stethoscope size={32} className="mb-3 text-slate-300" />
+              <p className="font-bold text-slate-700 text-sm">No Patients Seen by a Doctor Yet for This Date</p>
+              <p className="text-xs text-slate-400 mt-1 max-w-md">
+                Counts appear here as doctors call and complete patients.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-2xl border border-slate-200">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200">
+                    <th className="p-3.5">Doctor</th>
+                    <th className="p-3.5">Room(s)</th>
+                    <th className="p-3.5 text-center">Patients Served</th>
+                    <th className={`p-3.5 text-center ${simple ? 'hidden' : ''}`}>With Doctor Now</th>
+                    <th className={`p-3.5 text-center ${simple ? 'hidden' : ''}`}>Called but Absent</th>
+                    <th className={`p-3.5 text-right ${simple ? 'hidden' : ''}`}>Avg Time / Patient</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {doctorStats.map((doc) => (
+                    <tr key={doc.doctorName ?? '__none__'} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="p-3.5 font-bold text-slate-900">
+                        <span className="flex items-center gap-2">
+                          <Stethoscope size={14} className="text-emerald-600 shrink-0" />
+                          {doc.doctorName || <span className="text-slate-400 italic font-medium">No doctor set for room</span>}
+                        </span>
+                      </td>
+                      <td className="p-3.5 text-slate-600 font-medium">
+                        {doc.rooms.length > 0 ? doc.rooms.join(', ') : '-'}
+                      </td>
+                      <td className="p-3.5">
+                        <div className="flex items-center justify-center gap-3">
+                          <span className="font-black text-emerald-700 text-base min-w-[2ch] text-right">{doc.servedCount}</span>
+                          <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden print:hidden">
+                            <div
+                              className="h-full bg-gradient-to-r from-emerald-500 to-teal-600 rounded-full transition-all duration-500"
+                              style={{ width: `${(doc.servedCount / maxServedByDoctor) * 100}%` }}
+                            />
+                          </div>
+                        </div>
+                      </td>
+                      <td className={`p-3.5 text-center ${simple ? 'hidden' : ''}`}>
+                        <span className="font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200">
+                          {doc.inConsultationCount}
+                        </span>
+                      </td>
+                      <td className={`p-3.5 text-center ${simple ? 'hidden' : ''}`}>
+                        <span className="font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                          {doc.noShowCount}
+                        </span>
+                      </td>
+                      <td className={`p-3.5 text-right font-bold text-slate-800 font-mono ${simple ? 'hidden' : ''}`}>
+                        {doc.avgConsultMins > 0 ? `${doc.avgConsultMins}m` : '-'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>

@@ -90,6 +90,7 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
         calledAt: null,
         recalledAt: null,
         roomNumber: null,
+        servedByDoctorName: null,
       },
     });
     return ok(updated);
@@ -128,6 +129,7 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
         status: 'WAITING',
         calledAt: null,
         roomNumber: null,
+        servedByDoctorName: null,
         absentCount: { increment: 1 },
         issuedAt: targetIssuedAt,
       },

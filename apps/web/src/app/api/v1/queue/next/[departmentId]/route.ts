@@ -24,7 +24,22 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
   if (!department) return notFound('Department not found.');
 
   const serviceDate = serviceDateFor();
-  const cleanId = (body.tokenIdentifier || body.tokenNumber || body.tokenId)?.replace(' 🚨', '').trim();
+
+  // Who is sitting in this room right now, saved on the token for doctor-wise analytics.
+  // A room set up for this department wins over a shared room with no department.
+  const roomRows = await db.room.findMany({
+    where: {
+      roomNumber,
+      deletedAt: null,
+      OR: [{ departmentId }, { departmentId: null }],
+    },
+    select: { doctorName: true, departmentId: true },
+  });
+  const servedByDoctorName =
+    (roomRows.find((r) => r.departmentId === departmentId) ?? roomRows[0])?.doctorName?.trim() ||
+    null;
+
+  const cleanId =(body.tokenIdentifier || body.tokenNumber || body.tokenId)?.replace(' 🚨', '').trim();
 
   const nextToken = await db.$transaction(async (tx) => {
     // 1. Find target token or next waiting token for today
@@ -109,6 +124,7 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
           status: 'CALLED',
           calledAt: new Date(),
           roomNumber,
+          servedByDoctorName,
           departmentId: department.id,
           patientId: patient.id,
           doctorId: doctor.id,
@@ -127,6 +143,7 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
         calledAt: new Date(),
         recalledAt: null,
         roomNumber,
+        servedByDoctorName,
       },
       include: { patient: true, department: true, doctor: true },
     });
