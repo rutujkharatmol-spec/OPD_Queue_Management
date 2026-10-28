@@ -567,7 +567,13 @@ export function getLocalLiveQueue(departmentId: string) {
   };
 }
 
-export function localCallNextPatient(departmentId: string, roomNumber: string, tokenIdentifier?: string): LocalToken | null {
+export function localCallNextPatient(
+  departmentId: string,
+  roomNumber: string,
+  tokenIdentifier?: string,
+  /** The doctor calling (Doctor Desk); wins over the room's doctor name. */
+  doctorName?: string
+): LocalToken | null {
   const tokens = getLocalTokens();
   const depts = getLocalDepartments();
   const dept = depts.find(d => d.id === departmentId || (d.code && departmentId && d.code.toLowerCase() === departmentId.toLowerCase())) || depts[0] || DEFAULT_DEPARTMENTS[0];
@@ -629,7 +635,8 @@ export function localCallNextPatient(departmentId: string, roomNumber: string, t
 
   nextToken.status = 'CALLED';
   nextToken.roomNumber = roomNumber;
-  nextToken.servedByDoctorName = roomInfo?.doctorName?.trim() || null;
+  nextToken.servedByDoctorName =
+    doctorName?.trim().replace(/\s+/g, ' ').slice(0, 120) || roomInfo?.doctorName?.trim() || null;
   nextToken.calledAt = new Date().toISOString();
   nextToken.recalledAt = null;
   if (targetDeptId) {

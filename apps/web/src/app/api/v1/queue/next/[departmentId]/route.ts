@@ -5,7 +5,14 @@ import { serviceDateFor } from '@/server/tokens/tokenNumber';
 export const dynamic = 'force-dynamic';
 
 type Context = { params: Promise<{ departmentId: string }> };
-type Body = { roomNumber: string; tokenIdentifier?: string; tokenNumber?: string; tokenId?: string };
+type Body = {
+  roomNumber: string;
+  tokenIdentifier?: string;
+  tokenNumber?: string;
+  tokenId?: string;
+  /** The doctor calling (sent by the Doctor Desk); wins over the room's doctor name. */
+  doctorName?: string;
+};
 
 export const PATCH = route(async (request: Request, { params }: Context) => {
   const { departmentId } = await params;
@@ -35,7 +42,10 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
     },
     select: { doctorName: true, departmentId: true },
   });
+  const callingDoctor =
+    typeof body.doctorName === 'string' ? body.doctorName.trim().replace(/\s+/g, ' ').slice(0, 120) : '';
   const servedByDoctorName =
+    callingDoctor ||
     (roomRows.find((r) => r.departmentId === departmentId) ?? roomRows[0])?.doctorName?.trim() ||
     null;
 

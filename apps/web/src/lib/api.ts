@@ -74,11 +74,17 @@ export async function generateToken(
   return result;
 }
 
-export async function callNextPatient(departmentId: string, roomNumber: string, tokenIdentifier?: string) {
+export async function callNextPatient(
+  departmentId: string,
+  roomNumber: string,
+  tokenIdentifier?: string,
+  // The doctor calling (Doctor Desk), credited instead of whoever is set on the room.
+  doctorName?: string
+) {
   const response = await fetchWithOfflineSync(`${API_BASE_URL}/queue/next/${departmentId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ roomNumber, tokenIdentifier, tokenNumber: tokenIdentifier }),
+    body: JSON.stringify({ roomNumber, tokenIdentifier, tokenNumber: tokenIdentifier, doctorName }),
   });
   if (!response.ok) {
     const errText = await response.text();

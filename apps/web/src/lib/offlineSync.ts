@@ -242,7 +242,12 @@ function handleWithLocalStore(url: string, method: string, options: RequestInit)
   }
   if (pathname.includes('/queue/next/') && method === 'PATCH') {
     const deptId = pathname.split('/queue/next/')[1]?.split('?')[0] || '';
-    const data = localCallNextPatient(deptId, parsedBody.roomNumber || '101', parsedBody.tokenIdentifier || parsedBody.tokenNumber);
+    const data = localCallNextPatient(
+      deptId,
+      parsedBody.roomNumber || '101',
+      parsedBody.tokenIdentifier || parsedBody.tokenNumber,
+      parsedBody.doctorName
+    );
     return jsonResponse(data, 200);
   }
   if (pathname.includes('/queue/recall/') && method === 'PATCH') {

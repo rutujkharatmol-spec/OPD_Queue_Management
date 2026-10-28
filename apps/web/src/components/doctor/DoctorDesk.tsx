@@ -1,13 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   CheckCircle2, Stethoscope, Building2, DoorOpen, UserPlus, Search, ArrowLeftRight,
-  Loader2, Users, X,
+  Loader2, Users, X, BellRing,
 } from 'lucide-react';
 import {
-  assignDoctorToRoom, getDepartmentAnalytics, getDoctors, getRooms, markTokenAction, type DoctorListItem,
+  assignDoctorToRoom, callNextPatient, getDepartmentAnalytics, getDoctors, getRooms, markTokenAction,
+  type DoctorListItem,
 } from '../../lib/api';
 import { useDepartmentStore } from '../../store/useDepartmentStore';
 import { useQueueStore } from '../../store/useQueueStore';
@@ -47,8 +48,9 @@ const sameName = (a?: string | null, b?: string | null) =>
   !!a && !!b && normName(a) === normName(b);
 
 /**
- * Doctor Desk: a doctor picks their name, department and room once, then only presses
- * Done on each patient. Calling patients in stays with the main Doctor Room screen.
+ * Doctor Desk: a doctor picks their name, department and room once, then calls the next
+ * patient in line and presses Done on each one. Staged room queues, recall and absent
+ * stay on the main Doctor Room screen.
  */
 export default function DoctorDesk() {
   const searchParams = useSearchParams();
@@ -473,6 +475,41 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
     setError('');
   }, [submitting]);
 
+  // Call next: the next patient in the department's waiting line (emergency, then
+  // senior, then arrival order), into this room, credited to this doctor.
+  const [calling, setCalling] = useState(false);
+  const [confirmingCall, setConfirmingCall] = useState(false);
+  const [callError, setCallError] = useState('');
+
+  const callNext = async () => {
+    if (calling) return;
+    setCalling(true);
+    setCallError('');
+    try {
+      const called = await callNextPatient(departmentId, roomNumber, undefined, doctorName);
+      setConfirmingCall(false);
+      setToast(called?.tokenNumber ? `Token ${called.tokenNumber} called to Room ${roomNumber}` : 'No patients waiting');
+      await useQueueStore.getState().fetchQueue(departmentId);
+    } catch {
+      setCallError('Could not call the next patient. Please try again.');
+    } finally {
+      setCalling(false);
+    }
+  };
+
+  // With someone still in the room, ask first: an accidental tap would call a second patient.
+  const onCallNextPress = () => {
+    setCallError('');
+    if (patients.length > 0) setConfirmingCall(true);
+    else void callNext();
+  };
+
+  const closeCallConfirm = useCallback(() => {
+    if (calling) return;
+    setConfirmingCall(false);
+    setCallError('');
+  }, [calling]);
+
   const confirmDone = async () => {
     if (!confirming || submitting) return;
     setSubmitting(true);
@@ -533,6 +570,29 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
         </div>
       </div>
 
+      {/* Call next patient */}
+      <div>
+        <button
+          type="button"
+          onClick={onCallNextPress}
+          disabled={calling || !loaded || waitingCount === 0}
+          className="w-full min-h-16 rounded-2xl bg-blue-600 text-white shadow-md shadow-blue-600/20 active:bg-blue-700 hover:bg-blue-700 disabled:bg-slate-300 disabled:text-slate-600 disabled:shadow-none flex items-center justify-center gap-3 px-4"
+        >
+          {calling && !confirmingCall ? <Loader2 className="animate-spin" size={22} /> : <BellRing size={22} />}
+          <span className="text-lg font-black">
+            {loaded && waitingCount === 0 ? 'No patients waiting' : 'Call Next Patient'}
+          </span>
+          {waitingCount > 0 && (
+            <span className="text-xs font-bold bg-white/20 rounded-full px-2.5 py-1">{waitingCount} waiting</span>
+          )}
+        </button>
+        {callError && !confirmingCall && (
+          <p role="alert" className="mt-2 text-sm font-semibold text-rose-700 px-1">
+            {callError}
+          </p>
+        )}
+      </div>
+
       <div className="flex items-center justify-between px-1">
         <h2 className="text-base font-black text-slate-800">
           Patients in your room{patients.length > 0 ? ` (${patients.length})` : ''}
@@ -550,7 +610,7 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
         <div className="bg-white rounded-2xl border border-dashed border-slate-300 py-14 px-6 text-center">
           <DoorOpen size={36} className="mx-auto text-slate-300" />
           <p className="mt-3 font-bold text-slate-700">No patient in your room right now</p>
-          <p className="mt-1 text-sm text-slate-500">The next patient will appear here as soon as they are called in.</p>
+          <p className="mt-1 text-sm text-slate-500">Press Call Next Patient to call the next one in line.</p>
         </div>
       ) : (
         <ul className="space-y-3">
@@ -579,13 +639,39 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
       )}
 
       {confirming && (
-        <ConfirmDoneDialog
-          patient={confirming}
+        <ConfirmDialog
+          title="Do you really want to press Done?"
+          confirmLabel="Yes, Done"
+          tone="green"
           submitting={submitting}
           error={error}
           onCancel={closeConfirm}
           onConfirm={confirmDone}
-        />
+        >
+          Token <strong className="text-slate-900">{confirming.token}</strong>
+          {confirming.patientName ? <> · {confirming.patientName}</> : null} will be marked as done.
+        </ConfirmDialog>
+      )}
+
+      {confirmingCall && (
+        <ConfirmDialog
+          title="Call the next patient?"
+          confirmLabel="Yes, Call Next"
+          tone="blue"
+          submitting={calling}
+          error={callError}
+          onCancel={closeCallConfirm}
+          onConfirm={() => void callNext()}
+        >
+          {patients.length === 1 ? (
+            <>
+              Token <strong className="text-slate-900">{patients[0].token}</strong> is still in your room.
+            </>
+          ) : (
+            <>{patients.length} patients are still in your room.</>
+          )}{' '}
+          You can press Done for them later.
+        </ConfirmDialog>
       )}
 
       {toast && (
@@ -600,14 +686,20 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
   );
 }
 
-function ConfirmDoneDialog({
-  patient,
+function ConfirmDialog({
+  title,
+  children,
+  confirmLabel,
+  tone,
   submitting,
   error,
   onCancel,
   onConfirm,
 }: {
-  patient: ActivePatient;
+  title: string;
+  children: React.ReactNode;
+  confirmLabel: string;
+  tone: 'green' | 'blue';
   submitting: boolean;
   error: string;
   onCancel: () => void;
@@ -630,6 +722,11 @@ function ConfirmDoneDialog({
     };
   }, [onCancel]);
 
+  const confirmColor =
+    tone === 'green'
+      ? 'bg-emerald-600 active:bg-emerald-700 hover:bg-emerald-700'
+      : 'bg-blue-600 active:bg-blue-700 hover:bg-blue-700';
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/60 p-4"
@@ -638,17 +735,16 @@ function ConfirmDoneDialog({
       <div
         role="alertdialog"
         aria-modal="true"
-        aria-labelledby="confirm-done-title"
-        aria-describedby="confirm-done-desc"
+        aria-labelledby="confirm-dialog-title"
+        aria-describedby="confirm-dialog-desc"
         onClick={(e) => e.stopPropagation()}
         className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
       >
-        <h2 id="confirm-done-title" className="text-xl font-black text-slate-900">
-          Do you really want to press Done?
+        <h2 id="confirm-dialog-title" className="text-xl font-black text-slate-900">
+          {title}
         </h2>
-        <p id="confirm-done-desc" className="mt-2 text-slate-600">
-          Token <strong className="text-slate-900">{patient.token}</strong>
-          {patient.patientName ? <> · {patient.patientName}</> : null} will be marked as done.
+        <p id="confirm-dialog-desc" className="mt-2 text-slate-600">
+          {children}
         </p>
         {error && (
           <p role="alert" className="mt-3 text-sm font-semibold text-rose-700">
@@ -669,10 +765,10 @@ function ConfirmDoneDialog({
             type="button"
             onClick={onConfirm}
             disabled={submitting}
-            className="min-h-14 rounded-2xl bg-emerald-600 text-white text-base font-black active:bg-emerald-700 hover:bg-emerald-700 disabled:opacity-70 flex items-center justify-center gap-2"
+            className={`min-h-14 rounded-2xl text-white text-base font-black disabled:opacity-70 flex items-center justify-center gap-2 ${confirmColor}`}
           >
             {submitting ? <Loader2 className="animate-spin" size={18} /> : null}
-            {submitting ? 'Saving…' : 'Yes, Done'}
+            {submitting ? 'Please wait…' : confirmLabel}
           </button>
         </div>
       </div>
