@@ -42,7 +42,7 @@
   .btn:focus { outline: 3px solid #f59e0b; }
   .btn.on { background: #059669; border-color: #059669; color: #fff; }
   #deptSelect { font-size: 1.7vh; padding: .9vh .6vw; border-radius: 1vh; border: 1px solid #cbd5e1; margin-left: .6vw; max-width: 14vw; }
-  #status { font-size: 1.6vh; font-weight: 800; padding: .8vh 1vw; border-radius: 1vh; margin-right: 1vw; }
+  #status { font-size: 1.6vh; font-weight: 800; padding: .8vh 1vw; border-radius: 1vh; margin-right: 1vw; white-space: nowrap; }
   #status.ok { background: #d1fae5; color: #047857; }
   #status.bad { background: #fee2e2; color: #b91c1c; }
 
@@ -168,25 +168,43 @@
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
+  // The API is slow-ish from India (~1-2s) and occasionally much slower while the server
+  // wakes up; give it room before calling the request failed.
+  var REQUEST_TIMEOUT_MS = 15000;
+
+  // fail(reason) gets a short, plain reason shown on the status badge, so staff can tell
+  // a Wi-Fi problem from a slow server or Vercel's firewall blocking this TV.
   function getJSON(url, ok, fail) {
     var xhr = new XMLHttpRequest();
     var done = false;
-    xhr.open('GET', url + (url.indexOf('?') >= 0 ? '&' : '?') + '_=' + new Date().getTime(), true);
-    // The API is slow-ish from India (~1-2s) and occasionally much slower while the server
-    // wakes up; give it room before calling the request failed.
-    xhr.timeout = 15000;
+    var started = new Date().getTime();
+    xhr.open('GET', url + (url.indexOf('?') >= 0 ? '&' : '?') + '_=' + started, true);
+    xhr.timeout = REQUEST_TIMEOUT_MS;
     xhr.onreadystatechange = function () {
       if (xhr.readyState !== 4 || done) return;
       done = true;
-      if (xhr.status >= 200 && xhr.status < 300) {
+      var status = xhr.status;
+      var text = xhr.responseText || '';
+      var firewall = '';
+      try { firewall = xhr.getResponseHeader('x-vercel-mitigated') || ''; } catch (e) {}
+      if (status >= 200 && status < 300) {
         var data = null;
-        try { data = JSON.parse(xhr.responseText); } catch (e) { fail(); return; }
+        try { data = JSON.parse(text); } catch (e) {
+          fail(/Security Checkpoint|vercel/i.test(text) ? 'blocked by Vercel security' : 'unexpected reply');
+          return;
+        }
         ok(data);
+      } else if (status === 0) {
+        fail(new Date().getTime() - started >= REQUEST_TIMEOUT_MS - 200 ? 'server too slow' : 'no connection');
+      } else if (firewall || status === 403 || status === 429 || /Security Checkpoint/i.test(text)) {
+        fail('blocked by Vercel security');
+      } else if (status >= 500) {
+        fail('server error ' + status);
       } else {
-        fail();
+        fail('error ' + status);
       }
     };
-    xhr.ontimeout = function () { if (!done) { done = true; fail(); } };
+    xhr.ontimeout = function () { if (!done) { done = true; fail('server too slow'); } };
     xhr.send();
   }
 
@@ -522,12 +540,23 @@
   var FAILS_BEFORE_WARNING = 3;
   var failCount = 0;
 
-  function setStatus(ok) {
+  var lastOkAt = null;
+
+  function timeText(d) {
+    var h = d.getHours(), m = d.getMinutes();
+    var ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12; if (h === 0) h = 12;
+    return h + ':' + (m < 10 ? '0' : '') + m + ' ' + ampm;
+  }
+
+  function setStatus(ok, reason) {
     failCount = ok ? 0 : failCount + 1;
+    if (ok) lastOkAt = new Date();
     if (!ok && failCount < FAILS_BEFORE_WARNING) return;
     var s = $('status');
     s.className = ok ? 'ok' : 'bad';
-    s.innerHTML = ok ? 'Live' : 'Reconnecting...';
+    s.innerHTML = ok ? 'Live' : esc('Reconnecting · ' + (reason || 'no connection') +
+      (lastOkAt ? ' · last update ' + timeText(lastOkAt) : ''));
   }
 
   function poll(gen) {
@@ -554,9 +583,9 @@
       lastSnapshot = snapshot;
       render(data);
       pollTimer = setTimeout(function () { poll(gen); }, POLL_MS);
-    }, function () {
+    }, function (reason) {
       if (gen !== generation) return;
-      setStatus(false);
+      setStatus(false, reason);
       pollTimer = setTimeout(function () { poll(gen); }, POLL_MS * 2);
     });
   }
