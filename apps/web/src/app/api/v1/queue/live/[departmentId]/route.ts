@@ -1,14 +1,17 @@
 import { db } from '@/lib/db';
 import { ok, notFound, route } from '@/server/http';
 import { serviceDateFor } from '@/server/tokens/tokenNumber';
+import { PATIENT_BOARD_WAITING_LIMIT, type PatientBoard } from '@/lib/patientBoard';
 
 // Polled every 3 seconds by every TV board and doctor dashboard.
 export const dynamic = 'force-dynamic';
 
 type Context = { params: Promise<{ departmentId: string }> };
 
-export const GET = route(async (_request: Request, { params }: Context) => {
+export const GET = route(async (request: Request, { params }: Context) => {
   const { departmentId } = await params;
+  // The public patient page asks for its own, smaller board that can be CDN-cached.
+  const patientView = new URL(request.url).searchParams.get('view') === 'patient';
 
   const serviceDate = serviceDateFor();
 
@@ -35,7 +38,7 @@ export const GET = route(async (_request: Request, { params }: Context) => {
     }),
     db.room.findMany({
       where: { departmentId, deletedAt: null },
-      select: { roomNumber: true, doctorName: true },
+      select: { roomNumber: true, doctorName: true, isActive: true },
     }),
     db.token.findMany({
       where: { departmentId, serviceDate, status: 'CALLED', deletedAt: null },
@@ -58,6 +61,24 @@ export const GET = route(async (_request: Request, { params }: Context) => {
   ]);
 
   if (!department) return notFound('Department not found.');
+
+  if (patientView) {
+    const board: PatientBoard = {
+      departmentName: department.name,
+      rooms: rooms.filter((r) => r.isActive !== false).map((r) => ({ roomNumber: r.roomNumber })),
+      activeTokens: activeRaw.map((t) => ({ tokenNumber: t.tokenNumber, roomNumber: t.roomNumber || '101' })),
+      waitingTokens: waiting
+        .slice(0, PATIENT_BOARD_WAITING_LIMIT)
+        .map((t) => ({ tokenNumber: t.tokenNumber, priority: t.priority })),
+      waitingCount: waiting.length,
+    };
+    const res = ok(board);
+    // Every phone in a department gets the same board, so Vercel's CDN serves it for 3s
+    // (and briefly stale while refreshing): one database read per department every few
+    // seconds, however many patients are watching. Staff screens never send view=patient.
+    res.headers.set('Cache-Control', 'public, max-age=0, s-maxage=3, stale-while-revalidate=7');
+    return res;
+  }
 
   const doctorByRoom = new Map<string, string>();
   for (const room of rooms) {

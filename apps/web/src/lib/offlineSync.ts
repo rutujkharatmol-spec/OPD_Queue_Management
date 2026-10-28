@@ -21,6 +21,7 @@ import {
   getLocalDoctors,
   localAssignDoctorToRoom,
 } from './localStore';
+import { patientBoardFromStaffBoard } from './patientBoard';
 
 export const OFFLINE_QUEUE_KEY = 'offlineSyncQueue';
 
@@ -234,6 +235,9 @@ function handleWithLocalStore(url: string, method: string, options: RequestInit)
   if (pathname.includes('/queue/live/') && method === 'GET') {
     const deptId = pathname.split('/queue/live/')[1]?.split('?')[0] || '';
     const data = getLocalLiveQueue(deptId);
+    if (searchParams.get('view') === 'patient') {
+      return jsonResponse(patientBoardFromStaffBoard(data, getLocalRooms(deptId)), 200);
+    }
     return jsonResponse(data, 200);
   }
   if (pathname.includes('/queue/next/') && method === 'PATCH') {

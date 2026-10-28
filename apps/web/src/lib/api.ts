@@ -1,7 +1,8 @@
 import { fetchWithOfflineSync } from './offlineSync';
 import type { NameLookupMatch } from './nameLookup';
+import type { PatientBoard } from './patientBoard';
 
-export type { NameLookupMatch };
+export type { NameLookupMatch, PatientBoard };
 
 // The API is served by this same app (src/app/api/v1/**), so it is always same-origin.
 // That holds for both deployments — Vercel and `next start` on the OPD server — which
@@ -205,8 +206,12 @@ export async function getTokenStatus(
   return response.json();
 }
 
-export async function getLiveQueue(departmentId: string) {
-  const response = await fetchWithOfflineSync(`${API_BASE_URL}/queue/live/${departmentId}`);
+/**
+ * The patient page's department board: token numbers and rooms only, CDN-cached for a
+ * few seconds. Staff screens read the full board through useQueueStore instead.
+ */
+export async function getLiveQueue(departmentId: string): Promise<PatientBoard> {
+  const response = await fetchWithOfflineSync(`${API_BASE_URL}/queue/live/${departmentId}?view=patient`);
   if (!response.ok) throw new Error('Failed to fetch live queue');
   return response.json();
 }

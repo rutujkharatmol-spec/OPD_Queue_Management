@@ -22,6 +22,7 @@ import {
   getLiveQueue,
   findTokensByName,
   type NameLookupMatch,
+  type PatientBoard,
   type TokenStatusResponse,
   type TokenStatusValue,
 } from '../../lib/api';
@@ -124,13 +125,7 @@ export default function PatientTracker() {
   // Department State
   const [departments, setDepartments] = useState<Array<{ id: string; name: string; code?: string }>>([]);
   const [selectedDeptId, setSelectedDeptId] = useState<string>(initialDeptParam);
-  const [liveQueueData, setLiveQueueData] = useState<{
-    departmentName?: string;
-    rooms?: Array<{ roomNumber: string; doctorName?: string }>;
-    activeTokens?: Array<{ tokenNumber: string; roomNumber?: string; patientName?: string }>;
-    waitingTokens?: Array<{ tokenNumber: string; priority: string }>;
-    waitingCount?: number;
-  } | null>(null);
+  const [liveQueueData, setLiveQueueData] = useState<PatientBoard | null>(null);
 
   const [statusData, setStatusData] = useState<TokenStatusResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -187,11 +182,13 @@ export default function PatientTracker() {
   useEffect(() => {
     if (selectedDeptId) {
       fetchDeptLiveQueue(selectedDeptId);
+      // The overview board can lag a few seconds; the patient's own token status has its
+      // own faster poll, so calls and recalls are still noticed quickly.
       const interval = setInterval(() => {
         if (!document.hidden) {
           fetchDeptLiveQueue(selectedDeptId);
         }
-      }, 4000);
+      }, 10_000);
       return () => clearInterval(interval);
     }
   }, [selectedDeptId, fetchDeptLiveQueue]);
