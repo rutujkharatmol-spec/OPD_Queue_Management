@@ -563,6 +563,7 @@
     if (gen !== generation || !deptId) return;
     getJSON(API + '/queue/live/' + encodeURIComponent(deptId), function (data) {
       if (gen !== generation) return;
+      firewallStreak = 0;
       setStatus(true);
       var active = data.activeTokens || [];
       var parts = [];
@@ -585,9 +586,58 @@
       pollTimer = setTimeout(function () { poll(gen); }, POLL_MS);
     }, function (reason) {
       if (gen !== generation) return;
+      if (reason === 'blocked by Vercel security') {
+        recoverFromFirewall(gen);
+        return;
+      }
       setStatus(false, reason);
       pollTimer = setTimeout(function () { poll(gen); }, POLL_MS * 2);
     });
+  }
+
+  // ---------- Vercel security check ----------
+  // Vercel's firewall sometimes starts challenging this TV. A background request can't
+  // answer the challenge, but loading a page can, which is why reloading fixed it.
+  // First try loading a tiny page in a hidden frame (keeps full screen and sound); if the
+  // TV is still blocked after two tries, reload the whole page (at most every 2 minutes).
+  var RELOAD_KEY = 'tv_lite_last_auto_reload';
+  var RELOAD_GAP_MS = 2 * 60 * 1000;
+  var firewallStreak = 0;
+
+  function showFirewallStatus(text) {
+    var s = $('status');
+    s.className = 'bad';
+    s.innerHTML = esc(text);
+  }
+
+  function recoverFromFirewall(gen) {
+    firewallStreak++;
+    if (firewallStreak <= 2) {
+      showFirewallStatus('Refreshing security check...');
+      var frame = document.createElement('iframe');
+      frame.setAttribute('aria-hidden', 'true');
+      frame.style.cssText = 'position:absolute;width:1px;height:1px;left:-10px;top:-10px;border:0;visibility:hidden;';
+      frame.src = '/tv-ping.html?t=' + new Date().getTime();
+      document.body.appendChild(frame);
+      // Give the check time to run (it may reload the frame once), then try again.
+      pollTimer = setTimeout(function () {
+        try { document.body.removeChild(frame); } catch (e) {}
+        poll(gen);
+      }, 8000);
+      return;
+    }
+    var last = Number(store(RELOAD_KEY) || 0);
+    var now = new Date().getTime();
+    if (now - last < RELOAD_GAP_MS) {
+      // Reloaded very recently: don't loop. Keep the last board and retry in a while.
+      showFirewallStatus('Reconnecting · blocked by Vercel security' + (lastOkAt ? ' · last update ' + timeText(lastOkAt) : ''));
+      firewallStreak = 0;
+      pollTimer = setTimeout(function () { poll(gen); }, 30000);
+      return;
+    }
+    store(RELOAD_KEY, String(now));
+    showFirewallStatus('Reloading...');
+    setTimeout(function () { window.location.reload(); }, 500);
   }
 
   function startPolling() {
