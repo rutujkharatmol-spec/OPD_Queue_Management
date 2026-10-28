@@ -167,7 +167,9 @@
     var xhr = new XMLHttpRequest();
     var done = false;
     xhr.open('GET', url + (url.indexOf('?') >= 0 ? '&' : '?') + '_=' + new Date().getTime(), true);
-    xhr.timeout = 10000;
+    // The API is slow-ish from India (~1-2s) and occasionally much slower while the server
+    // wakes up; give it room before calling the request failed.
+    xhr.timeout = 15000;
     xhr.onreadystatechange = function () {
       if (xhr.readyState !== 4 || done) return;
       done = true;
@@ -460,8 +462,14 @@
   var lastSnapshot = '';
   var pollTimer = null;
   var generation = 0;
+  // One failed refresh (a Wi-Fi blip, one slow request) is normal and is retried a few
+  // seconds later; only say "Reconnecting" after several in a row.
+  var FAILS_BEFORE_WARNING = 3;
+  var failCount = 0;
 
   function setStatus(ok) {
+    failCount = ok ? 0 : failCount + 1;
+    if (!ok && failCount < FAILS_BEFORE_WARNING) return;
     var s = $('status');
     s.className = ok ? 'ok' : 'bad';
     s.innerHTML = ok ? 'Live' : 'Reconnecting...';
