@@ -311,7 +311,17 @@ export default function TvDisplay() {
       if (item.token?.includes('🚨')) rEntry.isEmergency = true;
       rEntry.tokens.push(item);
     }
-    return Array.from(map.values());
+    // The server lists the newest call first; show each room's patients in the order
+    // they were called (3, 4, 5, 8), falling back to token number.
+    const groups = Array.from(map.values());
+    for (const g of groups) {
+      g.tokens.sort(
+        (a, b) =>
+          (a.calledAt ?? 0) - (b.calledAt ?? 0) ||
+          String(a.token).localeCompare(String(b.token), undefined, { numeric: true })
+      );
+    }
+    return groups;
   }, [queueData.activeTokens]);
   const roomCount = roomsList.length;
   const focusedRoomData = focusedRoom ? roomsList.find((r) => r.room === focusedRoom) : undefined;

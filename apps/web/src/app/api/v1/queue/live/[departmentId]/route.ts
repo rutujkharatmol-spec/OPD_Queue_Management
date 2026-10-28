@@ -66,7 +66,10 @@ export const GET = route(async (request: Request, { params }: Context) => {
     const board: PatientBoard = {
       departmentName: department.name,
       rooms: rooms.filter((r) => r.isActive !== false).map((r) => ({ roomNumber: r.roomNumber })),
-      activeTokens: activeRaw.map((t) => ({ tokenNumber: t.tokenNumber, roomNumber: t.roomNumber || '101' })),
+      // Oldest call first, matching the TV board (activeRaw is newest first).
+      activeTokens: [...activeRaw]
+        .reverse()
+        .map((t) => ({ tokenNumber: t.tokenNumber, roomNumber: t.roomNumber || '101' })),
       waitingTokens: waiting
         .slice(0, PATIENT_BOARD_WAITING_LIMIT)
         .map((t) => ({ tokenNumber: t.tokenNumber, priority: t.priority })),
