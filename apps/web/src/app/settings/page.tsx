@@ -222,10 +222,10 @@ export default function SettingsPage() {
           </div>
         </div>
         <Link
-          href="/"
+          href="/admin"
           className="shrink-0 whitespace-nowrap px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors flex items-center gap-2 text-xs"
         >
-          <ArrowLeft size={16} /> Back to Dashboard
+          <ArrowLeft size={16} /> Back to Admin
         </Link>
       </header>
 

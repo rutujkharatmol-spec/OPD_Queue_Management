@@ -1,9 +1,8 @@
 "use client";
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import Link from 'next/link';
 import {
   Home, Users, LogOut, CheckCircle, Clock, PauseCircle,
-  PhoneOff, AlertTriangle, UserPlus, Settings, Bell, BarChart2, Stethoscope, ArrowRight,
+  PhoneOff, AlertTriangle, UserPlus, Settings, Bell, Stethoscope, ArrowRight,
   Plus, Trash2, Edit2, Check, X, Building2, SkipForward, Sliders, RotateCcw, Minus,
   CheckCircle2, GripVertical, UserCheck, CornerDownRight, Sparkles, Zap, ListOrdered,
   Play, ShieldCheck, Eye, Layers, LayoutGrid, ArrowRightLeft, ArrowLeftCircle, Undo2, Search, Hash, Volume2
@@ -1674,13 +1673,6 @@ export default function DoctorDashboard() {
                   <Edit2 size={11} className="text-amber-500 opacity-75" />
                 </button>
 
-                <Link
-                  href={`/analytics?deptId=${deptId}`}
-                  className="px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs rounded-xl transition-colors flex items-center gap-2 border border-blue-200"
-                >
-                  <BarChart2 size={16} />
-                  <span>OPD Metrics</span>
-                </Link>
               </>
             )}
 

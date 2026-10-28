@@ -34,8 +34,13 @@ export function AuthWrapper({ children }: { children: React.ReactNode }) {
     setIsAuthenticated(isStaffAuthenticated());
   }, []);
 
-  // Exclude /patient from password protection
-  if (pathname?.startsWith('/patient')) {
+  // /patient is public; /admin, /settings and /analytics use the server-checked admin login.
+  if (
+    pathname?.startsWith('/patient') ||
+    pathname?.startsWith('/admin') ||
+    pathname?.startsWith('/settings') ||
+    pathname?.startsWith('/analytics')
+  ) {
     return <>{children}</>;
   }
 

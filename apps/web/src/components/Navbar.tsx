@@ -97,12 +97,11 @@ function NavbarContent() {
   }, [pathname]);
 
   // Hide Navbar completely on the patient page and the standalone Doctor Desk
-  if (pathname.startsWith('/patient') || pathname.startsWith('/doctor-desk')) {
+  if (pathname.startsWith('/patient') || pathname.startsWith('/doctor-desk') || pathname.startsWith('/admin')) {
     return null;
   }
 
   const getHref = (path: string) => {
-    if (path === '/settings') return path;
     return activeDeptId ? `${path}?deptId=${activeDeptId}` : path;
   };
 
@@ -135,8 +134,6 @@ function NavbarContent() {
     { href: '/doctor', label: 'Doctor Room', advanced: false },
     { href: '/doctor-desk', label: 'Doctor Desk', advanced: false },
     { href: '/tv', label: 'TV Monitor', advanced: false },
-    { href: '/analytics', label: 'Analytics', advanced: true },
-    { href: '/settings', label: 'Settings', advanced: true },
   ];
   const links = simple ? allLinks.filter((l) => !l.advanced) : allLinks;
 
