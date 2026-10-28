@@ -67,6 +67,10 @@
   .tokens { -webkit-box-flex: 1; -webkit-flex: 1; flex: 1; -webkit-flex-wrap: wrap; flex-wrap: wrap;
     -webkit-justify-content: center; justify-content: center; -webkit-align-content: center; align-content: center; }
   .tok { text-align: center; margin: .5vh .8vw; }
+  /* Several patients in one room: one box each, so "3 4 5 8" can't read as "34 58". */
+  .tok.box { background: #fff; border: 2px solid #bfdbfe; border-radius: 1.8vh; padding: 1.2vh 1.6vw; margin: 1vh .8vw; min-width: 10vw;
+    -webkit-box-shadow: 0 .4vh 1vh rgba(15, 23, 42, .10); box-shadow: 0 .4vh 1vh rgba(15, 23, 42, .10); }
+  .room.emergency .tok.box { border-color: #fecaca; }
   .tok-no { font-weight: 900; line-height: 1; color: #0f172a; }
   .tok-name { font-size: 2vh; font-weight: 700; color: #475569; margin-top: .6vh; max-width: 22vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .empty { -webkit-box-flex: 1; -webkit-flex: 1; flex: 1; text-align: center; color: #94a3b8; font-size: 3vh; font-weight: 700;
@@ -282,7 +286,7 @@
         for (var n = 0; n < room.tokens.length; n++) {
           var tk = room.tokens[n];
           var nm = realName(tk.patientName);
-          html += '<div class="tok"><div class="tok-no" style="font-size:' + size + 'vh">' + esc(cleanToken(tk.token)) + '</div>' +
+          html += '<div class="tok' + (room.tokens.length > 1 ? ' box' : '') + '"><div class="tok-no" style="font-size:' + size + 'vh">' + esc(cleanToken(tk.token)) + '</div>' +
             (nm ? '<div class="tok-name">' + esc(nm) + '</div>' : '') + '</div>';
         }
         html += '</div></div>';
