@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation';
 import {
   CheckCircle2, Stethoscope, Building2, DoorOpen, UserPlus, Search, ArrowLeftRight,
-  Loader2, Users, X,
+  Loader2, Users, X, UserX,
 } from 'lucide-react';
 import {
   assignDoctorToRoom, getDepartmentAnalytics, getDoctors, getRooms, markTokenAction,
@@ -414,7 +414,8 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
     [activeTokens, roomNumber]
   );
 
-  const [confirming, setConfirming] = useState<ActivePatient | null>(null);
+  // The patient and the action (Done or Absent) waiting for confirmation.
+  const [confirming, setConfirming] = useState<{ patient: ActivePatient; action: 'COMPLETE' | 'ABSENT' } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
@@ -474,18 +475,24 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
     setError('');
   }, [submitting]);
 
-  const confirmDone = async () => {
+  const confirmAction = async () => {
     if (!confirming || submitting) return;
+    const { patient, action } = confirming;
     setSubmitting(true);
     setError('');
     try {
-      // Credit this doctor, even if another doctor's name is on the room.
-      await markTokenAction(confirming.id, 'COMPLETE', undefined, departmentId, doctorName);
-      setToast(`Token ${confirming.token} marked done`);
+      if (action === 'COMPLETE') {
+        // Credit this doctor, even if another doctor's name is on the room.
+        await markTokenAction(patient.id, 'COMPLETE', undefined, departmentId, doctorName);
+        setToast(`Token ${patient.token} marked done`);
+      } else {
+        await markTokenAction(patient.id, 'ABSENT', undefined, departmentId);
+        setToast(`Token ${patient.token} marked absent`);
+      }
       setConfirming(null);
       await useQueueStore.getState().fetchQueue(departmentId);
     } catch {
-      setError('Could not mark as done. Please try again.');
+      setError(action === 'COMPLETE' ? 'Could not mark as done. Please try again.' : 'Could not mark as absent. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -567,13 +574,22 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
                   {p.uhid ? `UHID ${p.uhid} · ` : ''}Called {minutesAgo(p.calledAt, now)}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setConfirming(p)}
-                className="w-full sm:w-40 min-h-14 rounded-2xl bg-emerald-600 text-white text-lg font-black shadow-md shadow-emerald-600/20 active:bg-emerald-700 hover:bg-emerald-700 flex items-center justify-center gap-2"
-              >
-                <CheckCircle2 size={22} /> Done
-              </button>
+              <div className="w-full sm:w-auto grid grid-cols-[1fr_2fr] sm:flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setConfirming({ patient: p, action: 'ABSENT' })}
+                  className="sm:w-32 min-h-14 rounded-2xl bg-white border-2 border-amber-300 text-amber-800 text-base font-black active:bg-amber-50 hover:bg-amber-50 flex items-center justify-center gap-1.5"
+                >
+                  <UserX size={20} /> Absent
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirming({ patient: p, action: 'COMPLETE' })}
+                  className="sm:w-40 min-h-14 rounded-2xl bg-emerald-600 text-white text-lg font-black shadow-md shadow-emerald-600/20 active:bg-emerald-700 hover:bg-emerald-700 flex items-center justify-center gap-2"
+                >
+                  <CheckCircle2 size={22} /> Done
+                </button>
+              </div>
             </li>
           ))}
         </ul>
@@ -581,16 +597,19 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
 
       {confirming && (
         <ConfirmDialog
-          title="Do you really want to press Done?"
-          confirmLabel="Yes, Done"
-          tone="green"
+          title={confirming.action === 'COMPLETE' ? 'Do you really want to press Done?' : 'Mark this patient absent?'}
+          confirmLabel={confirming.action === 'COMPLETE' ? 'Yes, Done' : 'Yes, Absent'}
+          tone={confirming.action === 'COMPLETE' ? 'green' : 'amber'}
           submitting={submitting}
           error={error}
           onCancel={closeConfirm}
-          onConfirm={confirmDone}
+          onConfirm={confirmAction}
         >
-          Token <strong className="text-slate-900">{confirming.token}</strong>
-          {confirming.patientName ? <> · {confirming.patientName}</> : null} will be marked as done.
+          Token <strong className="text-slate-900">{confirming.patient.token}</strong>
+          {confirming.patient.patientName ? <> · {confirming.patient.patientName}</> : null}{' '}
+          {confirming.action === 'COMPLETE'
+            ? 'will be marked as done.'
+            : 'did not come in. They will be marked absent and removed from your room.'}
         </ConfirmDialog>
       )}
 
@@ -620,7 +639,7 @@ function ConfirmDialog({
   title: string;
   children: React.ReactNode;
   confirmLabel: string;
-  tone: 'green' | 'blue';
+  tone: 'green' | 'blue' | 'amber';
   submitting: boolean;
   error: string;
   onCancel: () => void;
@@ -646,7 +665,9 @@ function ConfirmDialog({
   const confirmColor =
     tone === 'green'
       ? 'bg-emerald-600 active:bg-emerald-700 hover:bg-emerald-700'
-      : 'bg-blue-600 active:bg-blue-700 hover:bg-blue-700';
+      : tone === 'amber'
+        ? 'bg-amber-600 active:bg-amber-700 hover:bg-amber-700'
+        : 'bg-blue-600 active:bg-blue-700 hover:bg-blue-700';
 
   return (
     <div
