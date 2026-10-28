@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en" translate="no">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="google" content="notranslate">
+<meta name="theme-color" content="#1d4ed8">
+<title>AIIMS Kalyani OPD - TV</title>
+<!--
+  Lightweight TV board for old browsers (smart TVs, old Android Chrome).
+
+  The main /tv page needs Chrome 111+; anything older redirects here (see the check in
+  src/app/layout.tsx). This page deliberately uses only old, widely supported features:
+  ES5 JavaScript (var, function, XMLHttpRequest), flexbox, vh units. No build step.
+  It reads the same /api/v1/queue/live endpoint and plays the same chime and voice.
+-->
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    background: #f1f5f9; color: #0f172a;
+    font-family: "Segoe UI", Roboto, "Noto Sans", Arial, sans-serif;
+    display: -webkit-box; display: -webkit-flex; display: flex;
+    -webkit-flex-direction: column; flex-direction: column;
+  }
+  .row { display: -webkit-box; display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; }
+
+  /* Header */
+  #header {
+    height: 11vh; padding: 0 2.5vw; background: #fff; border-bottom: 1px solid #e2e8f0;
+    -webkit-justify-content: space-between; justify-content: space-between;
+  }
+  .logo { width: 6.5vh; height: 6.5vh; border-radius: 1.4vh; background: #2563eb; color: #fff; font-weight: 900; font-size: 4vh; text-align: center; line-height: 6.5vh; margin-right: 1.5vw; }
+  .brand-small { color: #2563eb; font-weight: 900; font-size: 1.8vh; letter-spacing: .2em; text-transform: uppercase; }
+  #deptTitle { font-weight: 900; font-size: 3.6vh; text-transform: uppercase; letter-spacing: .04em; }
+  #clock { font-weight: 900; font-size: 3.6vh; color: #1e293b; margin-right: 1.5vw; }
+  .btn { border: 1px solid #cbd5e1; background: #f1f5f9; color: #334155; font-weight: 800; font-size: 1.7vh; padding: 1vh 1.2vw; border-radius: 1vh; margin-left: .6vw; cursor: pointer; }
+  .btn:focus { outline: 3px solid #f59e0b; }
+  .btn.on { background: #059669; border-color: #059669; color: #fff; }
+  #deptSelect { font-size: 1.7vh; padding: .9vh .6vw; border-radius: 1vh; border: 1px solid #cbd5e1; margin-left: .6vw; max-width: 14vw; }
+  #status { font-size: 1.6vh; font-weight: 800; padding: .8vh 1vw; border-radius: 1vh; margin-right: 1vw; }
+  #status.ok { background: #d1fae5; color: #047857; }
+  #status.bad { background: #fee2e2; color: #b91c1c; }
+
+  /* Main */
+  #main { -webkit-box-flex: 1; -webkit-flex: 1; flex: 1; padding: 2vh 1.5vw; min-height: 0; -webkit-align-items: stretch; align-items: stretch; }
+  .panel { background: #fff; border: 1px solid #e2e8f0; border-radius: 2.5vh; padding: 2vh 1.5vw; overflow: hidden;
+    display: -webkit-box; display: -webkit-flex; display: flex; -webkit-flex-direction: column; flex-direction: column; }
+  #serving { -webkit-box-flex: 2.2; -webkit-flex: 2.2; flex: 2.2; margin-right: 1.5vw; }
+  #next { -webkit-box-flex: 1; -webkit-flex: 1; flex: 1; }
+  .panel-title { font-size: 2.6vh; font-weight: 900; color: #64748b; letter-spacing: .2em; text-transform: uppercase; margin-bottom: 1.5vh;
+    -webkit-justify-content: space-between; justify-content: space-between; }
+  .pill { font-size: 1.6vh; font-weight: 800; background: #dbeafe; color: #1d4ed8; padding: .6vh .9vw; border-radius: 3vh; letter-spacing: 0; }
+
+  #rooms { -webkit-box-flex: 1; -webkit-flex: 1; flex: 1; min-height: 0;
+    display: -webkit-box; display: -webkit-flex; display: flex; -webkit-flex-wrap: wrap; flex-wrap: wrap;
+    -webkit-align-content: stretch; align-content: stretch; margin: -0.6vh -0.4vw; }
+  .room { margin: .6vh .4vw; border: 2px solid #e2e8f0; border-radius: 2vh; background: #f8fafc; padding: 1.5vh 1vw; overflow: hidden;
+    display: -webkit-box; display: -webkit-flex; display: flex; -webkit-flex-direction: column; flex-direction: column;
+    -webkit-box-flex: 1; -webkit-flex: 1 1 40%; flex: 1 1 40%; }
+  .room.emergency { border-color: #fca5a5; background: #fef2f2; }
+  .room.flash { border-color: #3b82f6; background: #eff6ff; }
+  .room-head { -webkit-justify-content: space-between; justify-content: space-between; }
+  .room-no { font-size: 3vh; font-weight: 900; color: #2563eb; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+  .room.emergency .room-no { color: #dc2626; }
+  .doctor { font-size: 1.9vh; font-weight: 800; color: #475569; background: #e2e8f0; padding: .5vh .8vw; border-radius: 3vh; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 55%; }
+  .tokens { -webkit-box-flex: 1; -webkit-flex: 1; flex: 1; -webkit-flex-wrap: wrap; flex-wrap: wrap;
+    -webkit-justify-content: center; justify-content: center; -webkit-align-content: center; align-content: center; }
+  .tok { text-align: center; margin: .5vh .8vw; }
+  .tok-no { font-weight: 900; line-height: 1; color: #0f172a; }
+  .tok-name { font-size: 2vh; font-weight: 700; color: #475569; margin-top: .6vh; max-width: 22vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .empty { -webkit-box-flex: 1; -webkit-flex: 1; flex: 1; text-align: center; color: #94a3b8; font-size: 3vh; font-weight: 700;
+    display: -webkit-box; display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; -webkit-justify-content: center; justify-content: center; }
+
+  .next-item { -webkit-justify-content: space-between; justify-content: space-between; border: 1px solid #e2e8f0; background: #f8fafc; border-radius: 1.6vh; padding: 1.1vh 1vw; margin-bottom: 1.2vh; }
+  .next-item.emergency { background: #fef2f2; border-color: #fecaca; color: #dc2626; }
+  .next-pos { font-size: 1.7vh; font-weight: 900; color: #94a3b8; }
+  .next-no { font-size: 4.6vh; font-weight: 900; }
+  .next-tag { font-size: 1.4vh; font-weight: 900; text-transform: uppercase; background: #e2e8f0; color: #475569; padding: .4vh .6vw; border-radius: 3vh; }
+  .next-item.emergency .next-tag { background: #fecaca; color: #991b1b; }
+
+  /* Footer marquee */
+  #footer { height: 9vh; background: #1d4ed8; color: #fff; overflow: hidden; white-space: nowrap; position: relative; }
+  #marquee { position: absolute; top: 0; left: 0; line-height: 9vh; font-size: 2.4vh; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; padding-left: 100%;
+    -webkit-animation: scroll 40s linear infinite; animation: scroll 40s linear infinite; }
+  @-webkit-keyframes scroll { from { -webkit-transform: translateX(0); } to { -webkit-transform: translateX(-100%); } }
+  @keyframes scroll { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+  #marquee span { margin: 0 3vw; }
+
+  /* "Turn on sound" prompt (browsers block audio until someone presses a button) */
+  #soundPrompt { position: fixed; left: 0; right: 0; bottom: 11vh; text-align: center; display: none; }
+  #soundPrompt button { font-size: 2.4vh; font-weight: 900; padding: 1.6vh 2.5vw; border-radius: 2vh; border: 0; background: #059669; color: #fff; }
+  #soundPrompt button:focus { outline: 4px solid #f59e0b; }
+</style>
+</head>
+<body>
+  <div id="header" class="row">
+    <div class="row">
+      <div class="logo">+</div>
+      <div>
+        <div class="brand-small">AIIMS Kalyani</div>
+        <div id="deptTitle">OPD</div>
+      </div>
+    </div>
+    <div class="row">
+      <span id="status" class="ok">Live</span>
+      <span id="clock"></span>
+      <select id="deptSelect" aria-label="Department"></select>
+      <button id="soundBtn" class="btn on" type="button">Sound: ON</button>
+      <button id="fsBtn" class="btn" type="button">Full Screen</button>
+    </div>
+  </div>
+
+  <div id="main" class="row">
+    <div id="serving" class="panel">
+      <div class="panel-title row"><span>Currently Serving</span><span id="roomCount" class="pill">0 Rooms Active</span></div>
+      <div id="rooms"><div class="empty">Loading...</div></div>
+    </div>
+    <div id="next" class="panel">
+      <div class="panel-title row"><span>Up Next</span></div>
+      <div id="nextList"></div>
+    </div>
+  </div>
+
+  <div id="footer">
+    <div id="marquee">
+      <span>&#128680; Emergency patients receive immediate priority</span>
+      <span>&#128266; Please listen for audio chimes &amp; token announcements</span>
+      <span>&#128241; Track your queue position by scanning the QR code on your slip</span>
+      <span>&#127973; AIIMS Kalyani OPD services &mdash; committed to excellence</span>
+    </div>
+  </div>
+
+  <div id="soundPrompt"><button id="soundPromptBtn" type="button">Press OK to turn on announcements</button></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var API = '/api/v1';
+  var POLL_MS = 3000;
+  var DEPT_KEY = 'opd_selected_department_id';
+
+  // ---------- small helpers (ES5 only) ----------
+  function $(id) { return document.getElementById(id); }
+  function store(key, value) {
+    try {
+      if (value === undefined) return window.localStorage.getItem(key);
+      window.localStorage.setItem(key, value);
+    } catch (e) {}
+    return null;
+  }
+  function param(name) {
+    var m = new RegExp('[?&]' + name + '=([^&#]*)').exec(window.location.search);
+    return m ? decodeURIComponent(m[1].replace(/\+/g, ' ')) : '';
+  }
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function getJSON(url, ok, fail) {
+    var xhr = new XMLHttpRequest();
+    var done = false;
+    xhr.open('GET', url + (url.indexOf('?') >= 0 ? '&' : '?') + '_=' + new Date().getTime(), true);
+    xhr.timeout = 10000;
+    xhr.onreadystatechange = function () {
+      if (xhr.readyState !== 4 || done) return;
+      done = true;
+      if (xhr.status >= 200 && xhr.status < 300) {
+        var data = null;
+        try { data = JSON.parse(xhr.responseText); } catch (e) { fail(); return; }
+        ok(data);
+      } else {
+        fail();
+      }
+    };
+    xhr.ontimeout = function () { if (!done) { done = true; fail(); } };
+    xhr.send();
+  }
+
+  // Same rules as the main TV: hide placeholder names like "Patient #12".
+  function realName(name) {
+    if (!name) return '';
+    var t = String(name).replace(/^\s+|\s+$/g, '');
+    var l = t.toLowerCase();
+    if (!t || l === 'patient' || l === 'unknown patient' || l === 'walk-in patient' ||
+        l.indexOf('patient #') === 0 || l.indexOf('patient#') === 0 || /^patient\s*#?\s*\d+/.test(l)) return '';
+    return t;
+  }
+  function cleanToken(tok) { return String(tok || '').replace('🚨', '').replace(/^\s+|\s+$/g, ''); }
+  function isEmergency(tok) { return String(tok || '').indexOf('🚨') >= 0; }
+
+  // ---------- clock ----------
+  function tickClock() {
+    var d = new Date();
+    var h = d.getHours(), m = d.getMinutes();
+    var ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12; if (h === 0) h = 12;
+    $('clock').innerHTML = h + ':' + (m < 10 ? '0' : '') + m + ' ' + ampm;
+  }
+  tickClock();
+  setInterval(tickClock, 15000);
+
+  // ---------- department ----------
+  var deptId = param('deptId') || store(DEPT_KEY) || '';
+
+  function loadDepartments() {
+    getJSON(API + '/departments', function (list) {
+      if (!list || !list.length) return;
+      var sel = $('deptSelect');
+      var html = '';
+      var found = false;
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].id === deptId) found = true;
+        html += '<option value="' + esc(list[i].id) + '">' + esc(list[i].name) + '</option>';
+      }
+      sel.innerHTML = html;
+      if (!found) {
+        deptId = list[0].id;
+        store(DEPT_KEY, deptId);
+        startPolling();
+      }
+      sel.value = deptId;
+    }, function () {
+      setTimeout(loadDepartments, 5000);
+    });
+  }
+  $('deptSelect').onchange = function () {
+    deptId = this.value;
+    store(DEPT_KEY, deptId);
+    lastSnapshot = '';
+    startPolling();
+  };
+
+  // ---------- rendering ----------
+  var flashUntil = 0;
+
+  function render(data) {
+    $('deptTitle').innerHTML = esc((data.department || '') + ' OPD');
+
+    // Group active tokens by room, keeping the server's room order (newest call first,
+    // like the main TV) and listing each room's patients in the order they were called.
+    var active = data.activeTokens || [];
+    var rooms = [];
+    var byRoom = {};
+    for (var i = 0; i < active.length; i++) {
+      var t = active[i];
+      var r = t.room || '101';
+      if (!byRoom[r]) {
+        byRoom[r] = { room: r, doctor: t.doctorName || '', emergency: false, tokens: [] };
+        rooms.push(byRoom[r]);
+      }
+      if (isEmergency(t.token)) byRoom[r].emergency = true;
+      byRoom[r].tokens.push(t);
+    }
+    for (var k = 0; k < rooms.length; k++) {
+      rooms[k].tokens.sort(function (a, b) {
+        var d = (a.calledAt || 0) - (b.calledAt || 0);
+        if (d !== 0) return d;
+        return String(a.token).localeCompare(String(b.token), undefined, { numeric: true });
+      });
+    }
+
+    $('roomCount').innerHTML = rooms.length + ' Room' + (rooms.length === 1 ? '' : 's') + ' Active';
+
+    var html = '';
+    if (!rooms.length) {
+      html = '<div class="empty">Waiting for the doctor to call the next patient...</div>';
+    } else {
+      // Fewer rooms get bigger numbers.
+      var big = rooms.length === 1 ? 26 : rooms.length <= 2 ? 18 : rooms.length <= 4 ? 12 : 8;
+      var flash = new Date().getTime() < flashUntil;
+      for (var j = 0; j < rooms.length; j++) {
+        var room = rooms[j];
+        var size = room.tokens.length === 1 ? big : Math.max(5, Math.round(big / (room.tokens.length > 3 ? 2.4 : 1.7)));
+        html += '<div class="room' + (room.emergency ? ' emergency' : '') + (flash ? ' flash' : '') + '">';
+        html += '<div class="room-head row"><span class="room-no">Room ' + esc(room.room) +
+          (room.tokens.length > 1 ? ' (' + room.tokens.length + ')' : '') + '</span>';
+        if (room.doctor) html += '<span class="doctor">' + esc(room.doctor) + '</span>';
+        html += '</div><div class="tokens row">';
+        for (var n = 0; n < room.tokens.length; n++) {
+          var tk = room.tokens[n];
+          var nm = realName(tk.patientName);
+          html += '<div class="tok"><div class="tok-no" style="font-size:' + size + 'vh">' + esc(cleanToken(tk.token)) + '</div>' +
+            (nm ? '<div class="tok-name">' + esc(nm) + '</div>' : '') + '</div>';
+        }
+        html += '</div></div>';
+      }
+    }
+    $('rooms').innerHTML = html;
+
+    var next = data.nextTokens || [];
+    var nhtml = '';
+    if (!next.length) {
+      nhtml = '<div class="empty" style="font-size:2.2vh">No other patients waiting</div>';
+    } else {
+      for (var q = 0; q < next.length && q < 7; q++) {
+        var em = isEmergency(next[q]);
+        nhtml += '<div class="next-item row' + (em ? ' emergency' : '') + '">' +
+          '<span class="next-pos">#' + (q + 1) + '</span>' +
+          '<span class="next-no">' + esc(cleanToken(next[q])) + '</span>' +
+          '<span class="next-tag">' + (em ? 'Urgent' : 'Waiting') + '</span></div>';
+      }
+    }
+    $('nextList').innerHTML = nhtml;
+  }
+
+  // ---------- sound ----------
+  var soundOn = store('tv_audio_enabled') !== 'false';
+  var audioLang = store('tv_audio_lang') || 'dual';
+  var gender = store('tv_voice_gender') === 'male' ? 'male' : 'female';
+  var audioUnlocked = false;
+  var audioCtx = null;
+  var queue = [];
+  var speaking = false;
+
+  function updateSoundUi() {
+    var b = $('soundBtn');
+    b.innerHTML = soundOn ? 'Sound: ON' : 'Sound: OFF';
+    b.className = 'btn' + (soundOn ? ' on' : '');
+    $('soundPrompt').style.display = soundOn && !audioUnlocked ? 'block' : 'none';
+  }
+
+  function unlockAudio() {
+    audioUnlocked = true;
+    try {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      if (Ctx && !audioCtx) audioCtx = new Ctx();
+      if (audioCtx && audioCtx.resume) audioCtx.resume();
+    } catch (e) {}
+    chime(function () {});
+    updateSoundUi();
+  }
+
+  function chime(done) {
+    try {
+      if (!audioCtx) { done(); return; }
+      var now = audioCtx.currentTime;
+      var tones = [[659.25, 0, 0.7, 0.35], [523.25, 0.16, 1.2, 0.4]];
+      for (var i = 0; i < tones.length; i++) {
+        var osc = audioCtx.createOscillator();
+        var gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(tones[i][0], now + tones[i][1]);
+        gain.gain.setValueAtTime(0, now + tones[i][1]);
+        gain.gain.linearRampToValueAtTime(tones[i][3], now + tones[i][1] + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + tones[i][2]);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now + tones[i][1]);
+        osc.stop(now + tones[i][2]);
+      }
+    } catch (e) {}
+    setTimeout(done, 800);
+  }
+
+  // Server voice first (same natural voices as the main TV), then the browser's own voice.
+  function say(text, lang, done) {
+    var finished = false;
+    function finish() { if (!finished) { finished = true; done(); } }
+    try {
+      var audio = new Audio(API + '/tts?text=' + encodeURIComponent(text) + '&lang=' + encodeURIComponent(lang) + '&gender=' + gender);
+      var timer = setTimeout(function () { try { audio.pause(); } catch (e) {} fallback(); }, 12000);
+      audio.onended = function () { clearTimeout(timer); finish(); };
+      audio.onerror = function () { clearTimeout(timer); fallback(); };
+      var p = audio.play();
+      if (p && p['catch']) p['catch'](function () { clearTimeout(timer); fallback(); });
+    } catch (e) { fallback(); }
+
+    function fallback() {
+      if (finished) return;
+      try {
+        if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) { finish(); return; }
+        var u = new SpeechSynthesisUtterance(text);
+        u.lang = lang === 'hi' ? 'hi-IN' : lang === 'bn' ? 'bn-IN' : 'en-IN';
+        u.rate = 0.9;
+        u.onend = finish;
+        u.onerror = finish;
+        window.speechSynthesis.speak(u);
+        setTimeout(finish, 15000);
+      } catch (e) { finish(); }
+    }
+  }
+
+  function announcementTexts(tok, name, room, emergency) {
+    var n = String(cleanToken(tok)).replace(/^[A-Za-z]+-?/, '').replace(/^0+(?=\d)/, '');
+    var roomEn = room ? 'Room ' + room : 'the OPD room';
+    var roomHi = room ? 'कमरा नंबर ' + room : 'ओपीडी कमरे';
+    var roomBn = room ? 'রুম নম্বর ' + room + ' এ' : 'ওপিডি রুমে';
+    var en = (emergency ? 'Emergency! ' : '') + 'Token number ' + n + ', ' + (name ? name + ', ' : '') + 'please proceed to ' + roomEn + '.';
+    var hi = (emergency ? 'इमरजेंसी! ' : '') + 'टोकन नंबर ' + n + ', ' + (name ? name + ', ' : '') +
+      'कृपया ' + roomHi + ' में जाएं।';
+    var bn = (emergency ? 'জরুরী! ' : '') + 'টোকেন নম্বর ' + n + ', ' + (name ? name + ', ' : '') +
+      'অনুগ্রহ করে ' + roomBn + ' যান।';
+    if (audioLang === 'en') return [[en, 'en-in']];
+    if (audioLang === 'hi') return [[hi, 'hi']];
+    if (audioLang === 'bn') return [[bn, 'bn']];
+    return [[en, 'en-in'], [hi, 'hi']];
+  }
+
+  function announce(item) {
+    if (!soundOn) return;
+    queue.push(item);
+    if (queue.length > 3) queue.shift(); // don't fall far behind a burst of calls
+    if (!speaking) playNext();
+  }
+
+  function playNext() {
+    var item = queue.shift();
+    if (!item) { speaking = false; return; }
+    speaking = true;
+    var parts = announcementTexts(item.token, realName(item.patientName), item.room, isEmergency(item.token));
+    chime(function () {
+      var i = 0;
+      (function step() {
+        if (i >= parts.length) { setTimeout(playNext, 400); return; }
+        var part = parts[i++];
+        say(part[0], part[1], function () { setTimeout(step, 450); });
+      })();
+    });
+  }
+
+  $('soundBtn').onclick = function () {
+    soundOn = !soundOn;
+    store('tv_audio_enabled', String(soundOn));
+    if (soundOn) unlockAudio(); else { queue = []; try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) {} }
+    updateSoundUi();
+  };
+  $('soundPromptBtn').onclick = function () { unlockAudio(); };
+  updateSoundUi();
+  setTimeout(function () { try { $('soundPromptBtn').focus(); } catch (e) {} }, 500);
+
+  // ---------- full screen ----------
+  $('fsBtn').onclick = function () {
+    var d = document, el = d.documentElement;
+    var isFull = d.fullscreenElement || d.webkitFullscreenElement || d.webkitIsFullScreen;
+    try {
+      if (!isFull) {
+        (el.requestFullscreen || el.webkitRequestFullscreen || el.webkitRequestFullScreen || function () {}).call(el);
+      } else {
+        (d.exitFullscreen || d.webkitExitFullscreen || d.webkitCancelFullScreen || function () {}).call(d);
+      }
+    } catch (e) {}
+    if (!audioUnlocked && soundOn) unlockAudio();
+  };
+
+  // Keep the screen on where the browser allows it.
+  function keepAwake() {
+    try { if (navigator.wakeLock && navigator.wakeLock.request) navigator.wakeLock.request('screen')['catch'](function () {}); } catch (e) {}
+  }
+  keepAwake();
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) keepAwake(); });
+
+  // ---------- polling ----------
+  var lastSnapshot = '';
+  var pollTimer = null;
+  var generation = 0;
+
+  function setStatus(ok) {
+    var s = $('status');
+    s.className = ok ? 'ok' : 'bad';
+    s.innerHTML = ok ? 'Live' : 'Reconnecting...';
+  }
+
+  function poll(gen) {
+    if (gen !== generation || !deptId) return;
+    getJSON(API + '/queue/live/' + encodeURIComponent(deptId), function (data) {
+      if (gen !== generation) return;
+      setStatus(true);
+      var active = data.activeTokens || [];
+      var parts = [];
+      for (var i = 0; i < active.length; i++) {
+        parts.push(active[i].token + ':' + active[i].room + ':' + (active[i].calledAt || 0) + ':' + (active[i].recalledAt || 0));
+      }
+      var snapshot = parts.join('|');
+      if (lastSnapshot && snapshot !== lastSnapshot) {
+        // Announce whichever patient was just called or recalled.
+        var prev = '|' + lastSnapshot + '|';
+        for (var j = 0; j < active.length; j++) {
+          if (prev.indexOf('|' + parts[j] + '|') < 0) {
+            flashUntil = new Date().getTime() + 1500;
+            announce(active[j]);
+          }
+        }
+      }
+      lastSnapshot = snapshot;
+      render(data);
+      pollTimer = setTimeout(function () { poll(gen); }, POLL_MS);
+    }, function () {
+      if (gen !== generation) return;
+      setStatus(false);
+      pollTimer = setTimeout(function () { poll(gen); }, POLL_MS * 2);
+    });
+  }
+
+  function startPolling() {
+    generation++;
+    if (pollTimer) clearTimeout(pollTimer);
+    poll(generation);
+  }
+
+  loadDepartments();
+  if (deptId) startPolling();
+})();
+</script>
+</body>
+</html>

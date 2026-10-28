@@ -23,13 +23,16 @@ const isDev = process.env.NODE_ENV !== 'production';
 // Only fall back to an external API if LEGACY_API_URL is explicitly configured
 const fallbackTarget = legacyApiUrl || null;
 
+// Plain-JavaScript TV board for browsers too old for the app (see src/app/layout.tsx).
+const tvLiteRewrite = { source: '/tv-lite', destination: '/tv-lite.html' };
+
 const nextConfig: NextConfig = {
   async rewrites() {
-    if (!fallbackTarget) return { beforeFiles: [], afterFiles: [], fallback: [] };
+    if (!fallbackTarget) return { beforeFiles: [], afterFiles: [tvLiteRewrite], fallback: [] };
 
     return {
       beforeFiles: [],
-      afterFiles: [],
+      afterFiles: [tvLiteRewrite],
       fallback: [
         {
           source: '/api/v1/:path*',
