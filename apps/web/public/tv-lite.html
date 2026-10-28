@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="google" content="notranslate">
 <meta name="theme-color" content="#1d4ed8">
+<!-- "Add to Home screen" opens this board full screen, without the browser bar. -->
+<link rel="manifest" href="/tv-lite.webmanifest">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="icon" href="/icons/icon-192x192.svg" type="image/svg+xml">
 <title>AIIMS Kalyani OPD - TV</title>
 <!--
   Lightweight TV board for old browsers (smart TVs, old Android Chrome).
@@ -95,6 +99,7 @@
   #soundPrompt { position: fixed; left: 0; right: 0; bottom: 11vh; text-align: center; display: none; }
   #soundPrompt button { font-size: 2.4vh; font-weight: 900; padding: 1.6vh 2.5vw; border-radius: 2vh; border: 0; background: #059669; color: #fff; }
   #soundPrompt button:focus { outline: 4px solid #f59e0b; }
+  body.fs #deptSelect, body.fs #soundBtn, body.fs #fsBtn { display: none; }
 </style>
 </head>
 <body>
@@ -135,7 +140,7 @@
     </div>
   </div>
 
-  <div id="soundPrompt"><button id="soundPromptBtn" type="button">Press OK to turn on announcements</button></div>
+  <div id="soundPrompt"><button id="soundPromptBtn" type="button">Press OK to start (full screen + sound)</button></div>
 
 <script>
 (function () {
@@ -325,7 +330,7 @@
     var b = $('soundBtn');
     b.innerHTML = soundOn ? 'Sound: ON' : 'Sound: OFF';
     b.className = 'btn' + (soundOn ? ' on' : '');
-    $('soundPrompt').style.display = soundOn && !audioUnlocked ? 'block' : 'none';
+    updatePrompt();
   }
 
   function unlockAudio() {
@@ -433,23 +438,73 @@
     if (soundOn) unlockAudio(); else { queue = []; try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) {} }
     updateSoundUi();
   };
-  $('soundPromptBtn').onclick = function () { unlockAudio(); };
-  updateSoundUi();
-  setTimeout(function () { try { $('soundPromptBtn').focus(); } catch (e) {} }, 500);
+  // ---------- full screen + sound: one press of OK starts both ----------
+  // Browsers only allow full screen and sound after someone presses a key or taps, so the
+  // board opens with a "Press OK" prompt. That one press does both, and the prompt comes
+  // back if the remote's Back button leaves full screen.
+  var fsBlocked = false; // full screen refused or unavailable: stop asking for it
 
-  // ---------- full screen ----------
-  $('fsBtn').onclick = function () {
-    var d = document, el = d.documentElement;
-    var isFull = d.fullscreenElement || d.webkitFullscreenElement || d.webkitIsFullScreen;
+  function isFullscreen() {
+    var d = document;
+    return !!(d.fullscreenElement || d.webkitFullscreenElement || d.webkitCurrentFullScreenElement || d.webkitIsFullScreen);
+  }
+  function fsAvailable() {
+    var el = document.documentElement;
+    return !!(el.requestFullscreen || el.webkitRequestFullscreen || el.webkitRequestFullScreen);
+  }
+  function enterFullscreen() {
+    if (isFullscreen() || !fsAvailable()) return;
+    var el = document.documentElement;
     try {
-      if (!isFull) {
-        (el.requestFullscreen || el.webkitRequestFullscreen || el.webkitRequestFullScreen || function () {}).call(el);
-      } else {
-        (d.exitFullscreen || d.webkitExitFullscreen || d.webkitCancelFullScreen || function () {}).call(d);
-      }
-    } catch (e) {}
-    if (!audioUnlocked && soundOn) unlockAudio();
-  };
+      var p = (el.requestFullscreen || el.webkitRequestFullscreen || el.webkitRequestFullScreen).call(el);
+      if (p && p['catch']) p['catch'](function () { fsBlocked = true; updatePrompt(); });
+    } catch (e) { fsBlocked = true; }
+  }
+  function exitFullscreen() {
+    var d = document;
+    try { (d.exitFullscreen || d.webkitExitFullscreen || d.webkitCancelFullScreen || function () {}).call(d); } catch (e) {}
+  }
+  function needsFullscreen() { return !isFullscreen() && fsAvailable() && !fsBlocked; }
+  function needsSound() { return soundOn && !audioUnlocked; }
+
+  function updatePrompt() {
+    var fs = needsFullscreen();
+    var snd = needsSound();
+    var btn = $('soundPromptBtn');
+    btn.innerHTML = fs && snd ? 'Press OK to start (full screen + sound)'
+      : fs ? 'Press OK for full screen' : 'Press OK to turn on announcements';
+    $('soundPrompt').style.display = fs || snd ? 'block' : 'none';
+    // Full screen shows only the board: hide the department picker and buttons.
+    document.body.className = isFullscreen() ? 'fs' : '';
+    if (fs || snd) { try { btn.focus(); } catch (e) {} }
+  }
+
+  function start() {
+    enterFullscreen();
+    if (soundOn && !audioUnlocked) unlockAudio();
+    updatePrompt();
+  }
+
+  $('soundPromptBtn').onclick = start;
+  $('fsBtn').onclick = function () { if (isFullscreen()) exitFullscreen(); else start(); };
+  // A tap anywhere on the board, or OK / Enter on the remote, also starts.
+  document.addEventListener('click', function (e) {
+    var tag = e.target && e.target.tagName;
+    if (tag === 'SELECT' || tag === 'OPTION' || tag === 'BUTTON') return;
+    if (needsFullscreen() || needsSound()) start();
+  }, false);
+  document.addEventListener('keydown', function (e) {
+    var k = e.keyCode;
+    if (k !== 13 && k !== 23 && k !== 32) return; // Enter, D-pad centre, Space
+    var tag = document.activeElement && document.activeElement.tagName;
+    if (tag === 'SELECT' || tag === 'BUTTON') return; // the focused control handles it
+    if (needsFullscreen() || needsSound()) start();
+  }, false);
+  document.addEventListener('fullscreenchange', updatePrompt, false);
+  document.addEventListener('webkitfullscreenchange', updatePrompt, false);
+
+  updateSoundUi();
+  setTimeout(updatePrompt, 500);
 
   // Keep the screen on where the browser allows it.
   function keepAwake() {
