@@ -3,7 +3,7 @@ import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useQueueStore, requestQueueWake } from '../../store/useQueueStore';
 import { Moon, Sun, Volume2, VolumeX, Stethoscope, Sparkles, Maximize2, Minimize2, LayoutGrid } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
-import { useDepartmentStore } from '../../store/useDepartmentStore';
+import { useDepartmentStore, useEffectiveDeptId } from '../../store/useDepartmentStore';
 import { useSimpleMode } from '../../lib/uiSettings';
 import {
   VoiceGender, AudioLang, announcePatientCall,
@@ -66,9 +66,8 @@ export default function TvDisplay() {
   // Selected individually rather than destructured off the whole store: subscribing to
   // the entire store re-rendered this (large) tree on every unrelated store write.
   const loadDepartments = useDepartmentStore((state) => state.loadDepartments);
-  const getEffectiveDeptId = useDepartmentStore((state) => state.getEffectiveDeptId);
 
-  const deptId = getEffectiveDeptId(requestedDeptId);
+  const deptId = useEffectiveDeptId(requestedDeptId);
 
   const initializeWebSocket = useQueueStore((state) => state.initializeWebSocket);
   const fetchQueue = useQueueStore((state) => state.fetchQueue);
@@ -568,7 +567,7 @@ export default function TvDisplay() {
                 Currently Serving
               </h2>
               <span className="text-xs font-bold bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 px-3 py-1.5 rounded-full">
-                {activeTokens.length} Room{activeTokens.length === 1 ? '' : 's'} Active
+                {roomCount} Room{roomCount === 1 ? '' : 's'} Active
               </span>
             </div>
 

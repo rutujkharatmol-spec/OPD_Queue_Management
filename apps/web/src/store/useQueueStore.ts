@@ -162,6 +162,10 @@ export const useQueueStore = create<QueueStore>((set, get) => ({
     }));
   },
   fetchQueue: (departmentId: string) => {
+    // No department yet (the list is still loading): there is nothing to ask for, and
+    // `/queue/live/` with a blank id is a guaranteed 404.
+    if (!departmentId) return Promise.resolve();
+
     // Join the request already on the wire for this department rather than opening a
     // second one that would return the same rows.
     const existing = inFlightByDept.get(departmentId);
@@ -199,6 +203,8 @@ export const useQueueStore = create<QueueStore>((set, get) => ({
   initializeWebSocket: (departmentId) => {
     // Prevent multiple pollers
     get().disconnectWebSocket();
+    // Screens start polling again once their department is known.
+    if (!departmentId) return;
 
     // Poll on a self-rescheduling timer rather than setInterval: the next request is
     // only queued once the previous one has settled. On a fixed interval a slow

@@ -15,7 +15,7 @@ import {
 import { announcePatientCall } from '../../lib/speechService';
 import { useQueueStore } from '../../store/useQueueStore';
 import { useSearchParams } from 'next/navigation';
-import { useDepartmentStore } from '../../store/useDepartmentStore';
+import { useDepartmentStore, useEffectiveDeptId } from '../../store/useDepartmentStore';
 import {
   getStoredPassCount,
   setStoredPassCount,
@@ -114,9 +114,8 @@ export default function DoctorDashboard() {
   const requestedDeptId = searchParams.get('deptId');
   // Narrow selectors: destructuring the store subscribed this component to every field.
   const loadDepartments = useDepartmentStore((state) => state.loadDepartments);
-  const getEffectiveDeptId = useDepartmentStore((state) => state.getEffectiveDeptId);
 
-  const deptId = getEffectiveDeptId(requestedDeptId);
+  const deptId = useEffectiveDeptId(requestedDeptId);
 
   const queueData = useQueueStore((state) => state.liveQueues[deptId]) || EMPTY_QUEUE;
 

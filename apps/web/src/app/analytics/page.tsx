@@ -10,7 +10,7 @@ import { getDepartmentAnalytics, getDepartments } from '../../lib/api';
 import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 
-import { useDepartmentStore } from '../../store/useDepartmentStore';
+import { useDepartmentStore, useEffectiveDeptId } from '../../store/useDepartmentStore';
 import { useSimpleMode } from '../../lib/uiSettings';
 
 function AnalyticsContent() {
@@ -21,9 +21,8 @@ function AnalyticsContent() {
   const departments = useDepartmentStore((state) => state.departments);
   const setSelectedDeptId = useDepartmentStore((state) => state.setSelectedDeptId);
   const loadDepartments = useDepartmentStore((state) => state.loadDepartments);
-  const getEffectiveDeptId = useDepartmentStore((state) => state.getEffectiveDeptId);
 
-  const deptId = getEffectiveDeptId(initialDeptId);
+  const deptId = useEffectiveDeptId(initialDeptId);
   // Simple UI: headline numbers and per-room counts only.
   const simple = useSimpleMode();
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);

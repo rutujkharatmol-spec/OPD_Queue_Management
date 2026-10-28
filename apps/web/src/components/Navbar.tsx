@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
 import { Suspense, useState, useEffect, useRef } from 'react';
-import { useDepartmentStore } from '../store/useDepartmentStore';
+import { useDepartmentStore, useEffectiveDeptId } from '../store/useDepartmentStore';
 import {
   Building2, ChevronDown, Eye, Sliders, Check, X, RotateCcw,
   LayoutGrid, Users, Stethoscope, Zap, Sparkles, Layers,
@@ -29,9 +29,8 @@ function NavbarContent() {
   const departments = useDepartmentStore((state) => state.departments);
   const setSelectedDeptId = useDepartmentStore((state) => state.setSelectedDeptId);
   const loadDepartments = useDepartmentStore((state) => state.loadDepartments);
-  const getEffectiveDeptId = useDepartmentStore((state) => state.getEffectiveDeptId);
 
-  const activeDeptId = getEffectiveDeptId(urlDeptId);
+  const activeDeptId = useEffectiveDeptId(urlDeptId);
 
   const [uiSettings, setUiSettingsState] = useState<UiVisibilitySettings>(DEFAULT_UI_SETTINGS);
   const [isShowUiOpen, setIsShowUiOpen] = useState(false);

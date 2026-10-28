@@ -12,7 +12,7 @@ import { generateToken, searchTokens, getRooms } from '../../lib/api';
 import { addMultipleTokensToRoomQueue } from '../../lib/roomQueueSettings';
 import { useSimpleMode } from '../../lib/uiSettings';
 
-import { useDepartmentStore } from '../../store/useDepartmentStore';
+import { useDepartmentStore, useEffectiveDeptId } from '../../store/useDepartmentStore';
 import { useQueueStore } from '../../store/useQueueStore';
 
 export default function RegistrationDesk() {
@@ -22,9 +22,8 @@ export default function RegistrationDesk() {
   const departments = useDepartmentStore((state) => state.departments);
   const setSelectedDeptId = useDepartmentStore((state) => state.setSelectedDeptId);
   const loadDepartments = useDepartmentStore((state) => state.loadDepartments);
-  const getEffectiveDeptId = useDepartmentStore((state) => state.getEffectiveDeptId);
 
-  const deptId = getEffectiveDeptId(requestedDeptId);
+  const deptId = useEffectiveDeptId(requestedDeptId);
   const currentDept = departments.find((d) => d.id === deptId);
   const deptName = currentDept?.name || 'Department';
 
