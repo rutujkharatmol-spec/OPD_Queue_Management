@@ -1,4 +1,7 @@
 import { fetchWithOfflineSync } from './offlineSync';
+import type { NameLookupMatch } from './nameLookup';
+
+export type { NameLookupMatch };
 
 // The API is served by this same app (src/app/api/v1/**), so it is always same-origin.
 // That holds for both deployments — Vercel and `next start` on the OPD server — which
@@ -93,12 +96,15 @@ export async function markTokenAction(
   // Token numbers restart at 1 in every department every morning, so `tokenId` only
   // identifies a row once it is paired with a department. Pass it whenever the caller
   // holds a token *number* rather than a UUID.
-  departmentId?: string
+  departmentId?: string,
+  // COMPLETE only: the doctor who finished the patient, credited in analytics instead of
+  // whoever was on the room when the patient was called.
+  doctorName?: string
 ) {
   const response = await fetchWithOfflineSync(`${API_BASE_URL}/queue/action/${tokenId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, passCount, departmentId }),
+    body: JSON.stringify({ action, passCount, departmentId, doctorName }),
   });
   if (!response.ok) throw new Error('Failed to mark token action');
   const result = await response.json();
@@ -253,6 +259,16 @@ export async function recallPatient(departmentId: string, roomNumber: string) {
   const result = await response.json();
   broadcastQueueUpdate(departmentId);
   return result;
+}
+
+/** Patient page: today's (or `date`'s) tokens whose patient name matches, across departments. */
+export async function findTokensByName(name: string, date?: string, signal?: AbortSignal): Promise<NameLookupMatch[]> {
+  const params = new URLSearchParams({ name });
+  if (date) params.set('date', date);
+  const response = await fetchWithOfflineSync(`${API_BASE_URL}/tokens/lookup?${params.toString()}`, { signal });
+  if (!response.ok) throw new Error('Failed to look up name');
+  const data = await response.json();
+  return Array.isArray(data) ? data : [];
 }
 
 export async function searchTokens(query: string, departmentId?: string) {

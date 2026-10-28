@@ -188,6 +188,8 @@ export default function DoctorDashboard() {
   // Direct Token Entry into Free Room State
   const [directInputRoom, setDirectInputRoom] = useState<string | null>(null);
   const [directTokenVal, setDirectTokenVal] = useState<string>('');
+  // Optional patient name for a new token typed into a room's direct entry box.
+  const [directPatientName, setDirectPatientName] = useState<string>('');
 
   // Pass (+N) Queue Step State
   const [passCount, setPassCount] = useState(DEFAULT_PASS_COUNT);
@@ -645,7 +647,11 @@ export default function DoctorDashboard() {
   };
 
   /** Ensures a token exists in the database before calling or queuing it */
-  const ensureTokenCreated = async (tokenNumber: string, priority: 'NORMAL' | 'SENIOR' | 'EMERGENCY' = 'NORMAL') => {
+  const ensureTokenCreated = async (
+    tokenNumber: string,
+    priority: 'NORMAL' | 'SENIOR' | 'EMERGENCY' = 'NORMAL',
+    patientName?: string
+  ) => {
     const clean = tokenNumber.replace(' 🚨', '').trim();
     if (!clean) return clean;
 
@@ -658,13 +664,18 @@ export default function DoctorDashboard() {
 
     if (inWaiting || inActive) return clean;
 
+    // Optional name; without one the token keeps the "Patient #N" placeholder.
+    const [firstName, ...rest] = (patientName ?? '').trim().replace(/\s+/g, ' ').split(' ').filter(Boolean);
+
     try {
       await generateToken(
         deptId,
         undefined,
         undefined,
         priority,
-        { firstName: `Patient #${clean}` },
+        firstName
+          ? { firstName, lastName: rest.join(' ') || undefined }
+          : { firstName: `Patient #${clean}` },
         clean,
         1
       );
@@ -675,7 +686,7 @@ export default function DoctorDashboard() {
     return clean;
   };
 
-  const handleCallNext = async (roomNumber: string, specificToken?: string) => {
+  const handleCallNext = async (roomNumber: string, specificToken?: string, patientName?: string) => {
     setCallingRoom(roomNumber);
     try {
       // If no specificToken passed, check if this room has a staged token
@@ -684,7 +695,7 @@ export default function DoctorDashboard() {
       const cleanToken = tokenToCall ? tokenToCall.replace(' 🚨', '').trim() : undefined;
 
       if (cleanToken) {
-        await ensureTokenCreated(cleanToken);
+        await ensureTokenCreated(cleanToken, 'NORMAL', patientName);
       }
 
       const called = await callNextPatient(deptId, roomNumber, cleanToken);
@@ -874,10 +885,10 @@ export default function DoctorDashboard() {
     }
   };
 
-  const handleAddPatientToRoomQueue = async (roomNumber: string, token: string) => {
+  const handleAddPatientToRoomQueue = async (roomNumber: string, token: string, patientName?: string) => {
     const clean = token.replace(' 🚨', '').trim();
     if (clean) {
-      await ensureTokenCreated(clean);
+      await ensureTokenCreated(clean, 'NORMAL', patientName);
     }
     addTokenToRoomQueue(deptId, roomNumber, clean || token);
     refreshRoomSettings();
@@ -947,16 +958,30 @@ export default function DoctorDashboard() {
   const handleDirectCallOrStage = async (roomNumber: string, action: 'CALL' | 'STAGE') => {
     const clean = directTokenVal.trim();
     if (!clean) return;
+    const name = directPatientName.trim();
 
     setDirectInputRoom(null);
     setDirectTokenVal('');
+    setDirectPatientName('');
 
     if (action === 'CALL') {
-      await handleCallNext(roomNumber, clean);
+      await handleCallNext(roomNumber, clean, name);
     } else {
-      await handleAddPatientToRoomQueue(roomNumber, clean);
+      await handleAddPatientToRoomQueue(roomNumber, clean, name);
     }
   };
+
+  // Start each room's direct entry box with an empty name.
+  useEffect(() => {
+    setDirectPatientName('');
+  }, [directInputRoom]);
+
+  // A token already in the line keeps the name it was registered with.
+  const directTokenKey = directTokenVal.replace(' 🚨', '').trim().toLowerCase();
+  const directTokenExists =
+    !!directTokenKey &&
+    ((queueData.nextTokens || []).some((t) => t.replace(' 🚨', '').trim().toLowerCase() === directTokenKey) ||
+      (queueData.activeTokens || []).some((t) => t.token.trim().toLowerCase() === directTokenKey));
 
   // Simple UI: only the everyday actions (call, recall, complete, absent, add token).
   const simple = uiSettings.simpleMode;
@@ -1983,6 +2008,28 @@ export default function DoctorDashboard() {
                               </button>
                             )}
                           </div>
+
+                          {/* Optional patient name (only used when this creates a new token) */}
+                          <input
+                            type="text"
+                            autoComplete="off"
+                            aria-label="Patient name (optional)"
+                            value={directTokenExists ? '' : directPatientName}
+                            disabled={directTokenExists}
+                            onChange={(e) => setDirectPatientName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Escape') {
+                                setDirectInputRoom(null);
+                                setDirectTokenVal('');
+                              }
+                            }}
+                            placeholder={
+                              directTokenExists
+                                ? 'Already in the line: keeps its registered name'
+                                : 'Patient name (optional)'
+                            }
+                            className="w-full bg-white border border-slate-300 focus:border-blue-500 rounded-xl px-3.5 py-2 text-sm font-semibold text-slate-900 placeholder:text-slate-400 placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all disabled:bg-slate-100 disabled:cursor-not-allowed"
+                          />
 
                           {/* Waiting line suggestion chips */}
                           {queueData.nextTokens && queueData.nextTokens.length > 0 && (

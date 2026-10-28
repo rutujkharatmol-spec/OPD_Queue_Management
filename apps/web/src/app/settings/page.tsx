@@ -205,10 +205,10 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 font-sans text-slate-900 p-6 lg:p-10">
+    <div className="min-h-screen bg-slate-100 font-sans text-slate-900 p-4 sm:p-6 lg:p-10">
       {/* Header */}
-      <header className="flex justify-between items-center mb-8 max-w-5xl mx-auto bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
-        <div className="flex items-center gap-4">
+      <header className="flex flex-wrap justify-between items-center gap-4 mb-8 max-w-5xl mx-auto bg-white p-5 sm:p-6 rounded-3xl shadow-sm border border-slate-200">
+        <div className="flex items-center gap-4 min-w-0">
           <div className="w-12 h-12 bg-gradient-to-tr from-blue-600 to-indigo-600 text-white rounded-2xl flex items-center justify-center shadow-md shadow-blue-500/20">
             <SettingsIcon size={24} />
           </div>
@@ -223,7 +223,7 @@ export default function SettingsPage() {
         </div>
         <Link
           href="/"
-          className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors flex items-center gap-2 text-xs"
+          className="shrink-0 whitespace-nowrap px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors flex items-center gap-2 text-xs"
         >
           <ArrowLeft size={16} /> Back to Dashboard
         </Link>

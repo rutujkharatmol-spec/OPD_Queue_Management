@@ -22,12 +22,11 @@ export const GET = route(async () => {
 
       for (const d of defaults) {
         const created = await db.department.create({ data: d });
-        // Add sample room
+        // Add a starter room with no doctor; doctors set their own name from the Doctor Desk.
         await db.room.create({
           data: {
             roomNumber: d.code === 'MED' ? '101' : d.code === 'ENT' ? '201' : '301',
             departmentId: created.id,
-            doctorName: `Dr. ${d.name} Specialist`,
           },
         });
       }

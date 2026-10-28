@@ -212,6 +212,9 @@ export default function GuidePage() {
               <p className="text-xs text-slate-400 leading-relaxed">
                 Press <strong>'F'</strong> on the keyboard to enter Full Screen TV Mode with zero browser distraction for the waiting hall.
               </p>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                To show a single room full screen, click the <strong>⤢</strong> button on that room's card. For a screen outside a room's door, add <strong>&amp;room=101</strong> to the TV link so it always opens on that room.
+              </p>
             </div>
           </div>
         </section>

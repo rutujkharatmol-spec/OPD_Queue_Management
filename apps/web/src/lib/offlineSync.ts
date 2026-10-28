@@ -15,6 +15,7 @@ import {
   localMarkTokenAction,
   localBulkDeleteTokens,
   localSearchTokens,
+  localLookupTokensByName,
   getLocalTokenStatus,
   getLocalAnalytics,
   getLocalDoctors,
@@ -212,6 +213,14 @@ function handleWithLocalStore(url: string, method: string, options: RequestInit)
     const data = localSearchTokens(q, deptId);
     return jsonResponse(data, 200);
   }
+  if (pathname.includes('/tokens/lookup') && method === 'GET') {
+    const data = localLookupTokensByName(
+      searchParams.get('name') || '',
+      searchParams.get('date') || undefined,
+      searchParams.get('departmentId') || undefined
+    );
+    return jsonResponse(data, 200);
+  }
   if (pathname.includes('/tokens/status/') && method === 'GET') {
     const tokenNum = pathname.split('/tokens/status/')[1]?.split('?')[0] || '';
     const date = searchParams.get('date') || undefined;
@@ -243,7 +252,8 @@ function handleWithLocalStore(url: string, method: string, options: RequestInit)
       tokenId,
       parsedBody.action || 'COMPLETE',
       parsedBody.passCount,
-      parsedBody.departmentId
+      parsedBody.departmentId,
+      parsedBody.doctorName
     );
     return jsonResponse(data || { ok: true }, 200);
   }

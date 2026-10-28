@@ -7,7 +7,7 @@ import {
   Loader2, Users, X,
 } from 'lucide-react';
 import {
-  assignDoctorToRoom, getDoctors, getRooms, markTokenAction, type DoctorListItem,
+  assignDoctorToRoom, getDepartmentAnalytics, getDoctors, getRooms, markTokenAction, type DoctorListItem,
 } from '../../lib/api';
 import { useDepartmentStore } from '../../store/useDepartmentStore';
 import { useQueueStore } from '../../store/useQueueStore';
@@ -41,8 +41,10 @@ function saveSetup(setup: DeskSetup | null) {
   } catch {}
 }
 
+// "Dr. S. Roy" and "dr.  s. roy " are the same person (matches analytics' doctor grouping).
+const normName = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
 const sameName = (a?: string | null, b?: string | null) =>
-  !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
+  !!a && !!b && normName(a) === normName(b);
 
 /**
  * Doctor Desk: a doctor picks their name, department and room once, then only presses
@@ -417,6 +419,38 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
   const [toast, setToast] = useState('');
   const [now, setNow] = useState(() => Date.now());
 
+  // Patients completed today, from the same numbers the Analytics page shows.
+  const [served, setServed] = useState<{ room: number; doctor: number } | null>(null);
+  const servedRequest = useRef(0);
+  const loadServed = useCallback(async () => {
+    const requestId = ++servedRequest.current;
+    try {
+      const data = await getDepartmentAnalytics(departmentId);
+      if (requestId !== servedRequest.current) return;
+      const roomServed =
+        (data?.roomStats as { roomNumber: string; completedCount: number }[] | undefined)
+          ?.find((r) => r.roomNumber === roomNumber)?.completedCount ?? 0;
+      const doctorServed =
+        (data?.doctorStats as { doctorName: string | null; servedCount: number }[] | undefined)
+          ?.find((d) => sameName(d.doctorName, doctorName))?.servedCount ?? 0;
+      setServed({ room: roomServed, doctor: doctorServed });
+    } catch {
+      // Keep the last numbers; the next refresh will try again.
+    }
+  }, [departmentId, roomNumber, doctorName]);
+
+  // Reload whenever a patient enters or leaves this room (Done here or on the Doctor
+  // Room screen), plus once a minute as a fallback.
+  const roomPatientKey = patients.map((p) => p.id).join(',');
+  useEffect(() => {
+    const id = setTimeout(loadServed, 500);
+    return () => clearTimeout(id);
+  }, [loadServed, roomPatientKey]);
+  useEffect(() => {
+    const id = setInterval(loadServed, 60_000);
+    return () => clearInterval(id);
+  }, [loadServed]);
+
   useEffect(() => {
     useQueueStore.getState().initializeWebSocket(departmentId);
     return () => useQueueStore.getState().disconnectWebSocket();
@@ -444,7 +478,8 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
     setSubmitting(true);
     setError('');
     try {
-      await markTokenAction(confirming.id, 'COMPLETE', undefined, departmentId);
+      // Credit this doctor, even if another doctor's name is on the room.
+      await markTokenAction(confirming.id, 'COMPLETE', undefined, departmentId, doctorName);
       setToast(`Token ${confirming.token} marked done`);
       setConfirming(null);
       await useQueueStore.getState().fetchQueue(departmentId);
@@ -477,6 +512,26 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
           <ArrowLeftRight size={15} /> Change
         </button>
       </header>
+
+      {/* Served today */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm min-w-0">
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
+            <DoorOpen size={14} className="text-blue-600 shrink-0" />
+            <span className="truncate">Room {roomNumber}</span>
+          </p>
+          <p className="mt-1 text-3xl sm:text-4xl font-black text-slate-900 leading-none">{served ? served.room : '–'}</p>
+          <p className="mt-1 text-xs font-semibold text-slate-500">served in this room today</p>
+        </div>
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm min-w-0">
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
+            <Stethoscope size={14} className="text-emerald-600 shrink-0" />
+            <span className="truncate">{doctorName}</span>
+          </p>
+          <p className="mt-1 text-3xl sm:text-4xl font-black text-emerald-700 leading-none">{served ? served.doctor : '–'}</p>
+          <p className="mt-1 text-xs font-semibold text-slate-500">served by you today</p>
+        </div>
+      </div>
 
       <div className="flex items-center justify-between px-1">
         <h2 className="text-base font-black text-slate-800">

@@ -1,7 +1,7 @@
 "use client";
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useQueueStore, requestQueueWake } from '../../store/useQueueStore';
-import { Moon, Sun, Volume2, VolumeX, Stethoscope, Sparkles, Maximize2, Minimize2 } from 'lucide-react';
+import { Moon, Sun, Volume2, VolumeX, Stethoscope, Sparkles, Maximize2, Minimize2, LayoutGrid } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { useDepartmentStore } from '../../store/useDepartmentStore';
 import { useSimpleMode } from '../../lib/uiSettings';
@@ -39,9 +39,30 @@ function shouldShowPatientName(name?: string | null): boolean {
   return true;
 }
 
+type RoomGroup = { room: string; doctorName?: string; isEmergency: boolean; tokens: any[] };
+
+function isBrowserFullscreen(): boolean {
+  return !!(
+    document.fullscreenElement ||
+    (document as any).webkitFullscreenElement ||
+    (document as any).mozFullScreenElement ||
+    (document as any).msFullscreenElement
+  );
+}
+
 export default function TvDisplay() {
   const searchParams = useSearchParams();
   const requestedDeptId = searchParams.get('deptId');
+  // `?room=101` pins the board to one room (e.g. a screen at that room's door).
+  const pinnedRoom = searchParams.get('room')?.trim() || null;
+  const pinnedRoomRef = useRef<string | null>(pinnedRoom);
+  // Room shown alone on the whole screen; null shows every room.
+  const [focusedRoom, setFocusedRoom] = useState<string | null>(pinnedRoom);
+
+  useEffect(() => {
+    pinnedRoomRef.current = pinnedRoom;
+    setFocusedRoom(pinnedRoom);
+  }, [pinnedRoom]);
   // Selected individually rather than destructured off the whole store: subscribing to
   // the entire store re-rendered this (large) tree on every unrelated store write.
   const loadDepartments = useDepartmentStore((state) => state.loadDepartments);
@@ -85,13 +106,10 @@ export default function TvDisplay() {
   // Fullscreen event listener, window resize/focus/visibility synchronization
   useEffect(() => {
     const handleFullscreenChange = () => {
-      const isFull = !!(
-        document.fullscreenElement ||
-        (document as any).webkitFullscreenElement ||
-        (document as any).mozFullScreenElement ||
-        (document as any).msFullscreenElement
-      );
+      const isFull = isBrowserFullscreen();
       setIsFullscreen(isFull);
+      // Leaving full screen (button or Esc) also leaves a single-room view opened by click.
+      if (!isFull) setFocusedRoom(pinnedRoomRef.current);
       if (deptId) {
         void fetchQueue(deptId);
       }
@@ -135,12 +153,7 @@ export default function TvDisplay() {
 
   const toggleFullscreen = useCallback(async () => {
     try {
-      const isCurrentlyFullscreen = !!(
-        document.fullscreenElement ||
-        (document as any).webkitFullscreenElement ||
-        (document as any).mozFullScreenElement ||
-        (document as any).msFullscreenElement
-      );
+      const isCurrentlyFullscreen = isBrowserFullscreen();
 
       if (!isCurrentlyFullscreen) {
         const elem = containerRef.current || document.documentElement;
@@ -163,10 +176,26 @@ export default function TvDisplay() {
         } else {
           setIsFullscreen(false);
         }
+        setFocusedRoom(pinnedRoomRef.current);
       }
     } catch (err) {
       console.warn('Fullscreen toggle failed, falling back to layout toggle:', err);
       setIsFullscreen((prev) => !prev);
+    }
+  }, []);
+
+  // Show one room alone, filling the whole screen.
+  const openRoomFullscreen = useCallback(async (room: string) => {
+    setFocusedRoom(room);
+    if (isBrowserFullscreen()) return;
+    try {
+      const elem: any = containerRef.current || document.documentElement;
+      const request = elem.requestFullscreen || elem.webkitRequestFullscreen || elem.msRequestFullscreen;
+      if (request) await request.call(elem);
+      else setIsFullscreen(true);
+    } catch (err) {
+      console.warn('Fullscreen request failed, showing room view in the page:', err);
+      setIsFullscreen(true);
     }
   }, []);
 
@@ -270,6 +299,23 @@ export default function TvDisplay() {
   const activeTokens = queueData.activeTokens || [];
   const hasEmergency = activeTokens.some((t: any) => t.token?.includes('🚨')) || queueData.nextTokens.some(t => t.includes('🚨'));
 
+  // Active tokens grouped by room, in first-seen order.
+  const roomsList = useMemo(() => {
+    const map = new Map<string, RoomGroup>();
+    for (const item of queueData.activeTokens || []) {
+      const rKey = item.room || '101';
+      if (!map.has(rKey)) {
+        map.set(rKey, { room: rKey, doctorName: item.doctorName, isEmergency: false, tokens: [] });
+      }
+      const rEntry = map.get(rKey)!;
+      if (item.token?.includes('🚨')) rEntry.isEmergency = true;
+      rEntry.tokens.push(item);
+    }
+    return Array.from(map.values());
+  }, [queueData.activeTokens]);
+  const roomCount = roomsList.length;
+  const focusedRoomData = focusedRoom ? roomsList.find((r) => r.room === focusedRoom) : undefined;
+
   return (
     <div ref={containerRef} className={isDark ? "dark" : ""}>
       <div className="flex h-screen w-full flex-col bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-white overflow-hidden relative font-sans select-none transition-colors duration-500">
@@ -298,6 +344,18 @@ export default function TvDisplay() {
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
               <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Active Calling</span>
             </div>
+
+            {/* Back from a single-room view to every room */}
+            {focusedRoom && (
+              <button
+                onClick={() => setFocusedRoom(null)}
+                className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold border border-blue-400/40 shadow-md transition-all active:scale-95 cursor-pointer"
+                title="Show all rooms"
+              >
+                <LayoutGrid size={15} />
+                <span>All Rooms</span>
+              </button>
+            )}
 
             {/* FULLSCREEN MODE: ONLY Token Section active - Hide all settings functions */}
             {isFullscreen ? (
@@ -403,7 +461,88 @@ export default function TvDisplay() {
           </div>
         </header>
 
-        {/* Main Content Area */}
+        {focusedRoom ? (
+          /* Single Room View: one room fills the whole screen */
+          <main className={`relative z-10 flex flex-1 ${isFullscreen ? 'p-4 lg:p-6 h-[83vh]' : 'p-6 lg:p-10 h-[79vh]'} items-stretch transition-all duration-500`}>
+            {(() => {
+              const isEmergency = Boolean(focusedRoomData?.isEmergency);
+              const tokens = focusedRoomData?.tokens || [];
+              const firstItem = tokens[0];
+              const [prefix, number] = firstItem?.token?.includes('-') ? firstItem.token.split('-') : [null, firstItem?.token];
+              return (
+                <div className={`flex-1 flex flex-col items-center rounded-[2.5rem] border p-6 lg:p-10 shadow-xl dark:shadow-2xl relative overflow-hidden transition-all duration-500 ${
+                  pulseScale ? 'ring-8 ring-blue-400/40' : ''
+                } ${isEmergency
+                  ? 'bg-red-50/95 dark:bg-red-950/60 border-red-300 dark:border-red-500/50'
+                  : 'bg-white/95 dark:bg-slate-900/70 border-slate-200 dark:border-blue-500/30'
+                }`}>
+                  {/* Room Title & Doctor */}
+                  <div className="w-full flex flex-wrap items-center justify-between gap-4">
+                    <span className={`text-[7vh] font-black uppercase tracking-wider leading-none ${isEmergency ? 'text-red-600 dark:text-red-300' : 'text-blue-600 dark:text-blue-300'}`}>
+                      Room {focusedRoom}
+                    </span>
+                    {focusedRoomData?.doctorName && (
+                      <span className="inline-flex items-center gap-3 text-[3vh] font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800/80 px-6 py-2 rounded-full max-w-full truncate">
+                        <Stethoscope className="text-blue-500 w-[3vh] h-[3vh] shrink-0" />
+                        {focusedRoomData.doctorName}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="text-[2.6vh] font-black uppercase tracking-[0.3em] text-slate-400 dark:text-slate-500 mt-[3vh]">
+                    {tokens.length === 0 ? 'Please Wait' : 'Now Serving'}
+                  </div>
+
+                  {tokens.length === 0 ? (
+                    <div className="flex-1 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 text-[4vh] font-bold text-center">
+                      <div className="text-[10vh] mb-4">⏳</div>
+                      Next patient will be called shortly
+                    </div>
+                  ) : tokens.length === 1 ? (
+                    <div className="flex-1 flex flex-col items-center justify-center w-full">
+                      <div className={`text-[30vh] font-black leading-none tracking-tighter text-center whitespace-nowrap ${isEmergency ? 'text-red-600 dark:text-red-100' : 'text-slate-900 dark:text-white'}`}>
+                        {prefix ? (
+                          <>
+                            <span className={`text-[0.4em] font-bold align-middle mr-2 ${isEmergency ? 'text-red-400 dark:text-red-200' : 'text-slate-400 dark:text-blue-300/60'}`}>
+                              {prefix}-
+                            </span>
+                            {number}
+                          </>
+                        ) : (
+                          firstItem?.token
+                        )}
+                      </div>
+                      {shouldShowPatientName(firstItem?.patientName) && (
+                        <div className="mt-[3vh] text-[5vh] font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-black/40 px-10 py-3 rounded-full border border-slate-200 dark:border-white/10 max-w-full truncate">
+                          👤 {firstItem.patientName}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex-1 w-full flex flex-wrap items-center justify-center gap-[3vh]">
+                      {tokens.map((tok: any, tIdx: number) => (
+                        <div
+                          key={tIdx}
+                          className="flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-800/90 border border-blue-200 dark:border-blue-500/40 rounded-3xl px-[4vh] py-[3vh] shadow-md"
+                        >
+                          <span className="text-[16vh] font-black text-slate-900 dark:text-white leading-none">
+                            {tok.token}
+                          </span>
+                          {shouldShowPatientName(tok.patientName) && (
+                            <span className="text-[3vh] font-bold text-slate-600 dark:text-slate-300 mt-2 max-w-[40vw] truncate text-center">
+                              {tok.patientName}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </main>
+        ) : (
+        /* Main Content Area */
         <main className={`relative z-10 flex flex-1 ${
           isFullscreen ? 'p-4 lg:p-6 gap-4 lg:gap-6 h-[83vh]' : 'p-6 lg:p-10 gap-6 lg:gap-8 h-[79vh]'
         } items-stretch transition-all duration-500`}>
@@ -431,45 +570,10 @@ export default function TvDisplay() {
                 Waiting for doctor to call next patient...
               </div>
             ) : (
-              <div className={`flex-1 grid gap-4 lg:gap-6 ${(() => {
-                const map = new Map<string, { room: string; doctorName?: string; isEmergency: boolean; tokens: any[] }>();
-                for (const item of activeTokens) {
-                  const rKey = item.room || '101';
-                  if (!map.has(rKey)) {
-                    map.set(rKey, {
-                      room: rKey,
-                      doctorName: item.doctorName,
-                      isEmergency: Boolean(item.token?.includes('🚨')),
-                      tokens: [],
-                    });
-                  }
-                  const rEntry = map.get(rKey)!;
-                  if (item.token?.includes('🚨')) rEntry.isEmergency = true;
-                  rEntry.tokens.push(item);
-                }
-                const count = map.size;
-                return count === 1 ? 'grid-cols-1' : count > 4 ? 'grid-cols-2 lg:grid-cols-3' : 'grid-cols-2';
-              })()}`}>
-                {(() => {
-                  const map = new Map<string, { room: string; doctorName?: string; isEmergency: boolean; tokens: any[] }>();
-                  for (const item of activeTokens) {
-                    const rKey = item.room || '101';
-                    if (!map.has(rKey)) {
-                      map.set(rKey, {
-                        room: rKey,
-                        doctorName: item.doctorName,
-                        isEmergency: Boolean(item.token?.includes('🚨')),
-                        tokens: [],
-                      });
-                    }
-                    const rEntry = map.get(rKey)!;
-                    if (item.token?.includes('🚨')) rEntry.isEmergency = true;
-                    rEntry.tokens.push(item);
-                  }
-                  const roomsList = Array.from(map.values());
-                  const roomCount = roomsList.length;
-
-                  return roomsList.map((roomItem, idx) => {
+              <div className={`flex-1 grid gap-4 lg:gap-6 ${
+                roomCount === 1 ? 'grid-cols-1' : roomCount > 4 ? 'grid-cols-2 lg:grid-cols-3' : 'grid-cols-2'
+              }`}>
+                {roomsList.map((roomItem, idx) => {
                     const isEmergency = roomItem.isEmergency;
                     const isSingle = roomItem.tokens.length === 1;
                     const firstItem = roomItem.tokens[0];
@@ -491,12 +595,22 @@ export default function TvDisplay() {
                             }`}>
                             Room {roomItem.room} {roomItem.tokens.length > 1 ? `(${roomItem.tokens.length} Patients)` : ''}
                           </span>
-                          {roomItem.doctorName && (
-                            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300 bg-slate-200/70 dark:bg-slate-700/60 px-3 py-1 rounded-full truncate max-w-[180px]">
-                              <Stethoscope size={13} className="text-blue-500" />
-                              {roomItem.doctorName}
-                            </span>
-                          )}
+                          <div className="flex items-center gap-2 min-w-0">
+                            {roomItem.doctorName && (
+                              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-300 bg-slate-200/70 dark:bg-slate-700/60 px-3 py-1 rounded-full truncate max-w-[180px]">
+                                <Stethoscope size={13} className="text-blue-500" />
+                                {roomItem.doctorName}
+                              </span>
+                            )}
+                            <button
+                              onClick={() => openRoomFullscreen(roomItem.room)}
+                              className="shrink-0 p-1.5 rounded-lg text-slate-500 dark:text-slate-300 bg-slate-200/70 dark:bg-slate-700/60 opacity-50 hover:opacity-100 hover:bg-blue-600 hover:text-white transition-all cursor-pointer"
+                              title={`Show Room ${roomItem.room} full screen`}
+                              aria-label={`Show Room ${roomItem.room} full screen`}
+                            >
+                              <Maximize2 size={14} />
+                            </button>
+                          </div>
                         </div>
 
                         {isSingle ? (
@@ -548,8 +662,7 @@ export default function TvDisplay() {
                         )}
                       </div>
                     );
-                  });
-                })()}
+                  })}
               </div>
             )}
           </div>
@@ -605,6 +718,7 @@ export default function TvDisplay() {
             </div>
           </div>
         </main>
+        )}
 
         {/* Footer Marquee Banner */}
         <footer className={`relative z-10 ${isFullscreen ? 'h-[8vh]' : 'h-[10vh]'} bg-gradient-to-r from-blue-700 via-indigo-700 to-blue-800 dark:from-slate-900 dark:via-blue-950 dark:to-slate-900 flex items-center overflow-hidden whitespace-nowrap shadow-xl border-t border-white/10 transition-all duration-500`}>

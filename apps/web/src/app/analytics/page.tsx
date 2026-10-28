@@ -101,14 +101,14 @@ function AnalyticsContent() {
     <div className="min-h-screen bg-slate-100 font-sans text-slate-900 p-4 lg:p-10 print:bg-white print:p-0">
 
       {/* Header Bar */}
-      <header className="max-w-7xl mx-auto mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-3xl shadow-sm border border-slate-200 print:shadow-none print:border-none print:p-0 print:mb-4">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center font-bold shadow-md shadow-blue-500/20 print:hidden">
+      <header className="max-w-7xl mx-auto mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-5 sm:p-6 rounded-3xl shadow-sm border border-slate-200 print:shadow-none print:border-none print:p-0 print:mb-4">
+        <div className="flex items-center gap-4 min-w-0">
+          <div className="w-12 h-12 shrink-0 rounded-2xl bg-blue-600 text-white flex items-center justify-center font-bold shadow-md shadow-blue-500/20 print:hidden">
             <BarChart3 size={24} />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-black text-slate-900 tracking-tight">OPD Analytics &amp; Performance</h1>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">OPD Analytics &amp; Performance</h1>
               <span className="text-xs font-black bg-blue-100 text-blue-700 px-3 py-0.5 rounded-full uppercase">
                 AIIMS Kalyani
               </span>

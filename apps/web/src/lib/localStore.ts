@@ -11,6 +11,13 @@
 import { getStoredPassCount } from './queueSettings';
 import { popNextFromRoomQueue } from './roomQueueSettings';
 import { summariseByDoctor } from './doctorStats';
+import {
+  MAX_NAME_LOOKUP_RESULTS,
+  isPlaceholderPatientName,
+  maskPatientName,
+  nameLookupWords,
+  type NameLookupMatch,
+} from './nameLookup';
 
 export interface LocalDepartment {
   id: string;
@@ -98,12 +105,21 @@ const DEFAULT_DEPARTMENTS: LocalDepartment[] = [
   },
 ];
 
+// Default rooms start with no doctor; doctors set their own name from the Doctor Desk.
 const DEFAULT_ROOMS: LocalRoom[] = [
-  { id: 'r-101', roomNumber: '101', isActive: true, doctorName: 'Dr. A. K. Sharma', departmentId: '660e8400-e29b-41d4-a716-446655440000' },
-  { id: 'r-102', roomNumber: '102', isActive: true, doctorName: 'Dr. S. Roy', departmentId: '660e8400-e29b-41d4-a716-446655440000' },
-  { id: 'r-103', roomNumber: '103', isActive: true, doctorName: 'Dr. P. Sen', departmentId: '660e8400-e29b-41d4-a716-446655440000' },
-  { id: 'r-111', roomNumber: '111', isActive: true, doctorName: 'Dr. M. Banerjee', departmentId: '660e8400-e29b-41d4-a716-446655440000' },
+  { id: 'r-101', roomNumber: '101', isActive: true, departmentId: '660e8400-e29b-41d4-a716-446655440000' },
+  { id: 'r-102', roomNumber: '102', isActive: true, departmentId: '660e8400-e29b-41d4-a716-446655440000' },
+  { id: 'r-103', roomNumber: '103', isActive: true, departmentId: '660e8400-e29b-41d4-a716-446655440000' },
+  { id: 'r-111', roomNumber: '111', isActive: true, departmentId: '660e8400-e29b-41d4-a716-446655440000' },
 ];
+
+// Sample names older builds saved into browsers; cleared from rooms on read.
+const SAMPLE_DOCTOR_NAMES = new Set([
+  'dr. a. k. sharma', 'dr. s. roy', 'dr. p. sen', 'dr. m. banerjee', 'consultant doctor', 'sample',
+  'dr. medicine specialist', 'dr. ent specialist', 'dr. orthopedics specialist', 'dr. pediatrics specialist',
+]);
+const isSampleDoctor = (name?: string | null) =>
+  !!name && SAMPLE_DOCTOR_NAMES.has(name.trim().replace(/\s+/g, ' ').toLowerCase());
 
 /**
  * Parsed-value cache, keyed by storage key and validated against the raw string.
@@ -267,7 +283,11 @@ export function deleteLocalDepartment(id: string): boolean {
 // ----------------- ROOMS -----------------
 
 export function getLocalRooms(departmentId?: string): LocalRoom[] {
-  const rooms = getStorage<LocalRoom[]>(ROOMS_KEY, DEFAULT_ROOMS);
+  let rooms = getStorage<LocalRoom[]>(ROOMS_KEY, DEFAULT_ROOMS);
+  if (rooms.some((r) => isSampleDoctor(r.doctorName))) {
+    rooms = rooms.map((r) => (isSampleDoctor(r.doctorName) ? { ...r, doctorName: undefined } : r));
+    saveLocalRooms(rooms);
+  }
   if (departmentId) {
     const deptRooms = rooms.filter(r => r.departmentId === departmentId);
     if (deptRooms.length === 0) {
@@ -277,7 +297,6 @@ export function getLocalRooms(departmentId?: string): LocalRoom[] {
         roomNumber: '101',
         isActive: true,
         departmentId,
-        doctorName: 'Consultant Doctor',
       };
       rooms.push(fallbackRoom);
       saveLocalRooms(rooms);
@@ -642,7 +661,9 @@ export function localMarkTokenAction(
   tokenId: string,
   action: 'COMPLETE' | 'ABSENT' | 'NOT_AVAILABLE' | 'SKIP' | 'RETURN_TO_QUEUE' | 'RESET_TO_WAITING' | 'CANCEL' | 'DELETE',
   passCount?: number,
-  departmentId?: string
+  departmentId?: string,
+  /** COMPLETE only: the doctor who pressed Done; overrides the room's doctor at call time. */
+  doctorName?: string
 ): LocalToken | null {
   const tokens = getLocalTokens();
   // A UUID is unique on its own. A token *number* is not — it repeats in every department
@@ -667,6 +688,8 @@ export function localMarkTokenAction(
   } else if (action === 'COMPLETE') {
     token.status = 'COMPLETED';
     token.completedAt = new Date().toISOString();
+    const doneBy = doctorName?.trim().replace(/\s+/g, ' ').slice(0, 120);
+    if (doneBy) token.servedByDoctorName = doneBy;
   } else if (action === 'ABSENT') {
     token.status = 'ABSENT';
   } else if (action === 'RETURN_TO_QUEUE' || action === 'RESET_TO_WAITING') {
@@ -781,6 +804,34 @@ export function localSearchTokens(query: string, departmentId?: string): LocalTo
     .sort((a, b) => b.issuedAt - a.issuedAt)
     .slice(0, 20)
     .map((entry) => entry.token);
+}
+
+/** Offline mirror of GET /tokens/lookup (patient page: find your token by name). */
+export function localLookupTokensByName(name: string, dateStr?: string, departmentId?: string): NameLookupMatch[] {
+  const words = nameLookupWords(name).map((w) => w.toLowerCase());
+  if (words.length === 0) return [];
+  const targetDate = dateStr || getTodayString();
+  const deptNames = new Map(getLocalDepartments().map((d) => [d.id, d.name]));
+
+  return getLocalTokens()
+    .filter((t) => {
+      if (t.deletedAt || t.serviceDate !== targetDate) return false;
+      if (departmentId && t.departmentId !== departmentId) return false;
+      const first = (t.patient?.firstName || '').toLowerCase();
+      const last = (t.patient?.lastName || '').toLowerCase();
+      if (isPlaceholderPatientName(`${first} ${last}`)) return false;
+      return words.every((w) => first.includes(w) || last.includes(w));
+    })
+    .sort((a, b) => new Date(b.issuedAt).getTime() - new Date(a.issuedAt).getTime())
+    .slice(0, MAX_NAME_LOOKUP_RESULTS)
+    .map((t) => ({
+      tokenNumber: t.tokenNumber,
+      status: t.status,
+      issuedAt: t.issuedAt,
+      departmentId: t.departmentId,
+      departmentName: deptNames.get(t.departmentId) || t.department?.name || '',
+      patientName: maskPatientName(t.patient?.firstName, t.patient?.lastName),
+    }));
 }
 
 export function getLocalTokenStatus(tokenNumber: string, dateStr?: string, departmentId?: string) {

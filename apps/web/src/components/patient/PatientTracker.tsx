@@ -20,14 +20,18 @@ import {
   getTokenStatus,
   getDepartments,
   getLiveQueue,
+  findTokensByName,
+  type NameLookupMatch,
   type TokenStatusResponse,
   type TokenStatusValue,
 } from '../../lib/api';
+import { nameLookupWords } from '../../lib/nameLookup';
 import { useNetwork } from '../NetworkProvider';
 import {
   t,
   getTodayString,
   formatDateDisplay,
+  formatTimeDisplay,
   getPatientLang,
   setPatientLang,
   isPatientLang,
@@ -35,6 +39,7 @@ import {
   LANG_LABELS,
   LANG_NAMES,
   type PatientLang,
+  type StringKey,
 } from '../../lib/patientI18n';
 import {
   isAlertsEnabled,
@@ -57,6 +62,20 @@ import AlertOptIn from './AlertOptIn';
 const ALMOST_THERE_THRESHOLD = 2;
 
 type FetchMode = 'initial' | 'manual' | 'background';
+
+/** "101", "#45", "ENT-012", "M-05" are token numbers; anything else is searched as a name. */
+function looksLikeToken(input: string): boolean {
+  return /^#?\s*[A-Za-z]{0,6}[-\s]?\d{1,6}$/.test(input.trim());
+}
+
+const STATUS_LABEL_KEY: Record<string, StringKey> = {
+  WAITING: 'statusWaiting',
+  CALLED: 'statusCalled',
+  IN_PROGRESS: 'statusCalled',
+  COMPLETED: 'statusCompleted',
+  ABSENT: 'statusAbsent',
+  SKIPPED: 'statusSkipped',
+};
 
 /**
  * How often to re-check, given how close the patient is to being seen.
@@ -121,6 +140,8 @@ export default function PatientTracker() {
   const [pollFailing, setPollFailing] = useState(false);
   const [nowTs, setNowTs] = useState(() => Date.now());
   const [isRecalled, setIsRecalled] = useState(false);
+  // Tokens matching a name search, shown when more than one could be the patient's.
+  const [nameMatches, setNameMatches] = useState<NameLookupMatch[] | null>(null);
 
   const [alertsOn, setAlertsOn] = useState(true);
   const [voiceOn, setVoiceOn] = useState(true);
@@ -264,43 +285,78 @@ export default function PatientTracker() {
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!tokenInput.trim()) return;
-
+  /** Starts tracking one token: updates the URL (so a refresh keeps it) and fetches its status. */
+  const trackToken = (tokenNum: string, date: string, deptId?: string) => {
     startBackgroundAudioKeepAlive();
-
-    const cleanToken = tokenInput.trim().toUpperCase();
-    const cleanDate = dateInput.trim() || todayStr;
+    setNameMatches(null);
+    if (deptId && deptId !== selectedDeptId) setSelectedDeptId(deptId);
 
     startTransition(() => {
       const params = new URLSearchParams({
-        token: cleanToken,
-        date: cleanDate,
-        ...(selectedDeptId ? { deptId: selectedDeptId } : {}),
+        token: tokenNum,
+        date,
+        ...(deptId ? { deptId } : {}),
       });
       router.replace(`?${params.toString()}`, { scroll: false });
     });
 
-    void fetchStatus(cleanToken, cleanDate, 'initial', selectedDeptId);
+    void fetchStatus(tokenNum, date, 'initial', deptId);
+  };
+
+  /** Finds the patient's token by name; tracks it straight away when only one matches. */
+  const searchByName = async (name: string, date: string) => {
+    if (nameLookupWords(name).length === 0) {
+      setError(t(lang, 'nameTooShort'));
+      return;
+    }
+
+    startBackgroundAudioKeepAlive();
+    setIsLoading(true);
+    setError('');
+    let handedOff = false;
+    try {
+      const matches = await findTokensByName(name, date);
+      if (matches.length === 1) {
+        handedOff = true;
+        setTokenInput(matches[0].tokenNumber);
+        trackToken(matches[0].tokenNumber, date, matches[0].departmentId || undefined);
+        return;
+      }
+      setStatusData(null);
+      if (matches.length > 1) {
+        setNameMatches(matches);
+      } else {
+        setError(t(lang, 'nameNotFound', { name, date: formatDateDisplay(date, lang) }));
+      }
+    } catch (err) {
+      console.error('Failed to look up name:', err);
+      setStatusData(null);
+      setError(t(lang, 'nameNotFound', { name, date: formatDateDisplay(date, lang) }));
+    } finally {
+      // When tracking took over, its own fetch owns the loading spinner.
+      if (!handedOff) setIsLoading(false);
+    }
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const raw = tokenInput.trim();
+    if (!raw) return;
+
+    const cleanDate = dateInput.trim() || todayStr;
+    setNameMatches(null);
+
+    if (looksLikeToken(raw)) {
+      trackToken(raw.replace(/^#\s*/, '').toUpperCase(), cleanDate, selectedDeptId);
+    } else {
+      void searchByName(raw, cleanDate);
+    }
   };
 
   const handleQuickTokenClick = (tokNum: string) => {
     const clean = tokNum.replace(' 🚨', '').trim();
     setTokenInput(clean);
-    startBackgroundAudioKeepAlive();
-
-    const cleanDate = dateInput.trim() || todayStr;
-    startTransition(() => {
-      const params = new URLSearchParams({
-        token: clean,
-        date: cleanDate,
-        ...(selectedDeptId ? { deptId: selectedDeptId } : {}),
-      });
-      router.replace(`?${params.toString()}`, { scroll: false });
-    });
-
-    void fetchStatus(clean, cleanDate, 'initial', selectedDeptId);
+    trackToken(clean, dateInput.trim() || todayStr, selectedDeptId || undefined);
   };
 
   // A new token is a new queue: reset alert latches
@@ -647,10 +703,16 @@ export default function PatientTracker() {
               <input
                 id="patient-token"
                 type="text"
+                autoComplete="off"
                 value={tokenInput}
-                onChange={(e) => setTokenInput(e.target.value)}
+                onChange={(e) => {
+                  setTokenInput(e.target.value);
+                  setNameMatches(null);
+                }}
                 placeholder={t(lang, 'tokenPlaceholder')}
-                className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3.5 text-slate-900 font-black text-lg focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all uppercase placeholder:text-slate-400 placeholder:font-normal font-mono"
+                className={`w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3.5 text-slate-900 font-black text-lg focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-slate-400 placeholder:font-normal placeholder:font-sans ${
+                  !tokenInput.trim() || looksLikeToken(tokenInput) ? 'uppercase font-mono' : ''
+                }`}
                 required
               />
             </div>
@@ -716,6 +778,44 @@ export default function PatientTracker() {
               )}
             </button>
           </form>
+
+          {/* Several tokens match the name: let the patient pick theirs */}
+          {nameMatches && nameMatches.length > 1 && (
+            <div className="mt-4 space-y-2">
+              <p className="text-xs font-black text-slate-700 px-1">{t(lang, 'pickYourToken')}</p>
+              {nameMatches.map((m) => {
+                const statusKey = STATUS_LABEL_KEY[m.status];
+                return (
+                  <button
+                    key={`${m.departmentId}-${m.tokenNumber}`}
+                    type="button"
+                    onClick={() => {
+                      setTokenInput(m.tokenNumber);
+                      trackToken(m.tokenNumber, dateInput.trim() || todayStr, m.departmentId || undefined);
+                    }}
+                    className="w-full min-h-[56px] flex items-center gap-3 p-3 rounded-2xl border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 active:scale-[0.99] transition-all text-left cursor-pointer"
+                  >
+                    <span className="shrink-0 min-w-[64px] text-center text-lg font-black font-mono text-blue-700 bg-white border border-blue-200 rounded-xl px-2 py-1">
+                      #{m.tokenNumber}
+                    </span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block font-bold text-slate-900 truncate">{m.patientName}</span>
+                      <span className="block text-xs text-slate-500 truncate">
+                        {[
+                          m.departmentName,
+                          t(lang, 'registeredAt', { time: formatTimeDisplay(new Date(m.issuedAt), lang) }),
+                          statusKey ? t(lang, statusKey) : null,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </span>
+                    </span>
+                    <ChevronRight size={18} className="shrink-0 text-slate-400" />
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           {error && (
             <div

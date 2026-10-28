@@ -97,8 +97,8 @@ function NavbarContent() {
     setIsMobileMenuOpen(false);
   }, [pathname]);
 
-  // Hide Navbar completely on the patient page as requested
-  if (pathname.startsWith('/patient')) {
+  // Hide Navbar completely on the patient page and the standalone Doctor Desk
+  if (pathname.startsWith('/patient') || pathname.startsWith('/doctor-desk')) {
     return null;
   }
 

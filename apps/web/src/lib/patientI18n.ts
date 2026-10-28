@@ -47,8 +47,8 @@ const EN = {
   subtitle: 'Check your live queue position and estimated waiting time',
   languageLabel: 'Language',
 
-  tokenLabel: 'Token Number',
-  tokenPlaceholder: 'e.g. 101 or 45',
+  tokenLabel: 'Token Number or Name',
+  tokenPlaceholder: 'e.g. 101 or Rahul Sharma',
   dateLabel: 'Service Date',
   resetToday: 'Reset to Today',
   today: 'Today',
@@ -57,6 +57,11 @@ const EN = {
   trackButton: 'Track Token Status',
   notFound:
     'Token "{token}" not found for {date}. Please verify your token number or select the date when your token was generated.',
+  nameTooShort: 'Please type at least 3 letters of your name.',
+  nameNotFound:
+    'No token found for "{name}" on {date}. Check the spelling, or search with your token number.',
+  pickYourToken: 'More than one token matches this name. Tap yours:',
+  registeredAt: 'Registered {time}',
 
   yourToken: 'Your Token',
   statusWaiting: 'In Queue (Waiting)',
@@ -150,8 +155,8 @@ const HI: Record<StringKey, string> = {
   subtitle: 'अपनी कतार की स्थिति और अनुमानित प्रतीक्षा समय देखें',
   languageLabel: 'भाषा',
 
-  tokenLabel: 'टोकन नंबर',
-  tokenPlaceholder: 'जैसे 101 या 45',
+  tokenLabel: 'टोकन नंबर या नाम',
+  tokenPlaceholder: 'जैसे 101 या राहुल शर्मा',
   dateLabel: 'सेवा तिथि',
   resetToday: 'आज पर लौटें',
   today: 'आज',
@@ -160,6 +165,11 @@ const HI: Record<StringKey, string> = {
   trackButton: 'टोकन की स्थिति देखें',
   notFound:
     '{date} के लिए टोकन "{token}" नहीं मिला। कृपया अपना टोकन नंबर जाँचें या वह तिथि चुनें जिस दिन टोकन बना था।',
+  nameTooShort: 'कृपया अपने नाम के कम से कम 3 अक्षर लिखें।',
+  nameNotFound:
+    '{date} को "{name}" नाम से कोई टोकन नहीं मिला। वर्तनी जाँचें या अपने टोकन नंबर से खोजें।',
+  pickYourToken: 'इस नाम से एक से ज़्यादा टोकन मिले। अपना टोकन चुनें:',
+  registeredAt: 'पंजीकरण {time}',
 
   yourToken: 'आपका टोकन',
   statusWaiting: 'कतार में (प्रतीक्षारत)',
@@ -249,8 +259,8 @@ const BN: Record<StringKey, string> = {
   subtitle: 'আপনার সারির অবস্থান ও আনুমানিক অপেক্ষার সময় দেখুন',
   languageLabel: 'ভাষা',
 
-  tokenLabel: 'টোকেন নম্বর',
-  tokenPlaceholder: 'যেমন 101 বা 45',
+  tokenLabel: 'টোকেন নম্বর বা নাম',
+  tokenPlaceholder: 'যেমন 101 বা রাহুল শর্মা',
   dateLabel: 'পরিষেবার তারিখ',
   resetToday: 'আজকের তারিখে ফিরুন',
   today: 'আজ',
@@ -259,6 +269,11 @@ const BN: Record<StringKey, string> = {
   trackButton: 'টোকেনের অবস্থা দেখুন',
   notFound:
     '{date} তারিখে "{token}" টোকেনটি পাওয়া যায়নি। অনুগ্রহ করে টোকেন নম্বরটি যাচাই করুন বা টোকেন তৈরির তারিখ বেছে নিন।',
+  nameTooShort: 'অনুগ্রহ করে আপনার নামের অন্তত ৩টি অক্ষর লিখুন।',
+  nameNotFound:
+    '{date} তারিখে "{name}" নামে কোনো টোকেন পাওয়া যায়নি। বানান যাচাই করুন বা টোকেন নম্বর দিয়ে খুঁজুন।',
+  pickYourToken: 'এই নামে একাধিক টোকেন পাওয়া গেছে। আপনারটি বেছে নিন:',
+  registeredAt: 'নিবন্ধন {time}',
 
   yourToken: 'আপনার টোকেন',
   statusWaiting: 'সারিতে (অপেক্ষমাণ)',

@@ -13,6 +13,12 @@ type Body = {
    * every department every day, so without this the identifier is ambiguous.
    */
   departmentId?: string;
+  /**
+   * COMPLETE only: the doctor who finished the consultation (sent by the Doctor Desk).
+   * Overrides the name copied from the room at call time, which is wrong when two
+   * doctors share a room.
+   */
+  doctorName?: string;
 };
 
 export const PATCH = route(async (request: Request, { params }: Context) => {
@@ -67,9 +73,15 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
   }
 
   if (body.action === 'COMPLETE') {
+    const doneBy =
+      typeof body.doctorName === 'string' ? body.doctorName.trim().replace(/\s+/g, ' ').slice(0, 120) : '';
     const updated = await db.token.update({
       where: { id: token.id },
-      data: { status: 'COMPLETED', completedAt: new Date() },
+      data: {
+        status: 'COMPLETED',
+        completedAt: new Date(),
+        ...(doneBy ? { servedByDoctorName: doneBy } : {}),
+      },
     });
     return ok(updated);
   }
