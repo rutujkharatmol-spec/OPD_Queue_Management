@@ -2,6 +2,7 @@ import { db } from '@/lib/db';
 import { ok, notFound, route } from '@/server/http';
 import { serviceDateFor } from '@/server/tokens/tokenNumber';
 import { PATIENT_BOARD_WAITING_LIMIT, type PatientBoard } from '@/lib/patientBoard';
+import { isStaff } from '@/server/staff/auth';
 
 // Polled every 3 seconds by every TV board and doctor dashboard.
 export const dynamic = 'force-dynamic';
@@ -56,7 +57,7 @@ export const GET = route(async (request: Request, { params }: Context) => {
       where: { departmentId, serviceDate, status: 'WAITING', deletedAt: null },
       // Enum order is NORMAL, SENIOR, EMERGENCY, so descending puts emergencies first.
       orderBy: [{ priority: 'desc' }, { issuedAt: 'asc' }],
-      select: { tokenNumber: true, priority: true },
+      select: { tokenNumber: true, priority: true, stagedRoom: true, stagedAt: true },
     }),
   ]);
 
@@ -88,6 +89,9 @@ export const GET = route(async (request: Request, { params }: Context) => {
     if (room.doctorName) doctorByRoom.set(room.roomNumber, room.doctorName);
   }
 
+  // TV boards read this view without a login; the UHID is for staff screens only.
+  const showUhid = await isStaff();
+
   // Return all currently active called tokens for all rooms
   const activeTokens = [];
 
@@ -101,15 +105,28 @@ export const GET = route(async (request: Request, { params }: Context) => {
       room,
       doctorName: doctorByRoom.get(room) || undefined,
       patientName: name || 'Patient',
-      uhid: token.patient?.uhid || '',
+      uhid: showUhid ? token.patient?.uhid || '' : '',
       calledAt: token.calledAt?.getTime(),
       recalledAt: token.recalledAt?.getTime(),
     });
   }
 
-  return ok({
+  // Waiting patients already sent to a room, in the order they were sent.
+  const stagedByRoom: Record<string, string[]> = {};
+  const staged = waiting
+    .filter((t) => t.stagedRoom)
+    .sort((a, b) => (a.stagedAt?.getTime() ?? 0) - (b.stagedAt?.getTime() ?? 0));
+  for (const t of staged) {
+    (stagedByRoom[t.stagedRoom as string] ??= []).push(t.tokenNumber);
+  }
+
+  const res = ok({
     department: department.name,
     activeTokens,
     nextTokens: waiting.map((t) => (t.priority === 'EMERGENCY' ? `${t.tokenNumber} 🚨` : t.tokenNumber)),
+    stagedByRoom,
   });
+  // Differs per viewer (UHIDs for staff), so no shared cache may keep it.
+  res.headers.set('Cache-Control', 'private, no-store');
+  return res;
 });

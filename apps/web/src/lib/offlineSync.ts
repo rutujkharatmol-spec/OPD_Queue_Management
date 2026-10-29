@@ -296,6 +296,16 @@ function jsonResponse(data: unknown, status: number = 200): Response {
   });
 }
 
+/** Fired when the server answers 401 to an API call; AuthWrapper shows the staff login. */
+export const STAFF_LOGIN_REQUIRED_EVENT = 'opd-staff-login-required';
+
+function announceLoginRequired(response: Response, url: string): void {
+  if (typeof window === 'undefined' || response.status !== 401) return;
+  // The login forms handle their own wrong-password answers.
+  if (url.includes('/api/v1/staff/') || url.includes('/api/v1/admin/')) return;
+  window.dispatchEvent(new CustomEvent(STAFF_LOGIN_REQUIRED_EVENT));
+}
+
 /**
  * Drop-in replacement for window.fetch with automatic offline fallback and background sync
  */
@@ -319,6 +329,7 @@ export async function fetchWithOfflineSync(url: string | URL, options: RequestIn
     }
 
     // Anything else — success, or a 4xx the client should see — passes straight through.
+    announceLoginRequired(response, targetUrl);
     return response;
   } catch (error) {
     // A caller that abandoned its own request is not an outage. Without this, a poller
@@ -345,7 +356,8 @@ export async function processOfflineQueue(): Promise<{ total: number; succeeded:
   const remainingQueue: QueuedRequest[] = [];
   let succeeded = 0;
 
-  for (const item of queue) {
+  for (let i = 0; i < queue.length; i++) {
+    const item = queue[i];
     try {
       const response = await fetch(item.url, {
         method: item.method,
@@ -355,6 +367,16 @@ export async function processOfflineQueue(): Promise<{ total: number; succeeded:
         },
         body: item.body,
       });
+
+      if (response.status === 401 || response.status === 403) {
+        // 401: logged out (or the login expired) while offline. 403: this server is
+        // the read-only copy. Either way the changes are still valid, so keep this one
+        // and everything after it, in order, rather than lose patients' registrations;
+        // after logging in (or on the right server) the next sync sends them.
+        remainingQueue.push(...queue.slice(i));
+        announceLoginRequired(response, item.url);
+        break;
+      }
 
       if (response.ok) {
         succeeded++;

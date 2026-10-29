@@ -51,6 +51,11 @@ export async function GET(request: Request) {
   if (!text) {
     return new NextResponse('Text is required', { status: 400 });
   }
+  // Announcements are one short sentence. The route needs no login (the TV boards use
+  // it), so cap the length to stop it being used as a free text-to-speech service.
+  if (text.length > 300) {
+    return new NextResponse('Text is too long', { status: 400 });
+  }
 
   try {
     const voiceMap = NEURAL_VOICES[lang] || NEURAL_VOICES['en-in'];
