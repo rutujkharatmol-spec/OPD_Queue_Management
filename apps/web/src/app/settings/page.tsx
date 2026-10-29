@@ -4,8 +4,7 @@ import Link from 'next/link';
 import {
   Settings as SettingsIcon, Sparkles, RefreshCw, CheckCircle2,
   HardDrive, ShieldCheck, ArrowLeft, Volume2, Database, Wifi,
-  Smartphone, Building2, Bell, Check, Server, KeyRound, Lock,
-  Eye, EyeOff, AlertCircle, RotateCcw, LogOut
+  Smartphone, Building2, Bell, Check, Server, KeyRound, LogOut
 } from 'lucide-react';
 import { useDepartmentStore } from '../../store/useDepartmentStore';
 import { getOfflineQueue, processOfflineQueue } from '../../lib/offlineSync';
@@ -13,13 +12,6 @@ import {
   VoiceGender, AudioLang, VoiceEngineMode, announcePatientCall,
   playHospitalChime, getVoiceEngineMode, setVoiceEngineMode
 } from '../../lib/speechService';
-import {
-  getStoredStaffPassword,
-  setStoredStaffPassword,
-  resetStoredStaffPassword,
-  setStaffAuthenticated,
-  DEFAULT_STAFF_PASSWORD
-} from '../../lib/authStore';
 import { useSimpleMode } from '../../lib/uiSettings';
 
 export default function SettingsPage() {
@@ -44,25 +36,16 @@ export default function SettingsPage() {
   const [playingGender, setPlayingGender] = useState<VoiceGender | null>(null);
   const [voiceEngine, setVoiceEngine] = useState<VoiceEngineMode>('online');
 
-  // Password / Security State
-  const [currentSavedPass, setCurrentSavedPass] = useState(DEFAULT_STAFF_PASSWORD);
-  const [newPasswordInput, setNewPasswordInput] = useState('');
-  const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
-  const [showPasswordText, setShowPasswordText] = useState(false);
-  const [passStatusMessage, setPassStatusMessage] = useState<string | null>(null);
-  const [passErrorMessage, setPassErrorMessage] = useState<string | null>(null);
+  // Staff sign-out
+  const [signingOut, setSigningOut] = useState(false);
+  const [staffSignOutMessage, setStaffSignOutMessage] = useState<string | null>(null);
 
   useEffect(() => {
     loadDepartments();
     const queue = getOfflineQueue();
     setPendingSyncCount(queue.length);
     setVoiceEngine(getVoiceEngineMode());
-    
-    // Password state
-    const savedPass = getStoredStaffPassword();
-    setCurrentSavedPass(savedPass);
-    setNewPasswordInput(savedPass);
-    setConfirmPasswordInput(savedPass);
+
   }, [loadDepartments]);
 
   const handleCheckUpdate = async () => {
@@ -163,45 +146,14 @@ export default function SettingsPage() {
     setVoiceEngineMode(mode);
   };
 
-  const handleSavePassword = (e: React.FormEvent) => {
-    e.preventDefault();
-    setPassErrorMessage(null);
-    setPassStatusMessage(null);
-
-    const trimmed = newPasswordInput.trim();
-    if (!trimmed) {
-      setPassErrorMessage('Password cannot be empty.');
-      return;
-    }
-
-    if (trimmed !== confirmPasswordInput.trim()) {
-      setPassErrorMessage('Password confirmation does not match.');
-      return;
-    }
-
-    const success = setStoredStaffPassword(trimmed);
-    if (success) {
-      setCurrentSavedPass(trimmed);
-      setPassStatusMessage(`Staff password successfully updated to "${trimmed}". Next login will require this password.`);
-      setTimeout(() => setPassStatusMessage(null), 5000);
-    } else {
-      setPassErrorMessage('Failed to save password.');
-    }
-  };
-
-  const handleResetPassword = () => {
-    resetStoredStaffPassword();
-    setCurrentSavedPass(DEFAULT_STAFF_PASSWORD);
-    setNewPasswordInput(DEFAULT_STAFF_PASSWORD);
-    setConfirmPasswordInput(DEFAULT_STAFF_PASSWORD);
-    setPassErrorMessage(null);
-    setPassStatusMessage('Staff password reset back to default.');
-    setTimeout(() => setPassStatusMessage(null), 4000);
-  };
-
-  const handleLockSystem = () => {
-    setStaffAuthenticated(false);
-    window.location.reload();
+  const handleStaffSignOut = async () => {
+    setSigningOut(true);
+    try {
+      await fetch('/api/v1/staff/logout', { method: 'POST' });
+    } catch {}
+    try { localStorage.removeItem('opd_auth'); } catch {}
+    setSigningOut(false);
+    setStaffSignOutMessage('This device is signed out of the staff screens. The next person must enter the staff password.');
   };
 
   return (
@@ -231,122 +183,43 @@ export default function SettingsPage() {
 
       <main className="max-w-5xl mx-auto space-y-8">
 
-        {/* 1. Staff Access Password & Security Management */}
+        {/* 1. Staff Access */}
         <section className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="p-6 lg:p-8 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <h2 className="text-lg font-black text-slate-800 flex items-center gap-2">
-                <KeyRound size={20} className="text-blue-600" />
-                Staff Access Password &amp; Passcode
-              </h2>
-              <p className="text-slate-500 text-xs mt-1">
-                Configure or change the password required to unlock and access staff OPD dashboards and doctor rooms.
-              </p>
-            </div>
-            <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-3.5 py-1.5 rounded-full w-fit ${
-              currentSavedPass === DEFAULT_STAFF_PASSWORD ? 'bg-slate-100 text-slate-700' : 'bg-blue-100 text-blue-800'
-            }`}>
-              <Lock size={13} className={currentSavedPass === DEFAULT_STAFF_PASSWORD ? 'text-slate-500' : 'text-blue-600'} />
-              {currentSavedPass === DEFAULT_STAFF_PASSWORD ? 'Default Password Active' : 'Custom Password Active'}
-            </span>
+          <div className="p-6 lg:p-8 border-b border-slate-100 bg-slate-50/50">
+            <h2 className="text-lg font-black text-slate-800 flex items-center gap-2">
+              <KeyRound size={20} className="text-blue-600" />
+              Staff Access Password
+            </h2>
+            <p className="text-slate-500 text-xs mt-1">
+              The password that unlocks the registration and doctor screens.
+            </p>
           </div>
 
-          <div className="p-6 lg:p-8 space-y-6">
-            <form onSubmit={handleSavePassword} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Staff Password Textbox
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showPasswordText ? "text" : "password"}
-                      value={newPasswordInput}
-                      onChange={(e) => {
-                        setNewPasswordInput(e.target.value);
-                        setPassErrorMessage(null);
-                      }}
-                      placeholder="Enter new password"
-                      className="w-full bg-slate-50 border border-slate-300 focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-500/20 rounded-xl px-4 py-2.5 pr-11 text-slate-900 placeholder-slate-400 font-mono text-sm transition-all"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPasswordText(!showPasswordText)}
-                      className="absolute right-1 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer transition-colors"
-                      aria-label={showPasswordText ? "Hide password" : "Show password"}
-                      title={showPasswordText ? "Hide password" : "Show password"}
-                    >
-                      {showPasswordText ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-slate-400 mt-1">
-                    Current active password: <span className="font-mono font-bold text-slate-700">{showPasswordText ? currentSavedPass : '••••'}</span>
-                  </p>
-                </div>
+          <div className="p-6 lg:p-8 space-y-4 text-sm text-slate-700">
+            <p>
+              The staff password is checked by the server, so it is the same on every computer and
+              cannot be changed or reset from a browser. To change it, set{' '}
+              <span className="font-mono font-bold">STAFF_PASSWORD</span> in the server&apos;s settings
+              (the OPD server&apos;s <span className="font-mono">.env</span> file and the Vercel project&apos;s
+              Environment Variables) and restart. Changing it signs out every device.
+            </p>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Confirm Password
-                  </label>
-                  <input
-                    type={showPasswordText ? "text" : "password"}
-                    value={confirmPasswordInput}
-                    onChange={(e) => {
-                      setConfirmPasswordInput(e.target.value);
-                      setPassErrorMessage(null);
-                    }}
-                    placeholder="Retype password"
-                    className="w-full bg-slate-50 border border-slate-300 focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-500/20 rounded-xl px-4 py-2.5 text-slate-900 placeholder-slate-400 font-mono text-sm transition-all"
-                  />
-                  <p className="text-[11px] text-slate-400 mt-1">
-                    Retype to prevent any accidental typos.
-                  </p>
-                </div>
+            {staffSignOutMessage && (
+              <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center gap-2">
+                <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                <span>{staffSignOutMessage}</span>
               </div>
+            )}
 
-              {passErrorMessage && (
-                <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-semibold flex items-center gap-2 animate-in fade-in">
-                  <AlertCircle size={16} className="text-red-500 shrink-0" />
-                  <span>{passErrorMessage}</span>
-                </div>
-              )}
-
-              {passStatusMessage && (
-                <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center gap-2 animate-in fade-in">
-                  <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
-                  <span>{passStatusMessage}</span>
-                </div>
-              )}
-
-              <div className="flex flex-wrap items-center gap-3 pt-2">
-                <button
-                  type="submit"
-                  className="py-2.5 px-5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-xs rounded-xl shadow-md shadow-blue-500/20 flex items-center gap-2 transition-all active:scale-95 cursor-pointer"
-                >
-                  <CheckCircle2 size={16} />
-                  <span>Save Password Changes</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleResetPassword}
-                  className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-colors flex items-center gap-2 cursor-pointer"
-                >
-                  <RotateCcw size={14} />
-                  <span>Reset to Default</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleLockSystem}
-                  className="py-2.5 px-4 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-bold text-xs rounded-xl transition-colors flex items-center gap-2 cursor-pointer sm:ml-auto"
-                  title="Lock system to test the unlock password"
-                >
-                  <LogOut size={14} />
-                  <span>Lock System Now (Test Unlock)</span>
-                </button>
-              </div>
-            </form>
+            <button
+              type="button"
+              onClick={handleStaffSignOut}
+              disabled={signingOut}
+              className="py-2.5 px-4 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-bold text-xs rounded-xl transition-colors flex items-center gap-2 cursor-pointer disabled:opacity-60"
+            >
+              <LogOut size={14} />
+              <span>Sign Out This Device</span>
+            </button>
           </div>
         </section>
 

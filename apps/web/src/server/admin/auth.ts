@@ -25,21 +25,26 @@ export function isAdminConfigured(): boolean {
   return adminPassword().length > 0;
 }
 
-function signingKey(): string {
-  const secret =
+/** Server-only secret mixed into every session signature (admin and staff). */
+export function sessionSecret(): string {
+  return (
     process.env.ADMIN_SESSION_SECRET ||
     process.env.DATABASE_URL ||
     process.env.NEON_DATABASE_URL ||
     process.env.LOCAL_DATABASE_URL ||
-    'opd-admin';
-  return `${adminPassword()}|${secret}`;
+    'opd-admin'
+  );
+}
+
+function signingKey(): string {
+  return `${adminPassword()}|${sessionSecret()}`;
 }
 
 function sign(issuedAt: string): string {
   return createHmac('sha256', signingKey()).update(`opd-admin:${issuedAt}`).digest('hex');
 }
 
-function sameText(a: string, b: string): boolean {
+export function sameText(a: string, b: string): boolean {
   // Hash first so the comparison is constant-time whatever the lengths.
   const ha = createHash('sha256').update(a).digest();
   const hb = createHash('sha256').update(b).digest();
