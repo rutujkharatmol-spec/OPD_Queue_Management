@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { API_BASE_URL } from '../lib/api';
 import { fetchWithOfflineSync } from '../lib/offlineSync';
+import { applyServerStaging } from '../lib/roomQueueSettings';
 
 export interface TokenDisplayData {
   department: string;
@@ -15,6 +16,8 @@ export interface TokenDisplayData {
     recalledAt?: number;
   }[];
   nextTokens: string[];
+  /** Waiting patients already sent to each room, in order (from the database). */
+  stagedByRoom?: Record<string, string[]>;
 }
 
 interface QueueStore {
@@ -174,6 +177,7 @@ export const useQueueStore = create<QueueStore>((set, get) => ({
     const request = (async () => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+      const startedAt = Date.now();
       try {
         const res = await fetchWithOfflineSync(`${API_BASE_URL}/queue/live/${departmentId}`, {
           signal: controller.signal,
@@ -183,6 +187,10 @@ export const useQueueStore = create<QueueStore>((set, get) => ({
         if (res.ok) {
           const data = await res.json();
           if (data && (data.activeTokens || data.nextTokens)) {
+            // Only the server's board carries staging; the offline fallback does not.
+            if (data.stagedByRoom && typeof data.stagedByRoom === 'object') {
+              applyServerStaging(departmentId, data.stagedByRoom, startedAt);
+            }
             get().updateQueueData(departmentId, data);
           }
         }

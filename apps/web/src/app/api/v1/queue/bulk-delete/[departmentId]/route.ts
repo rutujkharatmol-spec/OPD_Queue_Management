@@ -10,9 +10,9 @@ type Body = {
   scope?: 'WAITING' | 'ROOM';
   roomNumber?: string;
   /**
-   * Staged token numbers for a ROOM clear. Staging lives in the browser's localStorage,
-   * not the database, so the set has to come from the caller — everything else in this
-   * route is derived server-side rather than trusted from the client's view of the queue.
+   * Staged token numbers for a ROOM clear, as the caller sees them. The database's own
+   * staging (`stagedRoom`) is cleared too; this list covers staging done offline that has
+   * not reached the server yet. Only WAITING tokens of this department and day match.
    */
   tokenNumbers?: string[];
 };
@@ -55,8 +55,9 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
   const roomNumber = body.roomNumber?.trim();
   if (!roomNumber) return badRequest('roomNumber is required to clear a room.');
 
-  // Staged tokens are still WAITING in the database — the room they are staged for is only
-  // recorded in the browser. Restricting to WAITING means a number that has meanwhile been
+  // Staged tokens are still WAITING; the room they are staged for is in `stagedRoom`.
+  // The caller's list is still honoured for staging done offline that has not reached
+  // the server yet. Restricting to WAITING means a number that has meanwhile been
   // called into a *different* room is not dragged out of it by this room's clear.
   const stagedNumbers = (body.tokenNumbers ?? [])
     .map(cleanNumber)
@@ -69,6 +70,7 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
         // Patients currently called into this room.
         { status: 'CALLED', roomNumber },
         // Patients staged for this room, still sitting in the general line.
+        { status: 'WAITING', stagedRoom: roomNumber },
         ...(stagedNumbers.length > 0
           ? [{ status: 'WAITING' as const, tokenNumber: { in: stagedNumbers } }]
           : []),

@@ -57,7 +57,7 @@ export const GET = route(async (request: Request, { params }: Context) => {
       where: { departmentId, serviceDate, status: 'WAITING', deletedAt: null },
       // Enum order is NORMAL, SENIOR, EMERGENCY, so descending puts emergencies first.
       orderBy: [{ priority: 'desc' }, { issuedAt: 'asc' }],
-      select: { tokenNumber: true, priority: true },
+      select: { tokenNumber: true, priority: true, stagedRoom: true, stagedAt: true },
     }),
   ]);
 
@@ -111,10 +111,20 @@ export const GET = route(async (request: Request, { params }: Context) => {
     });
   }
 
+  // Waiting patients already sent to a room, in the order they were sent.
+  const stagedByRoom: Record<string, string[]> = {};
+  const staged = waiting
+    .filter((t) => t.stagedRoom)
+    .sort((a, b) => (a.stagedAt?.getTime() ?? 0) - (b.stagedAt?.getTime() ?? 0));
+  for (const t of staged) {
+    (stagedByRoom[t.stagedRoom as string] ??= []).push(t.tokenNumber);
+  }
+
   const res = ok({
     department: department.name,
     activeTokens,
     nextTokens: waiting.map((t) => (t.priority === 'EMERGENCY' ? `${t.tokenNumber} 🚨` : t.tokenNumber)),
+    stagedByRoom,
   });
   // Differs per viewer (UHIDs for staff), so no shared cache may keep it.
   res.headers.set('Cache-Control', 'private, no-store');

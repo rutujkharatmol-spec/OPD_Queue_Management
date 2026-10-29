@@ -169,6 +169,13 @@ model Token {
   /// joined so a past day's doctor-wise report stays right after rooms are reassigned.
   servedByDoctorName String? @map("served_by_doctor_name")
 
+  /// The room a WAITING patient has been sent to ("staged") before being called in, and
+  /// when, which orders each room's list. Kept in the database so the registration desk,
+  /// every doctor's PC and every tab see the same list. Cleared whenever the token
+  /// changes status; only meaningful while status is WAITING.
+  stagedRoom  String?       @map("staged_room")
+  stagedAt    DateTime?     @map("staged_at") @db.Timestamp(6)
+
   issuedAt    DateTime      @default(now()) @map("issued_at") @db.Timestamp(6)
   calledAt    DateTime?     @map("called_at") @db.Timestamp(6)
   recalledAt  DateTime?     @map("recalled_at") @db.Timestamp(6)

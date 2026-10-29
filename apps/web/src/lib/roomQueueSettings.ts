@@ -1,6 +1,83 @@
 // src/lib/roomQueueSettings.ts
+//
+// Room staging ("send this waiting patient to Room 3") is stored in the database
+// (tokens.staged_room) so every screen sees the same lists. This module keeps a local
+// copy in localStorage so the dashboard can read it instantly and keep working offline:
+// each change is applied here at once and sent to the server, and the live board's
+// `stagedByRoom` (fetched every few seconds by useQueueStore) replaces the local copy.
+//
+// Auto-call and auto-pull limits below are still per-browser settings.
+
+import { fetchWithOfflineSync } from './offlineSync';
 
 const ROOM_STAGED_QUEUE_PREFIX = 'opd_room_staged_queue_';
+
+type StageOp = 'ADD' | 'REMOVE' | 'CLEAR_ROOM' | 'CLEAR_ALL';
+
+/** Staging changes still on their way to the server, per department. */
+const pendingByDept = new Map<string, number>();
+/** When the last staging change for a department finished sending. */
+const lastSentAtByDept = new Map<string, number>();
+
+/**
+ * Sends one staging change to the server. Offline, fetchWithOfflineSync queues it and
+ * sends it on reconnect, in order with the token it refers to.
+ */
+function sendStaging(deptId: string, op: StageOp, roomNumber?: string, tokenNumbers?: string[]): void {
+  if (!deptId || deptId === 'default') return;
+  pendingByDept.set(deptId, (pendingByDept.get(deptId) || 0) + 1);
+  fetchWithOfflineSync(`/api/v1/queue/stage/${encodeURIComponent(deptId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ op, roomNumber, tokenNumbers }),
+  })
+    .catch(() => {})
+    .finally(() => {
+      pendingByDept.set(deptId, Math.max(0, (pendingByDept.get(deptId) || 1) - 1));
+      lastSentAtByDept.set(deptId, Date.now());
+    });
+}
+
+/** The token number as stored on the server: no emergency emoji, original case. */
+function plainToken(tokenStr: string): string {
+  return tokenStr.replace(' 🚨', '').trim();
+}
+
+function sameStaging(a: Record<string, string[]>, b: Record<string, string[]>): boolean {
+  const norm = (q: Record<string, string[]>) =>
+    JSON.stringify(
+      Object.keys(q)
+        .filter((room) => Array.isArray(q[room]) && q[room].length > 0)
+        .sort()
+        .map((room) => [room, q[room].map(normalizeToken)])
+    );
+  return norm(a) === norm(b);
+}
+
+/**
+ * Replaces the local copy with the server's, from a live-board response.
+ *
+ * Skipped while a local change is still being sent, or when the board request started
+ * before the last change finished: that response was read before the change landed and
+ * would briefly undo it on screen.
+ */
+export function applyServerStaging(
+  deptId: string,
+  stagedByRoom: Record<string, string[]>,
+  requestStartedAt: number
+): void {
+  if (typeof window === 'undefined' || !deptId) return;
+  if ((pendingByDept.get(deptId) || 0) > 0) return;
+  if (requestStartedAt <= (lastSentAtByDept.get(deptId) || 0)) return;
+  try {
+    const local = getAllRoomStagedQueues(deptId);
+    if (sameStaging(local, stagedByRoom)) return;
+    writeObjectKey(ROOM_STAGED_QUEUE_PREFIX, deptId, stagedByRoom);
+    window.dispatchEvent(new CustomEvent('room-queues-updated', { detail: { deptId, allQueues: stagedByRoom } }));
+  } catch {
+    // ignore
+  }
+}
 const AUTO_CALL_ROOMS_PREFIX = 'opd_auto_call_rooms_';
 
 function getStorageKey(prefix: string, deptId?: string): string {
@@ -115,12 +192,14 @@ export function getAllRoomStagedQueues(deptId?: string): Record<string, string[]
     const hasEntries = (value: Record<string, string[]>) => Object.keys(value).length > 0;
 
     if (deptId) {
-      const data = readObjectKey<Record<string, string[]>>(
-        getStorageKey(ROOM_STAGED_QUEUE_PREFIX, deptId)
+      // This department's own list, even when empty. Falling back to another
+      // department's list here showed its rooms' patients on this department's board.
+      // The server's copy replaces this on the next board refresh anyway.
+      return (
+        readObjectKey<Record<string, string[]>>(getStorageKey(ROOM_STAGED_QUEUE_PREFIX, deptId)) || {}
       );
-      if (data && hasEntries(data)) return data;
     }
-    // Fallback: check any existing room staged queue key
+    // No department given: any existing room staged queue key
     const found = scanForPrefix<Record<string, string[]>>(ROOM_STAGED_QUEUE_PREFIX, hasEntries);
     if (found) return found;
   } catch {
@@ -152,6 +231,7 @@ export function addTokenToRoomQueue(deptId: string, roomNumber: string, tokenStr
     allQueues[roomNumber] = currentRoomQueue;
 
     writeObjectKey(ROOM_STAGED_QUEUE_PREFIX, deptId, allQueues);
+    sendStaging(deptId, 'ADD', roomNumber, [plainToken(tokenStr)]);
     window.dispatchEvent(new CustomEvent('room-queues-updated', { detail: { deptId, allQueues } }));
     return currentRoomQueue;
   } catch {
@@ -173,6 +253,7 @@ export function addMultipleTokensToRoomQueue(deptId: string, roomNumber: string,
     allQueues[roomNumber] = currentRoomQueue;
 
     writeObjectKey(ROOM_STAGED_QUEUE_PREFIX, deptId, allQueues);
+    sendStaging(deptId, 'ADD', roomNumber, tokens.map(plainToken));
     window.dispatchEvent(new CustomEvent('room-queues-updated', { detail: { deptId, allQueues } }));
     return currentRoomQueue;
   } catch {
@@ -189,6 +270,7 @@ export function removeTokenFromRoomQueue(deptId: string, roomNumber: string, tok
     const allQueues = withTokenRemoved(getAllRoomStagedQueues(deptId), normalizeToken(tokenStr));
 
     writeObjectKey(ROOM_STAGED_QUEUE_PREFIX, deptId, allQueues);
+    sendStaging(deptId, 'REMOVE', roomNumber, [plainToken(tokenStr)]);
     window.dispatchEvent(new CustomEvent('room-queues-updated', { detail: { deptId, allQueues } }));
     return allQueues[roomNumber] || [];
   } catch {
@@ -205,6 +287,7 @@ export function clearRoomQueue(deptId: string, roomNumber: string): string[] {
     const allQueues = { ...getAllRoomStagedQueues(deptId), [roomNumber]: [] };
 
     writeObjectKey(ROOM_STAGED_QUEUE_PREFIX, deptId, allQueues);
+    sendStaging(deptId, 'CLEAR_ROOM', roomNumber);
     window.dispatchEvent(new CustomEvent('room-queues-updated', { detail: { deptId, allQueues } }));
     return [];
   } catch {
@@ -228,6 +311,7 @@ export function clearAllRoomQueues(deptId: string): void {
     }
 
     writeObjectKey(ROOM_STAGED_QUEUE_PREFIX, deptId, allQueues);
+    sendStaging(deptId, 'CLEAR_ALL');
     window.dispatchEvent(new CustomEvent('room-queues-updated', { detail: { deptId, allQueues } }));
   } catch {
     // ignore

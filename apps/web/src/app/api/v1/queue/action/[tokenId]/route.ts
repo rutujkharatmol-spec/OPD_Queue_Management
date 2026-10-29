@@ -63,11 +63,15 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
 
   if (!token) return notFound('Token not found.');
 
+  // Every action below changes the token's status, which ends any room staging. Without
+  // this a patient sent back to the line would reappear in the room they were staged for.
+  const UNSTAGE = { stagedRoom: null, stagedAt: null };
+
   if (body.action === 'DELETE' || body.action === 'CANCEL') {
     // Targeted by primary key: exactly the one row resolved above, never a pattern match.
     await db.token.update({
       where: { id: token.id },
-      data: { status: 'SKIPPED', deletedAt: new Date() },
+      data: { status: 'SKIPPED', deletedAt: new Date(), ...UNSTAGE },
     });
     return ok({ success: true, deleted: tokenId, id: token.id });
   }
@@ -81,6 +85,7 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
         status: 'COMPLETED',
         completedAt: new Date(),
         ...(doneBy ? { servedByDoctorName: doneBy } : {}),
+        ...UNSTAGE,
       },
     });
     return ok(updated);
@@ -89,7 +94,7 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
   if (body.action === 'ABSENT') {
     const updated = await db.token.update({
       where: { id: token.id },
-      data: { status: 'ABSENT' },
+      data: { status: 'ABSENT', ...UNSTAGE },
     });
     return ok(updated);
   }
@@ -98,6 +103,7 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
     const updated = await db.token.update({
       where: { id: token.id },
       data: {
+        ...UNSTAGE,
         status: 'WAITING',
         calledAt: null,
         recalledAt: null,
@@ -143,6 +149,7 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
         roomNumber: null,
         servedByDoctorName: null,
         absentCount: { increment: 1 },
+        ...UNSTAGE,
         issuedAt: targetIssuedAt,
       },
     });

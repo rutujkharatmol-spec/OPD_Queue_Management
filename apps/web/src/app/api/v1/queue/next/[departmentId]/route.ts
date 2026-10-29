@@ -79,13 +79,15 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
         });
       }
     } else {
-      // 3. No specific token requested: find next waiting token for today
+      // 3. No specific token requested: find next waiting token for today, skipping
+      //    patients already sent to a different room.
       waitingToken = await tx.token.findFirst({
         where: {
           departmentId,
           serviceDate,
           status: 'WAITING',
           deletedAt: null,
+          OR: [{ stagedRoom: null }, { stagedRoom: roomNumber }],
         },
         orderBy: [{ priority: 'desc' }, { issuedAt: 'asc' }],
       });
@@ -154,6 +156,8 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
         recalledAt: null,
         roomNumber,
         servedByDoctorName,
+        stagedRoom: null,
+        stagedAt: null,
       },
       include: { patient: true, department: true, doctor: true },
     });
