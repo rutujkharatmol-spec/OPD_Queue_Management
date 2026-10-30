@@ -53,8 +53,9 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: LEGACY_TV_REDIRECT }} />
         <link rel="manifest" href="/manifest.json" />
         <meta name="theme-color" content="#0284c7" />
-        <link rel="icon" href="/icons/icon-192x192.svg" type="image/svg+xml" />
-        <link rel="apple-touch-icon" href="/icons/icon-192x192.svg" />
+        <link rel="icon" href="/icons/favicon.ico" sizes="any" />
+        <link rel="icon" href="/icons/logo-192.png" type="image/png" />
+        <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
       </head>
       <body className="bg-slate-950 min-h-screen text-white">
         <ServiceWorkerRegister />
