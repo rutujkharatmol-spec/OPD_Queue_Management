@@ -8,3 +8,15 @@
 export function normalizeCrn(value?: string | null): string {
   return (value ?? '').replace(/\s+/g, '').toUpperCase();
 }
+
+/**
+ * A CR No is digits only. The booklet barcode (Code 39) has no check digit, so a camera
+ * or scanner can misread one bar group as a letter ("1Y9199300897363" for
+ * "199199300897363"); anything with a letter is a misread, never a real CR No.
+ * The length is kept loose (6–20) in case older booklets used shorter numbers.
+ */
+export function isValidCrn(value?: string | null): boolean {
+  return /^\d{6,20}$/.test(normalizeCrn(value));
+}
+
+export const INVALID_CRN_MESSAGE = 'A CR No has digits only. Please scan again, or check the number and type it.';

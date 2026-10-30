@@ -3,7 +3,7 @@ import { ok, badRequest, notFound, route, readJson } from '@/server/http';
 import { reserveTokenNumbers, serviceDateFor } from '@/server/tokens/tokenNumber';
 import { isPlaceholderPatientName } from '@/lib/nameLookup';
 import { cleanDoctorName } from '@/lib/roomDoctors';
-import { normalizeCrn } from '@/lib/crn';
+import { INVALID_CRN_MESSAGE, isValidCrn, normalizeCrn } from '@/lib/crn';
 import { doctorAndRoomFor } from '@/server/rooms/roomDoctors';
 
 export const dynamic = 'force-dynamic';
@@ -44,6 +44,8 @@ export const POST = route(async (request: Request) => {
   if (wantedDoctor.length > 80 || wantedDoctor.includes(',')) return badRequest('That doctor name is not valid.');
 
   const uhid = normalizeCrn(body.uhid) || null;
+  // Digits only: a letter means a misread barcode or a typo, never a real CR No.
+  if (uhid && !isValidCrn(uhid)) return badRequest(INVALID_CRN_MESSAGE);
   const phone = body.phone?.trim() || '';
   const usablePhone = phone && phone !== PLACEHOLDER_PHONE ? phone : null;
   const priority = body.priority ?? 'NORMAL';

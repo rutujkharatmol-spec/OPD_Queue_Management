@@ -100,10 +100,13 @@ export function isSlipQrCode(code: string): boolean {
 export default function BarcodeScanner({
   onDetected,
   onClose,
+  accept,
   title = 'Scan booklet barcode',
 }: {
   onDetected: (code: string) => void;
   onClose: () => void;
+  /** Reads that fail this are treated as misreads: ignored, and scanning goes on. */
+  accept?: (code: string) => boolean;
   title?: string;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -115,6 +118,8 @@ export default function BarcodeScanner({
   onDetectedRef.current = onDetected;
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const acceptRef = useRef(accept);
+  acceptRef.current = accept;
 
   useEffect(() => {
     let stopped = false;
@@ -130,8 +135,19 @@ export default function BarcodeScanner({
       stream?.getTracks().forEach((t) => t.stop());
     };
 
+    // The booklet barcode has no check digit, so one frame can misread a bar group. Take a
+    // code only when it passes `accept` and the same value is read twice in a row.
+    let lastRead = '';
     const found = (code: string) => {
       if (stopped || !code) return;
+      if (acceptRef.current && !acceptRef.current(code)) {
+        lastRead = '';
+        return;
+      }
+      if (code !== lastRead) {
+        lastRead = code;
+        return;
+      }
       stopped = true;
       cleanup();
       try {
@@ -193,7 +209,8 @@ export default function BarcodeScanner({
             if (video.readyState >= 2) {
               const codes = await detector.detect(video);
               const code = codes?.[0]?.rawValue?.trim();
-              if (code) return found(code);
+              if (code) found(code); // keeps scanning until a read is confirmed
+              if (stopped) return;
             }
           } catch {}
           timer = window.setTimeout(tick, SCAN_EVERY_MS);
