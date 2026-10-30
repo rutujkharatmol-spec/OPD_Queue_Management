@@ -14,10 +14,11 @@ These are the hospital's requirements. **Status today** says what the code does 
 
 ### 1. Patient identity (CRN)
 
-- Every patient has a CRN (Central Registration Number), printed as a barcode on their OPD booklet. Scanning it at reception must bring up the patient's record, so staff never re-type details.
+- Every patient has a CRN (Central Registration Number), printed as a barcode on their OPD booklet. On the AIIMS Kalyani booklet it is "CR No": 15 digits (e.g. 199192300897363), on a thermal-printed sticker with a small 1-D barcode, most likely Code 39. CRNs are stored and matched with spaces removed (`src/lib/crn.ts`). Scanning it at reception must bring up the patient's record, so staff never re-type details.
 - The patient record holds their consultation history.
 - **Status today:** stored as `Patient.uhid`, labelled "CRN" on screen.
   - Reception has a "Scan booklet (CRN)" box at the top of the form, in Simple and full mode. A handheld scanner types the code and presses Enter; Enter looks the patient up (`GET /api/v1/patients/lookup`, staff-only, exact match) and never issues the token.
+  - Camera scanning (`src/components/BarcodeScanner.tsx`): a Camera button on Registration and the Doctor Desk (a big "Scan with camera" button on phones) reads the barcode through the phone or webcam camera and runs the same lookup. It uses the browser's BarcodeDetector where it exists (Chrome on Android, Macs), otherwise the bundled ZXing reader (`@zxing/browser`, Windows PCs, iPhones). Browsers only allow the camera over https or on localhost, so on the planned on-site server (plain http on the hospital network) the camera says so and staff use the handheld scanner or type the CRN; give that server https if camera scanning is needed there. The queue slip's QR code (a web link) is refused with a clear message.
   - A returning patient's name, mobile and last doctor (in that department) fill in, and focus moves to Generate, so one more Enter issues the token. A blank name never overwrites a saved one.
   - The CRN is optional and not unique: the unique index was dropped in Aug 2026, with no reason recorded. On 30 Oct 2026 none of the 868 patients had one, because the field used to be hidden in Simple mode.
 - **Gap:**

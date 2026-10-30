@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import {
   Menu, X, Search, Printer, CheckCircle2,
-  Building2, ArrowRightLeft, HeartPulse, User, Phone, ScanLine, QrCode, Hash, Stethoscope,
+  Building2, ArrowRightLeft, HeartPulse, User, Phone, ScanLine, QrCode, Hash, Stethoscope, Camera,
   Copy, Check, Sparkles, ChevronRight
 } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
@@ -13,6 +13,8 @@ import {
 } from '../../lib/api';
 import { sameDoctor, splitDoctorNames } from '../../lib/roomDoctors';
 import { useSimpleMode } from '../../lib/uiSettings';
+import BarcodeScanner, { isSlipQrCode, useCameraAvailable } from '../BarcodeScanner';
+import { normalizeCrn } from '../../lib/crn';
 
 import { useDepartmentStore, useEffectiveDeptId } from '../../store/useDepartmentStore';
 import { useQueueStore } from '../../store/useQueueStore';
@@ -51,6 +53,9 @@ export default function RegistrationDesk() {
   const nameInputRef = useRef<HTMLInputElement>(null);
   const scanInputRef = useRef<HTMLInputElement>(null);
   const [scanInfo, setScanInfo] = useState<{ kind: 'looking' | 'found' | 'new' | 'error'; text: string } | null>(null);
+  // Scanning with the phone or webcam camera, for desks without a handheld scanner.
+  const hasCamera = useCameraAvailable();
+  const [cameraOpen, setCameraOpen] = useState(false);
 
   // Ready for the first booklet as soon as the desk opens.
   useEffect(() => {
@@ -92,9 +97,16 @@ export default function RegistrationDesk() {
    * A scanned or typed CRN: fill in a returning patient's name, mobile and doctor so the
    * desk only has to press Generate. Anything left from the previous patient is replaced.
    */
-  const handleScan = async () => {
-    const uhid = patientData.uhid.trim();
-    if (!uhid) return;
+  const handleScan = async (fromCamera?: string) => {
+    const raw = (fromCamera ?? patientData.uhid).trim();
+    if (!raw) return;
+    if (isSlipQrCode(raw)) {
+      setPatientData((prev) => ({ ...prev, uhid: '' }));
+      setScanInfo({ kind: 'error', text: "That is the QR code on a queue slip. Scan the barcode on the patient's booklet." });
+      return;
+    }
+    const uhid = normalizeCrn(raw);
+    setPatientData((prev) => ({ ...prev, uhid }));
     setScanInfo({ kind: 'looking', text: 'Looking up…' });
 
     const result = await lookupPatientByUhid(uhid, deptId || undefined);
@@ -193,7 +205,7 @@ export default function RegistrationDesk() {
       const phone = patientData.phone.trim();
       // Fields hidden in Simple UI are ignored, so stale values typed earlier can't sneak in.
       // CRN is shown in both, because it is how a returning patient is found.
-      const uhid = patientData.uhid.trim();
+      const uhid = normalizeCrn(patientData.uhid);
       const cleanCustomToken = simple ? '' : customTokenNumber.trim();
 
       const res = await generateToken(
@@ -496,13 +508,32 @@ export default function RegistrationDesk() {
                           />
                           <button
                             type="button"
-                            onClick={handleScan}
+                            onClick={() => void handleScan()}
                             disabled={!patientData.uhid.trim() || scanInfo?.kind === 'looking'}
                             className="px-4 rounded-xl bg-blue-600 text-white font-bold text-sm hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1.5"
                           >
                             <Search size={16} /> Find
                           </button>
+                          {hasCamera && (
+                            <button
+                              type="button"
+                              onClick={() => setCameraOpen(true)}
+                              className="hidden sm:flex px-4 rounded-xl bg-white border border-blue-300 text-blue-700 font-bold text-sm hover:bg-blue-50 cursor-pointer items-center gap-1.5"
+                            >
+                              <Camera size={16} /> Camera
+                            </button>
+                          )}
                         </div>
+                        {/* On a phone the camera is the main way to scan: a big button of its own. */}
+                        {hasCamera && (
+                          <button
+                            type="button"
+                            onClick={() => setCameraOpen(true)}
+                            className="sm:hidden mt-2 w-full min-h-12 rounded-xl bg-white border-2 border-blue-300 text-blue-700 font-black text-base active:bg-blue-50 flex items-center justify-center gap-2"
+                          >
+                            <Camera size={20} /> Scan with camera
+                          </button>
+                        )}
                         {scanInfo && (
                           <p
                             role="status"
@@ -858,6 +889,17 @@ export default function RegistrationDesk() {
           </div>
         </div>
       </main>
+
+      {/* Camera scan of the booklet barcode: same lookup as a handheld scan */}
+      {cameraOpen && (
+        <BarcodeScanner
+          onClose={() => setCameraOpen(false)}
+          onDetected={(code) => {
+            setCameraOpen(false);
+            void handleScan(code);
+          }}
+        />
+      )}
 
       {/* Find Patient & Re-print Modal */}
       {isSearchModalOpen && (

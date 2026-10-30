@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { ok, badRequest, route } from '@/server/http';
 import { isPlaceholderPatientName } from '@/lib/nameLookup';
+import { normalizeCrn } from '@/lib/crn';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,7 +22,7 @@ const PLACEHOLDER_PHONE = '0000000000';
  */
 export const GET = route(async (request: Request) => {
   const url = new URL(request.url);
-  const uhid = url.searchParams.get('uhid')?.trim() || '';
+  const uhid = normalizeCrn(url.searchParams.get('uhid'));
   const departmentId = url.searchParams.get('departmentId') || undefined;
   if (!uhid) return badRequest('uhid is required.');
 

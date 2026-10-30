@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation';
 import {
   CheckCircle2, Stethoscope, Building2, DoorOpen, UserPlus, Search, ArrowLeftRight,
-  Loader2, Users, X, UserX, BellRing, ScanLine, Pause, Play, UserCheck, Clock,
+  Loader2, Users, X, UserX, BellRing, ScanLine, Pause, Play, UserCheck, Clock, Camera,
 } from 'lucide-react';
 import {
   assignDoctorToRoom, callNextPatient, getDepartmentAnalytics, getDoctors, getRooms, markTokenAction,
@@ -12,6 +12,8 @@ import {
 } from '../../lib/api';
 import { splitDoctorNames } from '../../lib/roomDoctors';
 import { LATE_AFTER_MINUTES } from '../../lib/queuePass';
+import BarcodeScanner, { isSlipQrCode, useCameraAvailable } from '../BarcodeScanner';
+import { normalizeCrn } from '../../lib/crn';
 import { useDepartmentStore } from '../../store/useDepartmentStore';
 import { useQueueStore } from '../../store/useQueueStore';
 
@@ -448,7 +450,7 @@ function mmss(ms: number) {
 }
 
 const sameCrn = (a?: string | null, b?: string | null) =>
-  !!a && !!b && a.trim().toUpperCase() === b.trim().toUpperCase();
+  !!normalizeCrn(a) && normalizeCrn(a) === normalizeCrn(b);
 
 // Auto-call and Pause, remembered on this computer for this doctor and room.
 const FLOW_KEY = 'opd_doctor_desk_flow';
@@ -735,6 +737,9 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
   const [scanValue, setScanValue] = useState('');
   const [scanBusy, setScanBusy] = useState(false);
   const [scanMsg, setScanMsg] = useState<{ kind: 'ok' | 'warn'; text: string } | null>(null);
+  // The phone or webcam camera, for desks without a handheld scanner.
+  const hasCamera = useCameraAvailable();
+  const [cameraOpen, setCameraOpen] = useState(false);
 
   // On a computer with a scanner, keep the cursor in the scan box. Not on phones and
   // tablets, where focusing it would pop up the keyboard.
@@ -748,10 +753,14 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
     return () => clearTimeout(id);
   }, [scanMsg]);
 
-  const handleScan = async () => {
-    const crn = scanValue.trim();
+  const handleScan = async (fromCamera?: string) => {
+    const crn = (fromCamera ?? scanValue).trim();
     if (!crn || scanBusy) return;
     setScanValue(''); // the next scan starts fresh
+    if (isSlipQrCode(crn)) {
+      setScanMsg({ kind: 'warn', text: "That is the QR code on a queue slip. Scan the barcode on the patient's booklet." });
+      return;
+    }
     const p = patients.find((x) => sameCrn(x.uhid, crn));
     if (!p) {
       setScanMsg({ kind: 'warn', text: `CRN ${crn} is not a patient in your room right now.` });
@@ -899,6 +908,7 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
         <p id="desk-scan-help" className="mt-0.5 text-xs text-slate-500">
           Scan once when the patient comes in, and again when you are done.
         </p>
+        <div className="mt-2 flex gap-2">
         <input
           id="desk-scan"
           ref={scanRef}
@@ -915,8 +925,19 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
           disabled={scanBusy}
           placeholder="Scan or type CRN"
           aria-describedby="desk-scan-help"
-          className="mt-2 w-full min-h-12 px-4 rounded-xl border border-slate-300 bg-slate-50 font-mono font-bold tracking-wide placeholder:font-sans placeholder:font-normal placeholder:tracking-normal outline-none focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-500/20"
+          className="flex-1 min-w-0 min-h-12 px-4 rounded-xl border border-slate-300 bg-slate-50 font-mono font-bold tracking-wide placeholder:font-sans placeholder:font-normal placeholder:tracking-normal outline-none focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-500/20"
         />
+        {hasCamera && (
+          <button
+            type="button"
+            onClick={() => setCameraOpen(true)}
+            disabled={scanBusy}
+            className="shrink-0 min-h-12 px-4 rounded-xl bg-blue-600 text-white text-sm font-black active:bg-blue-700 hover:bg-blue-700 disabled:opacity-60 flex items-center gap-2"
+          >
+            <Camera size={18} /> Camera
+          </button>
+        )}
+        </div>
         {scanMsg && (
           <p role="status" className={`mt-2 text-sm font-semibold ${scanMsg.kind === 'ok' ? 'text-emerald-700' : 'text-amber-700'}`}>
             {scanMsg.text}
@@ -1014,6 +1035,16 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
             );
           })}
         </ul>
+      )}
+
+      {cameraOpen && (
+        <BarcodeScanner
+          onClose={() => setCameraOpen(false)}
+          onDetected={(code) => {
+            setCameraOpen(false);
+            void handleScan(code);
+          }}
+        />
       )}
 
       {confirmingCall && (

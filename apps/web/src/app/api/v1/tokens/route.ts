@@ -3,6 +3,7 @@ import { ok, badRequest, notFound, route, readJson } from '@/server/http';
 import { reserveTokenNumbers, serviceDateFor } from '@/server/tokens/tokenNumber';
 import { isPlaceholderPatientName } from '@/lib/nameLookup';
 import { cleanDoctorName } from '@/lib/roomDoctors';
+import { normalizeCrn } from '@/lib/crn';
 import { doctorAndRoomFor } from '@/server/rooms/roomDoctors';
 
 export const dynamic = 'force-dynamic';
@@ -42,7 +43,7 @@ export const POST = route(async (request: Request) => {
   const wantedDoctor = cleanDoctorName(body.assignedDoctorName);
   if (wantedDoctor.length > 80 || wantedDoctor.includes(',')) return badRequest('That doctor name is not valid.');
 
-  const uhid = body.uhid?.trim() || null;
+  const uhid = normalizeCrn(body.uhid) || null;
   const phone = body.phone?.trim() || '';
   const usablePhone = phone && phone !== PLACEHOLDER_PHONE ? phone : null;
   const priority = body.priority ?? 'NORMAL';
@@ -111,7 +112,7 @@ export const POST = route(async (request: Request) => {
 
       for (let i = 0; i < requestedCount; i++) {
         const pItem = body.patients?.[i] || {};
-        const itemUhid = pItem.uhid?.trim() || (i === 0 ? uhid : null);
+        const itemUhid = normalizeCrn(pItem.uhid) || (i === 0 ? uhid : null);
         const itemPhone = pItem.phone?.trim() || (i === 0 ? usablePhone : '') || '';
         const itemPriority = pItem.priority ?? priority;
         const itemCustomToken = (pItem.customTokenNumber || (i === 0 && requestedCount === 1 ? customToken : undefined))?.trim();
