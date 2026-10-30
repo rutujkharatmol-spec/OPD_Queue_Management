@@ -10,7 +10,7 @@ import { PrismaClient } from '@/generated/prisma/client';
  * own pool against Neon's pooler, so a large pool per instance would multiply into
  * connection exhaustion — keep it small there and let the pooler do the work.
  */
-function getConnectionString(): string | undefined {
+export function getConnectionString(): string | undefined {
   // 1. Explicit DATABASE_URL
   if (process.env.DATABASE_URL?.trim()) {
     return process.env.DATABASE_URL.trim();
