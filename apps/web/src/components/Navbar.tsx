@@ -133,7 +133,7 @@ function NavbarContent() {
     { href: '/registration', label: 'Registration', advanced: false },
     { href: '/doctor', label: 'Doctor Room', advanced: false },
     { href: '/doctor-desk', label: 'Doctor Desk', advanced: false },
-    { href: '/tv', label: 'TV Monitor', advanced: false },
+    { href: '/tv', label: 'TV Monitor', advanced: true },
   ];
   const links = simple ? allLinks.filter((l) => !l.advanced) : allLinks;
 
@@ -149,7 +149,8 @@ function NavbarContent() {
               onClick={handleLogoClick}
               className="text-lg sm:text-xl font-black text-white tracking-wide flex items-center gap-2 hover:opacity-90 transition-opacity select-none whitespace-nowrap"
             >
-              <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></span>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/icons/logo-96.png" alt="AIIMS Kalyani" width={36} height={36} className="w-9 h-9 shrink-0" draggable={false} />
               OPD <span className="text-blue-400">Queue</span>
             </Link>
           </div>

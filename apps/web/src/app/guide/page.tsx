@@ -39,12 +39,14 @@ export default function GuidePage() {
             >
               Open Doctor Room ➔
             </Link>
+            <AdvancedOnly>
             <Link
               href="/tv"
               className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl transition-all active:scale-95"
             >
               Open TV Display ➔
             </Link>
+            </AdvancedOnly>
           </div>
         </div>
       </header>

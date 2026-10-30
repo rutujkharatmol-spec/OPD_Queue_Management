@@ -202,8 +202,8 @@ async function notify(title: string, body: string, tag: string, sticky: boolean)
         await reg.showNotification(title, {
           body,
           tag,
-          icon: '/icons/icon-192x192.svg',
-          badge: '/icons/icon-192x192.svg',
+          icon: '/icons/logo-192.png',
+          badge: '/icons/favicon-32.png',
           requireInteraction: sticky,
           vibrate: [300, 100, 300, 100, 600],
           data: { url: '/patient' },
@@ -215,8 +215,8 @@ async function notify(title: string, body: string, tag: string, sticky: boolean)
     const notification = new Notification(title, {
       body,
       tag,
-      icon: '/icons/icon-192x192.svg',
-      badge: '/icons/icon-192x192.svg',
+      icon: '/icons/logo-192.png',
+      badge: '/icons/favicon-32.png',
       requireInteraction: sticky,
       vibrate: [300, 100, 300, 100, 600],
     } as any);
@@ -281,8 +281,8 @@ export async function notifyTurn({
         artist: roomNumber ? `Proceed to Room ${roomNumber}` : `AIIMS Kalyani OPD`,
         album: `AIIMS Kalyani OPD Queue Tracker`,
         artwork: [
-          { src: '/icons/icon-192x192.svg', sizes: '192x192', type: 'image/svg+xml' },
-          { src: '/icons/icon-512x512.svg', sizes: '512x512', type: 'image/svg+xml' },
+          { src: '/icons/logo-192.png', sizes: '192x192', type: 'image/png' },
+          { src: '/icons/logo-512.png', sizes: '512x512', type: 'image/png' },
         ],
       });
     } catch {}

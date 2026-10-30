@@ -1,6 +1,6 @@
 // public/sw.js
-const STATIC_CACHE = 'aiims-opd-static-v2';
-const DYNAMIC_CACHE = 'aiims-opd-dynamic-v2';
+const STATIC_CACHE = 'aiims-opd-static-v3';
+const DYNAMIC_CACHE = 'aiims-opd-dynamic-v3';
 
 const PRECACHE_ASSETS = [
   '/',
@@ -10,8 +10,10 @@ const PRECACHE_ASSETS = [
   '/tv',
   '/settings',
   '/manifest.json',
-  '/icons/icon-192x192.svg',
-  '/icons/icon-512x512.svg',
+  '/icons/logo-192.png',
+  '/icons/logo-512.png',
+  '/icons/logo-96.png',
+  '/icons/favicon.ico',
 ];
 
 // Install: Cache core application routes and assets
@@ -155,9 +157,9 @@ self.addEventListener('fetch', (event) => {
           return networkResponse;
         })
         .catch(() => {
-          // If it's an image/icon, fallback to 192x192 SVG if available
+          // If it's an image/icon, fallback to the 192px logo if available
           if (request.headers.get('accept')?.includes('image/')) {
-            return caches.match('/icons/icon-192x192.svg');
+            return caches.match('/icons/logo-192.png');
           }
         });
     })

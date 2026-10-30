@@ -156,9 +156,8 @@ export function AuthWrapper({ children }: { children: React.ReactNode }) {
 
         <div className="relative z-10 flex flex-col items-center text-center">
 
-          <div className="w-16 h-16 bg-slate-800 rounded-2xl flex items-center justify-center mb-5 shadow-inner border border-slate-700 text-blue-400">
-            <Lock size={30} />
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/icons/logo-256.png" alt="AIIMS Kalyani OPD Queue Management" width={112} height={112} className="w-24 h-24 sm:w-28 sm:h-28 mb-5 drop-shadow-xl" draggable={false} />
 
           <h1 className="text-2xl font-bold text-white mb-1.5">Staff Access Required</h1>
           <p className="text-slate-400 text-xs mb-6 max-w-xs">

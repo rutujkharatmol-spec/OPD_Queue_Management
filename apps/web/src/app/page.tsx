@@ -25,7 +25,7 @@ function HomeContent() {
   const setSelectedDeptId = useDepartmentStore((state) => state.setSelectedDeptId);
   const loadDepartments = useDepartmentStore((state) => state.loadDepartments);
 
-  // Simple UI: department picker + three big buttons, no admin actions or decoration.
+  // Simple UI: department picker + two big buttons (Registration, Doctor Room), no admin actions or decoration.
   const simple = useSimpleMode();
 
   const [isAddingDept, setIsAddingDept] = useState(false);
@@ -132,6 +132,8 @@ function HomeContent() {
 
         {/* Header Section */}
         <div className="text-center mb-10 space-y-4">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/icons/logo-256.png" alt="AIIMS Kalyani OPD Queue Management" width={128} height={128} className={`mx-auto ${simple ? 'w-24 h-24' : 'w-28 h-28 md:w-32 md:h-32'} drop-shadow-xl`} draggable={false} />
           <div className={`inline-flex items-center justify-center px-4 py-1.5 mb-4 rounded-full border border-blue-500/30 bg-blue-500/10 text-blue-300 text-sm font-semibold tracking-wide backdrop-blur-md ${simple ? '!hidden' : ''}`}>
             <span className="w-2 h-2 rounded-full bg-blue-400 mr-2 animate-pulse"></span>
             System Online & Connected
@@ -165,7 +167,7 @@ function HomeContent() {
         </div>
 
         {/* Modules Grid */}
-        <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 w-full max-w-5xl transition-opacity duration-300 ${!selectedDeptId ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
+        <div className={`grid grid-cols-1 sm:grid-cols-2 ${simple ? 'lg:grid-cols-2 max-w-3xl' : 'lg:grid-cols-3 max-w-5xl'} gap-6 w-full transition-all duration-300 ${!selectedDeptId ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
           
           {/* Card 1: Registration */}
           <Link href={getHref('/registration')} className="group relative rounded-3xl p-[1px] bg-gradient-to-b from-slate-800 to-slate-900 hover:from-blue-500 hover:to-purple-600 transition-all duration-500 hover:-translate-y-4">
@@ -204,22 +206,24 @@ function HomeContent() {
           </Link>
 
           {/* Card 3: TV Display */}
-          <Link href={getHref('/tv')} className="group relative rounded-3xl p-[1px] bg-gradient-to-b from-slate-800 to-slate-900 hover:from-rose-500 hover:to-orange-500 transition-all duration-500 hover:-translate-y-4">
-            <div className="absolute inset-0 bg-gradient-to-b from-rose-500 to-orange-500 opacity-0 group-hover:opacity-20 blur-xl transition-opacity duration-500 rounded-3xl"></div>
-            <div className="relative h-full bg-slate-900/90 backdrop-blur-xl rounded-3xl p-8 flex flex-col justify-between overflow-hidden">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-rose-500/10 rounded-full blur-3xl group-hover:bg-rose-500/20 transition-all"></div>
-              <div>
-                <div className="w-14 h-14 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center mb-6 shadow-inner group-hover:scale-110 transition-transform duration-500">
-                  <svg className="w-7 h-7 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+          {!simple && (
+            <Link href={getHref('/tv')} className="group relative rounded-3xl p-[1px] bg-gradient-to-b from-slate-800 to-slate-900 hover:from-rose-500 hover:to-orange-500 transition-all duration-500 hover:-translate-y-4">
+              <div className="absolute inset-0 bg-gradient-to-b from-rose-500 to-orange-500 opacity-0 group-hover:opacity-20 blur-xl transition-opacity duration-500 rounded-3xl"></div>
+              <div className="relative h-full bg-slate-900/90 backdrop-blur-xl rounded-3xl p-8 flex flex-col justify-between overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-rose-500/10 rounded-full blur-3xl group-hover:bg-rose-500/20 transition-all"></div>
+                <div>
+                  <div className="w-14 h-14 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center mb-6 shadow-inner group-hover:scale-110 transition-transform duration-500">
+                    <svg className="w-7 h-7 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                  </div>
+                  <h3 className="text-2xl font-bold text-white mb-2 tracking-wide">TV Monitor</h3>
+                  <p className="text-slate-400 text-sm leading-relaxed">High-contrast, large font display for waiting areas. Syncs instantly via WebSockets.</p>
                 </div>
-                <h3 className="text-2xl font-bold text-white mb-2 tracking-wide">TV Monitor</h3>
-                <p className={`text-slate-400 text-sm leading-relaxed ${simple ? 'hidden' : ''}`}>High-contrast, large font display for waiting areas. Syncs instantly via WebSockets.</p>
+                <div className="mt-8 flex items-center text-rose-400 font-semibold text-sm group-hover:translate-x-2 transition-transform duration-300">
+                  Launch Module &rarr;
+                </div>
               </div>
-              <div className="mt-8 flex items-center text-rose-400 font-semibold text-sm group-hover:translate-x-2 transition-transform duration-300">
-                {simple ? 'Open' : 'Launch Module'} &rarr;
-              </div>
-            </div>
-          </Link>
+            </Link>
+          )}
 
         </div>
       </div>
