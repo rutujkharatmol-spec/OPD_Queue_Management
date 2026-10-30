@@ -28,11 +28,11 @@ function filters(departmentId: string | null, date: Date | null) {
   const dept = departmentId && departmentId !== 'all' ? { departmentId } : {};
   return {
     'clear-waiting': { ...dept, serviceDate: today, status: 'WAITING' as const, deletedAt: null },
-    'clear-rooms': { ...dept, serviceDate: today, status: 'CALLED' as const, deletedAt: null },
+    'clear-rooms': { ...dept, serviceDate: today, status: { in: ['CALLED' as const, 'IN_PROGRESS' as const] }, deletedAt: null },
     'close-stale': {
       ...dept,
       serviceDate: { lt: today },
-      status: { in: ['WAITING' as const, 'CALLED' as const] },
+      status: { in: ['WAITING' as const, 'CALLED' as const, 'IN_PROGRESS' as const] },
       deletedAt: null,
     },
     'delete-date': date ? { ...dept, serviceDate: date, deletedAt: null } : null,

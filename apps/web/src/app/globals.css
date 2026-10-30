@@ -7,3 +7,40 @@
     @apply bg-slate-50 text-slate-900 antialiased;
   }
 }
+
+/*
+ * Phones, and any touch screen.
+ *
+ * Written here once instead of on each of the ~60 small controls, so every screen
+ * (including ones added later) gets it. Each selector is weighted above a single
+ * Tailwind class, so these win without !important.
+ */
+@media (pointer: coarse), (max-width: 639px) {
+  /*
+   * iPhones zoom the whole page into a text box whose text is under 16px when it's
+   * tapped, and stay zoomed in. Boxes styled larger than 16px keep their size.
+   */
+  :is(input:not([type='checkbox'], [type='radio'], [type='range']), select, textarea):not(
+      [class*='text-lg'],
+      [class*='text-xl'],
+      [class*='text-2xl'],
+      [class*='text-3xl'],
+      [class*='text-4xl'],
+      [class*='text-5xl']
+    ) {
+    font-size: 16px;
+  }
+
+  /*
+   * Fingers need bigger targets than a mouse. The busier screens (the full Doctor Room
+   * view especially) use 20–27px buttons, which are fine with a mouse but easy to miss
+   * with a finger.
+   */
+  button,
+  [role='button'],
+  [role='switch'],
+  select {
+    min-height: 36px;
+    min-width: 36px;
+  }
+}

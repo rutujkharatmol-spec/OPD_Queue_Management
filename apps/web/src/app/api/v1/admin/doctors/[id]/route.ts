@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { badRequest, conflict, notFound, ok, readJson, route } from '@/server/http';
 import { requireAdmin } from '@/server/admin/auth';
+import { removeDoctorFromRooms, renameDoctorInRooms } from '@/server/rooms/roomDoctors';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,6 +22,7 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
   const name = cleanName(body.name);
   if (!name) return badRequest('Doctor name is required.');
   if (name.length > 80) return badRequest('Doctor name is too long.');
+  if (name.includes(',')) return badRequest('A doctor name cannot contain a comma.');
 
   const doctor = await db.doctor.findFirst({ where: { id, deletedAt: null }, select: { id: true, name: true } });
   if (!doctor) return notFound('Doctor not found.');
@@ -34,15 +36,12 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
   const oldName = doctor.name;
   const result = await db.$transaction(async (tx) => {
     const updated = await tx.doctor.update({ where: { id }, data: { name }, select: { id: true, name: true } });
-    const rooms = await tx.room.updateMany({
-      where: { deletedAt: null, doctorName: { equals: oldName, mode: 'insensitive' } },
-      data: { doctorName: name },
-    });
+    const roomsUpdated = await renameDoctorInRooms(tx, oldName, name);
     const tokens = await tx.token.updateMany({
       where: { servedByDoctorName: { equals: oldName, mode: 'insensitive' } },
       data: { servedByDoctorName: name },
     });
-    return { ...updated, roomsUpdated: rooms.count, tokensUpdated: tokens.count };
+    return { ...updated, roomsUpdated, tokensUpdated: tokens.count };
   });
 
   return ok(result);
@@ -59,11 +58,8 @@ export const DELETE = route(async (_request: Request, { params }: Context) => {
 
   const result = await db.$transaction(async (tx) => {
     await tx.doctor.update({ where: { id }, data: { deletedAt: new Date(), isAvailable: false } });
-    const rooms = await tx.room.updateMany({
-      where: { deletedAt: null, doctorName: { equals: doctor.name, mode: 'insensitive' } },
-      data: { doctorName: null },
-    });
-    return { id, deleted: true, roomsCleared: rooms.count };
+    const roomsCleared = await removeDoctorFromRooms(tx, doctor.name);
+    return { id, deleted: true, roomsCleared };
   });
 
   return ok(result);

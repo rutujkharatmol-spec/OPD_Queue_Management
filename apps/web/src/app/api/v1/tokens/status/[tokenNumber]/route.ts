@@ -8,6 +8,7 @@ import {
   MIN_RELIABLE_SAMPLE,
 } from '@/server/queue/serviceRate';
 import type { TokenPriority } from '@/generated/prisma/enums';
+import { maskPatientName } from '@/lib/nameLookup';
 
 export const dynamic = 'force-dynamic';
 
@@ -63,6 +64,7 @@ export const GET = route(async (_request: Request, { params }: { params: Promise
       recalledAt: true,
       serviceDate: true,
       roomNumber: true,
+      stagedRoom: true,
       departmentId: true,
       department: { select: { name: true } },
       doctor: { select: { roomNumber: true } },
@@ -86,7 +88,7 @@ export const GET = route(async (_request: Request, { params }: { params: Promise
     calledTokens, aheadByPriority, aheadByArrival, aheadPreviewRaw, initiallyAhead, serviceRate,
   ] = await Promise.all([
     db.token.findMany({
-      where: { ...dateInDepartment, status: 'CALLED' },
+      where: { ...dateInDepartment, status: { in: ['CALLED', 'IN_PROGRESS'] } },
       select: { tokenNumber: true, roomNumber: true },
     }),
     isWaiting && HIGHER_PRIORITIES[token.priority].length > 0
@@ -146,7 +148,9 @@ export const GET = route(async (_request: Request, { params }: { params: Promise
 
   return ok({
     tokenNumber: token.tokenNumber,
-    patientName: token.patient ? `${token.patient.firstName || ''} ${token.patient.lastName || ''}`.trim() || null : null,
+    // Public page: anyone with a token number can open it, so the surname is cut to an
+    // initial ("Ravi K."), the same as the name lookup.
+    patientName: token.patient ? maskPatientName(token.patient.firstName, token.patient.lastName) || null : null,
     status: token.status,
     priority: token.priority,
     serviceDate: token.serviceDate,
@@ -155,7 +159,9 @@ export const GET = route(async (_request: Request, { params }: { params: Promise
     recalledAt: token.recalledAt?.getTime() ?? null,
     departmentId: token.departmentId,
     departmentName: token.department?.name || 'Department',
-    roomNumber: token.roomNumber || token.doctor?.roomNumber || null,
+    // The room they were called to; while waiting, the room of the doctor they were
+    // given at registration (also on their slip). The doctor record is for older tokens.
+    roomNumber: token.roomNumber || token.stagedRoom || token.doctor?.roomNumber || null,
     currentlyServing,
     // Same tokens as `currentlyServing`, paired with where to find them. Kept alongside
     // rather than replacing it: the offline mirror and the existing UI both read the

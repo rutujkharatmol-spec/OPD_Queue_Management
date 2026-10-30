@@ -563,6 +563,7 @@
     if (gen !== generation || !deptId) return;
     getJSON(API + '/queue/live/' + encodeURIComponent(deptId), function (data) {
       if (gen !== generation) return;
+      if (frameAttempted) { store(FRAME_OK_KEY, '1'); frameAttempted = false; }
       firewallStreak = 0;
       setStatus(true);
       var active = data.activeTokens || [];
@@ -597,12 +598,18 @@
 
   // ---------- Vercel security check ----------
   // Vercel's firewall sometimes starts challenging this TV. A background request can't
-  // answer the challenge, but loading a page can, which is why reloading fixed it.
-  // First try loading a tiny page in a hidden frame (keeps full screen and sound); if the
-  // TV is still blocked after two tries, reload the whole page (at most every 2 minutes).
-  var RELOAD_KEY = 'tv_lite_last_auto_reload';
-  var RELOAD_GAP_MS = 2 * 60 * 1000;
+  // answer the challenge, but loading the page can, which is why a reload fixes it.
+  // So reload straight away. (A hidden-frame refresh keeps full screen and sound, but is
+  // only tried once it has been seen to work on this TV.) Reloads are limited so a
+  // firewall that keeps blocking can't cause an endless loop.
+  var RELOADS_KEY = 'tv_lite_auto_reloads';
+  var FRAME_OK_KEY = 'tv_lite_frame_refresh_works';
+  var RELOAD_GAP_MS = 15 * 1000;        // normal minimum time between automatic reloads
+  var BUSY_GAP_MS = 60 * 1000;          // after many reloads in a short time
+  var BUSY_WINDOW_MS = 5 * 60 * 1000;
+  var BUSY_RELOADS = 4;
   var firewallStreak = 0;
+  var frameAttempted = false;
 
   function showFirewallStatus(text) {
     var s = $('status');
@@ -610,34 +617,50 @@
     s.innerHTML = esc(text);
   }
 
+  function recentReloads() {
+    var now = new Date().getTime();
+    var list = [];
+    try { list = JSON.parse(store(RELOADS_KEY) || '[]') || []; } catch (e) { list = []; }
+    var keep = [];
+    for (var i = 0; i < list.length; i++) if (now - list[i] < BUSY_WINDOW_MS) keep.push(list[i]);
+    return keep;
+  }
+
   function recoverFromFirewall(gen) {
     firewallStreak++;
-    if (firewallStreak <= 2) {
+
+    // A hidden-frame refresh was just tried and the TV is still blocked: it doesn't work here.
+    if (frameAttempted) { store(FRAME_OK_KEY, '0'); frameAttempted = false; }
+
+    if (firewallStreak === 1 && store(FRAME_OK_KEY) === '1') {
+      frameAttempted = true;
       showFirewallStatus('Refreshing security check...');
       var frame = document.createElement('iframe');
       frame.setAttribute('aria-hidden', 'true');
       frame.style.cssText = 'position:absolute;width:1px;height:1px;left:-10px;top:-10px;border:0;visibility:hidden;';
       frame.src = '/tv-ping.html?t=' + new Date().getTime();
       document.body.appendChild(frame);
-      // Give the check time to run (it may reload the frame once), then try again.
       pollTimer = setTimeout(function () {
         try { document.body.removeChild(frame); } catch (e) {}
         poll(gen);
-      }, 8000);
+      }, 6000);
       return;
     }
-    var last = Number(store(RELOAD_KEY) || 0);
+
+    var reloads = recentReloads();
     var now = new Date().getTime();
-    if (now - last < RELOAD_GAP_MS) {
-      // Reloaded very recently: don't loop. Keep the last board and retry in a while.
+    var last = reloads.length ? reloads[reloads.length - 1] : 0;
+    var gap = reloads.length >= BUSY_RELOADS ? BUSY_GAP_MS : RELOAD_GAP_MS;
+    var wait = last + gap - now;
+    if (wait > 0) {
       showFirewallStatus('Reconnecting · blocked by Vercel security' + (lastOkAt ? ' · last update ' + timeText(lastOkAt) : ''));
-      firewallStreak = 0;
-      pollTimer = setTimeout(function () { poll(gen); }, 30000);
+      pollTimer = setTimeout(function () { poll(gen); }, Math.max(3000, wait));
       return;
     }
-    store(RELOAD_KEY, String(now));
+    reloads.push(now);
+    store(RELOADS_KEY, JSON.stringify(reloads));
     showFirewallStatus('Reloading...');
-    setTimeout(function () { window.location.reload(); }, 500);
+    setTimeout(function () { window.location.reload(); }, 300);
   }
 
   function startPolling() {

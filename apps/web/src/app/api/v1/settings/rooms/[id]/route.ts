@@ -1,5 +1,7 @@
 import { db } from '@/lib/db';
 import { ok, badRequest, notFound, route, readJson } from '@/server/http';
+import { parseDoctorList, setRoomDoctors } from '@/server/rooms/roomDoctors';
+import { splitDoctorNames } from '@/lib/roomDoctors';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,13 +22,28 @@ export const PUT = route(async (request: Request, { params }: Context) => {
     return badRequest('Room number cannot be empty.');
   }
 
-  const updated = await db.room.update({
-    where: { id },
-    data: {
-      ...(roomNumber !== undefined && { roomNumber: roomNumber.trim() }),
-      ...(isActive !== undefined && { isActive }),
-      ...(doctorName !== undefined && { doctorName: doctorName?.trim() || null }),
-    },
+  const parsed = doctorName !== undefined ? parseDoctorList(doctorName) : null;
+  if (parsed && 'error' in parsed) return badRequest(parsed.error);
+  const doctors = parsed as { names: string[] } | null;
+
+  const renumbered = roomNumber !== undefined && roomNumber.trim() !== room.roomNumber;
+
+  const updated = await db.$transaction(async (tx) => {
+    await tx.room.update({
+      where: { id },
+      data: {
+        ...(roomNumber !== undefined && { roomNumber: roomNumber.trim() }),
+        ...(isActive !== undefined && { isActive }),
+      },
+    });
+    // A new doctor list, or a new room number the doctors' saved rooms must follow.
+    if (doctors || renumbered) {
+      await setRoomDoctors(tx, id, doctors ? doctors.names : splitDoctorNames(room.doctorName), {
+        doctorName: room.doctorName,
+        roomNumber: room.roomNumber,
+      });
+    }
+    return tx.room.findUniqueOrThrow({ where: { id } });
   });
 
   return ok(updated);

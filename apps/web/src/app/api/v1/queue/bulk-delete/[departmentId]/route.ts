@@ -67,8 +67,8 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
     where: {
       ...scoped,
       OR: [
-        // Patients currently called into this room.
-        { status: 'CALLED', roomNumber },
+        // Patients currently in this room (called, or with the doctor).
+        { status: { in: ['CALLED', 'IN_PROGRESS'] }, roomNumber },
         // Patients staged for this room, still sitting in the general line.
         { status: 'WAITING', stagedRoom: roomNumber },
         ...(stagedNumbers.length > 0

@@ -68,7 +68,7 @@ export async function getServiceRate(departmentId: string, serviceDate: Date): P
       departmentId,
       serviceDate,
       deletedAt: null,
-      status: { in: ['COMPLETED', 'CALLED'] },
+      status: { in: ['COMPLETED', 'CALLED', 'IN_PROGRESS'] },
     },
     select: { status: true, roomNumber: true, calledAt: true, completedAt: true },
   });
