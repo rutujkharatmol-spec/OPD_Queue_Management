@@ -22,7 +22,9 @@ export function SystemWatermark() {
       const isCtrl = e.ctrlKey || e.metaKey;
       const isAlt = e.altKey;
       const isShift = e.shiftKey;
-      const key = e.key.toLowerCase();
+      // Browser autofill and some barcode scanners fire keydown events with no key at
+      // all, which crashed every page this component is on.
+      const key = (e.key || '').toLowerCase();
 
       if (isCtrl && isAlt && isShift && (key === 'r' || key === 'k')) {
         e.preventDefault();

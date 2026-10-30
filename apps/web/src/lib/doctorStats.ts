@@ -5,6 +5,8 @@
  * offline local store produce exactly the same numbers.
  */
 
+import { soleDoctor } from './roomDoctors';
+
 export type DoctorStatsToken = {
   status: string;
   roomNumber?: string | null;
@@ -36,8 +38,9 @@ const keyFor = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase();
 /**
  * Groups the tokens a doctor actually saw (called, completed, or called then absent).
  *
- * The doctor is the name saved on the token at call time. Tokens called before that
- * was recorded fall back to the room's current doctor.
+ * The doctor is the name saved on the token (who called them in or pressed Done).
+ * Tokens without one fall back to the room's current doctor, but only when the room
+ * has exactly one: a patient in a shared room is not guessed onto either doctor.
  */
 export function summariseByDoctor(
   tokens: DoctorStatsToken[],
@@ -60,12 +63,13 @@ export function summariseByDoctor(
     const seen =
       t.status === 'COMPLETED' ||
       t.status === 'CALLED' ||
+      t.status === 'IN_PROGRESS' ||
       (t.status === 'ABSENT' && !!t.calledAt);
     if (!seen) continue;
 
     const room = t.roomNumber || null;
     const rawName =
-      t.servedByDoctorName?.trim() || (room ? doctorByRoom?.get(room)?.trim() : '') || '';
+      t.servedByDoctorName?.trim() || (room ? soleDoctor(doctorByRoom?.get(room)) : '') || '';
     if (!rawName && !room) continue;
 
     const key = rawName ? keyFor(rawName) : '';
@@ -90,7 +94,7 @@ export function summariseByDoctor(
         acc.consultTotalMins += (toMs(t.completedAt) - toMs(t.calledAt)) / 60_000;
         acc.consultCount++;
       }
-    } else if (t.status === 'CALLED') {
+    } else if (t.status === 'CALLED' || t.status === 'IN_PROGRESS') {
       acc.inConsultationCount++;
     } else {
       acc.noShowCount++;

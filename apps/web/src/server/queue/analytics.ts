@@ -1,5 +1,6 @@
 import type { TokenPriority, TokenStatus } from '@/generated/prisma/enums';
 import { summariseByDoctor } from '@/lib/doctorStats';
+import { joinDoctorNames } from '@/lib/roomDoctors';
 
 /**
  * The columns the summary actually reads.
@@ -49,6 +50,8 @@ type RoomStatAccumulator = {
   absentCount: number;
   consultationTotalMins: number;
   consultationCount: number;
+  /** Doctors credited with this room's patients that day, in first-seen order. */
+  doctors: string[];
 };
 
 /**
@@ -84,7 +87,7 @@ export function summariseTokens(
     const isCompleted = t.status === 'COMPLETED';
     if (isCompleted) completedCount++;
     else if (t.status === 'WAITING') waitingCount++;
-    else if (t.status === 'CALLED') calledCount++;
+    else if (t.status === 'CALLED' || t.status === 'IN_PROGRESS') calledCount++;
     else if (t.status === 'ABSENT') absentCount++;
     else if (t.status === 'SKIPPED') skippedCount++;
 
@@ -122,10 +125,12 @@ export function summariseTokens(
           absentCount: 0,
           consultationTotalMins: 0,
           consultationCount: 0,
+          doctors: [],
         });
       }
       const acc = roomStatsMap.get(room)!;
       acc.totalPatients++;
+      if (t.servedByDoctorName) acc.doctors.push(t.servedByDoctorName);
 
       if (isCompleted) {
         acc.completedCount++;
@@ -133,7 +138,7 @@ export function summariseTokens(
           acc.consultationTotalMins += (t.completedAt.getTime() - calledAtMs) / 60_000;
           acc.consultationCount++;
         }
-      } else if (t.status === 'CALLED') {
+      } else if (t.status === 'CALLED' || t.status === 'IN_PROGRESS') {
         acc.activeCount++;
       } else if (t.status === 'ABSENT' || t.status === 'SKIPPED') {
         acc.absentCount++;
@@ -145,7 +150,9 @@ export function summariseTokens(
     .sort((a, b) => a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true }))
     .map((acc) => ({
       roomNumber: acc.roomNumber,
-      doctorName: doctorByRoom?.get(acc.roomNumber),
+      // Who actually saw patients here that day (doctors share rooms and move between
+      // them); the room's current list only when nobody was credited yet.
+      doctorName: joinDoctorNames(acc.doctors) ?? doctorByRoom?.get(acc.roomNumber),
       totalPatients: acc.totalPatients,
       completedCount: acc.completedCount,
       activeCount: acc.activeCount,

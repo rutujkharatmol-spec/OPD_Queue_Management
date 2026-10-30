@@ -1,6 +1,9 @@
 import { db } from '@/lib/db';
 import { ok, badRequest, notFound, route, readJson } from '@/server/http';
 import { reserveTokenNumbers, serviceDateFor } from '@/server/tokens/tokenNumber';
+import { isPlaceholderPatientName } from '@/lib/nameLookup';
+import { cleanDoctorName } from '@/lib/roomDoctors';
+import { doctorAndRoomFor } from '@/server/rooms/roomDoctors';
 
 export const dynamic = 'force-dynamic';
 
@@ -8,6 +11,8 @@ type Body = {
   patientId?: string;
   departmentId?: string;
   doctorId?: string;
+  /** The doctor the registration desk chose, by name (doctors are named, as on the rooms). */
+  assignedDoctorName?: string;
   priority?: 'NORMAL' | 'SENIOR' | 'EMERGENCY';
   firstName?: string;
   lastName?: string;
@@ -34,6 +39,9 @@ export const POST = route(async (request: Request) => {
 
   if (!body.departmentId) return badRequest('A department is required to issue a token.');
 
+  const wantedDoctor = cleanDoctorName(body.assignedDoctorName);
+  if (wantedDoctor.length > 80 || wantedDoctor.includes(',')) return badRequest('That doctor name is not valid.');
+
   const uhid = body.uhid?.trim() || null;
   const phone = body.phone?.trim() || '';
   const usablePhone = phone && phone !== PLACEHOLDER_PHONE ? phone : null;
@@ -53,40 +61,35 @@ export const POST = route(async (request: Request) => {
 
   const result = await db.$transaction(
     async (tx) => {
-      // Every department needs a doctor to attach tokens to. Only existence is checked,
-      // so each lookup selects the id alone rather than hauling back the whole row.
+      // The doctor the desk chose, and the room they are in today. The token goes on that
+      // room's list, so that doctor's Call Next reaches it and the slip can say where to
+      // go. With no doctor chosen the token waits in the general line, for any room.
+      //
+      // Tokens used to get the department's first doctor (or a made-up "Doctor for ..."
+      // in room 101) when none was chosen. That told the patient tracker a room nobody had
+      // assigned, and made "which doctor was chosen" impossible to read back, so the token
+      // now records a doctor only when one was really chosen.
       //
       // Deliberately sequential: a transaction runs on a single connection and the driver
       // queues statements on it, so `Promise.all` here would still execute one after the
       // other — it would only make the ordering harder to read.
       let doctorId: string | null = null;
+      let assigned: { doctorName: string; roomNumber: string | null } | null = null;
 
-      if (body.doctorId) {
+      if (wantedDoctor) {
+        const found = await doctorAndRoomFor(tx, wantedDoctor, department.id);
+        doctorId = found.doctorId;
+        assigned = { doctorName: found.doctorName, roomNumber: found.roomNumber };
+      } else if (body.doctorId) {
         const named = await tx.doctor.findUnique({
           where: { id: body.doctorId },
           select: { id: true },
         });
         doctorId = named?.id ?? null;
       }
-
-      if (!doctorId) {
-        const existing = await tx.doctor.findFirst({
-          where: { departmentId: department.id },
-          select: { id: true },
-        });
-        doctorId =
-          existing?.id ??
-          (
-            await tx.doctor.create({
-              data: {
-                name: `Doctor for ${department.name}`,
-                roomNumber: '101',
-                departmentId: department.id,
-              },
-              select: { id: true },
-            })
-          ).id;
-      }
+      // On the room's list in the order issued; cleared when the token is called.
+      const staging = (i: number) =>
+        assigned?.roomNumber ? { stagedRoom: assigned.roomNumber, stagedAt: new Date(Date.now() + i) } : {};
 
       // Pre-calculate how many automatic token numbers are needed
       let autoCount = 0;
@@ -126,18 +129,51 @@ export const POST = route(async (request: Request) => {
         // added alongside this change it scanned the whole table to do it.
         const ID_ONLY = { id: true } as const;
 
+        // A doctor calling a patient back by number (say one marked absent who has now
+        // arrived) re-issues a number that already exists today, sending only a
+        // placeholder name. That used to create a new "Patient #12" and attach it to the
+        // token, so the real name vanished from every screen. When the request names
+        // nobody, keep the patient already on the token.
+        const namesNobody =
+          !itemUhid &&
+          !(i === 0 && body.patientId) &&
+          !(itemPhone && itemPhone !== PLACEHOLDER_PHONE) &&
+          isPlaceholderPatientName(`${itemFirstName} ${itemLastName}`);
+        const keptPatientId =
+          itemCustomToken && namesNobody
+            ? (
+                await tx.token.findUnique({
+                  where: {
+                    departmentId_serviceDate_tokenNumber: {
+                      departmentId: department.id,
+                      serviceDate,
+                      tokenNumber: itemCustomToken,
+                    },
+                  },
+                  select: { patientId: true },
+                })
+              )?.patientId ?? null
+            : null;
+
         let patient =
+          (keptPatientId ? { id: keptPatientId } : null) ??
           (itemUhid ? await tx.patient.findFirst({ where: { uhid: itemUhid }, select: ID_ONLY }) : null) ??
           (i === 0 && body.patientId ? await tx.patient.findUnique({ where: { id: body.patientId }, select: ID_ONLY }) : null) ??
           (itemPhone && itemPhone !== PLACEHOLDER_PHONE ? await tx.patient.findFirst({ where: { phone: itemPhone }, select: ID_ONLY }) : null);
 
-        if (patient) {
+        if (keptPatientId) {
+          // Nothing to update: the request carried no details about them.
+        } else if (patient) {
+          // A returning patient found by UHID or mobile keeps their saved name when the
+          // desk leaves the name blank. Blank arrives as the placeholder "Patient", which
+          // used to overwrite the real name.
+          const gaveRealName = !isPlaceholderPatientName(`${itemFirstName} ${itemLastName}`);
           patient = await tx.patient.update({
             where: { id: patient.id },
             data: {
               ...(itemUhid && { uhid: itemUhid }),
-              ...(itemFirstName && { firstName: itemFirstName }),
-              ...(itemLastName && { lastName: itemLastName }),
+              ...(gaveRealName && itemFirstName && { firstName: itemFirstName }),
+              ...(gaveRealName && itemLastName && { lastName: itemLastName }),
               ...(itemPhone && itemPhone !== PLACEHOLDER_PHONE && { phone: itemPhone }),
             },
             select: ID_ONLY,
@@ -181,6 +217,7 @@ export const POST = route(async (request: Request) => {
             issuedAt: new Date(Date.now() + i * 50),
             patientId: patient.id,
             doctorId,
+            ...staging(i),
           },
           create: {
             tokenNumber,
@@ -192,6 +229,7 @@ export const POST = route(async (request: Request) => {
             departmentId: department.id,
             patientId: patient.id,
             doctorId,
+            ...staging(i),
           },
           include: { patient: true, doctor: true, department: true },
         });
@@ -199,15 +237,18 @@ export const POST = route(async (request: Request) => {
         createdTokens.push(created);
       }
 
-      return createdTokens;
+      return { tokens: createdTokens, assigned };
     },
     { maxWait: 15000, timeout: 60000 }
   );
 
+  // For the slip: the doctor chosen and the room to go to (null when none was chosen).
+  const assignedDoctor = result.assigned;
+
   if (requestedCount === 1) {
-    const single = result[0];
-    return ok({ ...single, tokens: result, count: 1 }, 201);
+    const single = result.tokens[0];
+    return ok({ ...single, tokens: result.tokens, count: 1, assignedDoctor }, 201);
   }
 
-  return ok({ tokens: result, count: result.length, tokenNumber: result[0]?.tokenNumber }, 201);
+  return ok({ tokens: result.tokens, count: result.tokens.length, tokenNumber: result.tokens[0]?.tokenNumber, assignedDoctor }, 201);
 });

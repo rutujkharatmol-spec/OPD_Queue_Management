@@ -40,7 +40,10 @@ export async function generateToken(
   patientData?: { firstName?: string; lastName?: string; phone?: string; uhid?: string; },
   customTokenNumber?: string,
   count: number = 1,
-  patients?: Array<{ firstName?: string; lastName?: string; phone?: string; uhid?: string; priority?: string; customTokenNumber?: string }>
+  patients?: Array<{ firstName?: string; lastName?: string; phone?: string; uhid?: string; priority?: string; customTokenNumber?: string }>,
+  // The doctor the desk chose. The server puts the token on that doctor's room list and
+  // returns `assignedDoctor` ({ doctorName, roomNumber }) for the slip.
+  assignedDoctorName?: string
 ) {
   const cleanCustomToken = customTokenNumber?.trim() || undefined;
   const response = await fetchWithOfflineSync(`${API_BASE_URL}/tokens`, {
@@ -55,6 +58,7 @@ export async function generateToken(
       tokenNumber: cleanCustomToken,
       count,
       patients,
+      assignedDoctorName: assignedDoctorName || undefined,
       ...(patientData || {})
     }),
   });
@@ -98,7 +102,9 @@ export async function callNextPatient(
 
 export async function markTokenAction(
   tokenId: string,
-  action: 'SKIP' | 'ABSENT' | 'NOT_AVAILABLE' | 'COMPLETE' | 'RETURN_TO_QUEUE' | 'RESET_TO_WAITING' | 'CANCEL' | 'DELETE',
+  // ARRIVED: the called patient came in (now in consultation). LATE: they did not come in
+  // time; the server checks the clock and moves them back (see lib/queuePass.ts).
+  action: 'SKIP' | 'ABSENT' | 'NOT_AVAILABLE' | 'COMPLETE' | 'RETURN_TO_QUEUE' | 'RESET_TO_WAITING' | 'CANCEL' | 'DELETE' | 'ARRIVED' | 'LATE',
   passCount?: number,
   // Token numbers restart at 1 in every department every morning, so `tokenId` only
   // identifies a row once it is paired with a department. Pass it whenever the caller
@@ -282,6 +288,37 @@ export async function findTokensByName(name: string, date?: string, signal?: Abo
   return Array.isArray(data) ? data : [];
 }
 
+export type PatientLookup =
+  | { found: false }
+  | {
+      found: true;
+      name: string;
+      phone: string;
+      uhid: string | null;
+      /** Who saw them last in this department (or was given to them last time). */
+      lastDoctorName: string | null;
+      lastVisit: { date: string; department: string } | null;
+    };
+
+/**
+ * Registration: who a scanned or typed UHID belongs to. Null when the look-up couldn't be
+ * done (offline, logged out); the desk then types the details as before. Plain fetch, not
+ * the offline layer: there is no offline copy of patients to answer from.
+ */
+export async function lookupPatientByUhid(uhid: string, departmentId?: string): Promise<PatientLookup | null> {
+  try {
+    const params = new URLSearchParams({ uhid });
+    if (departmentId) params.set('departmentId', departmentId);
+    const response = await fetch(`${API_BASE_URL}/patients/lookup?${params.toString()}`, {
+      cache: 'no-store',
+    });
+    if (!response.ok) return null;
+    return (await response.json()) as PatientLookup;
+  } catch {
+    return null;
+  }
+}
+
 export async function searchTokens(query: string, departmentId?: string) {
   const params = new URLSearchParams({ q: query });
   if (departmentId) params.append('departmentId', departmentId);
@@ -339,12 +376,15 @@ export async function getDoctors(): Promise<DoctorListItem[]> {
   return Array.isArray(data) ? data : [];
 }
 
-/** Puts the doctor's name on the room (shown on TV, credited in analytics). */
-export async function assignDoctorToRoom(doctorName: string, departmentId: string, roomId: string) {
+/**
+ * Adds the doctor's name to the room (shown on TV) and takes it off any other room.
+ * shareRoom false replaces the doctors already in the room instead of joining them.
+ */
+export async function assignDoctorToRoom(doctorName: string, departmentId: string, roomId: string, shareRoom = true) {
   const response = await fetchWithOfflineSync(`${API_BASE_URL}/doctors/assign`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ doctorName, departmentId, roomId }),
+    body: JSON.stringify({ doctorName, departmentId, roomId, shareRoom }),
   });
   if (!response.ok) {
     let message = 'Could not save your room. Please try again.';

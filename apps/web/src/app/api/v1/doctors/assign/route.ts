@@ -1,28 +1,40 @@
 import { db } from '@/lib/db';
 import { ok, badRequest, route, readJson } from '@/server/http';
+import { cleanDoctorName, splitDoctorNames, withDoctor } from '@/lib/roomDoctors';
+import { setRoomDoctors } from '@/server/rooms/roomDoctors';
 
 export const dynamic = 'force-dynamic';
 
-type Body = { doctorName?: string; departmentId?: string; roomId?: string };
+type Body = {
+  doctorName?: string;
+  departmentId?: string;
+  roomId?: string;
+  /**
+   * true (the default): join the doctors already in the room. false: the others have
+   * left, so this doctor replaces them.
+   */
+  shareRoom?: boolean;
+};
 
 /**
- * A doctor sits down in a room: puts their name on that room and saves them as a doctor.
+ * A doctor sits down in a room: adds their name to that room and saves them as a doctor.
  *
- * The room's name is what the TV shows and what each called patient is credited to in
- * analytics. A doctor is in one room at a time, so their name comes off any other room.
+ * Several doctors can share a room. The room's list is what the TV shows. A doctor is in
+ * one room at a time, so their name comes off any other room.
  */
 export const POST = route(async (request: Request) => {
   const body = await readJson<Body>(request);
-  const doctorName = body.doctorName?.trim().replace(/\s+/g, ' ');
+  const doctorName = cleanDoctorName(body.doctorName);
 
   if (!doctorName) return badRequest('Doctor name is required.');
   if (doctorName.length > 80) return badRequest('Doctor name is too long.');
+  if (doctorName.includes(',')) return badRequest('A doctor name cannot contain a comma.');
   if (!body.departmentId) return badRequest('Department is required.');
   if (!body.roomId) return badRequest('Room is required.');
 
   const room = await db.room.findUnique({
     where: { id: body.roomId },
-    select: { id: true, roomNumber: true, departmentId: true, deletedAt: true },
+    select: { id: true, roomNumber: true, departmentId: true, doctorName: true, deletedAt: true },
   });
   // 400, not 404: the offline layer reads a 404 as "server down" and falls back to local data.
   if (!room || room.deletedAt) return badRequest('Room not found.');
@@ -31,6 +43,7 @@ export const POST = route(async (request: Request) => {
   }
 
   const departmentId = body.departmentId;
+  const shareRoom = body.shareRoom !== false;
 
   const result = await db.$transaction(async (tx) => {
     // Doctor names are matched ignoring case, so "dr. roy" does not create a second Dr. Roy.
@@ -50,20 +63,9 @@ export const POST = route(async (request: Request) => {
           select: { id: true, name: true },
         });
 
-    await tx.room.updateMany({
-      where: {
-        id: { not: room.id },
-        deletedAt: null,
-        doctorName: { equals: doctorName, mode: 'insensitive' },
-      },
-      data: { doctorName: null },
-    });
-
-    const updatedRoom = await tx.room.update({
-      where: { id: room.id },
-      data: { doctorName: doctor.name },
-      select: { id: true, roomNumber: true, departmentId: true, doctorName: true },
-    });
+    // Sharing keeps the room's order; a doctor already on the list keeps their place.
+    const list = shareRoom ? splitDoctorNames(withDoctor(room.doctorName, doctor.name)) : [doctor.name];
+    const updatedRoom = await setRoomDoctors(tx, room.id, list);
 
     return { doctor, room: updatedRoom };
   });

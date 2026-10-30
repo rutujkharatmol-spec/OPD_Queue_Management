@@ -1,6 +1,8 @@
 import { db } from '@/lib/db';
 import { badRequest, conflict, ok, readJson, route } from '@/server/http';
 import { requireAdmin } from '@/server/admin/auth';
+import { splitDoctorNames } from '@/lib/roomDoctors';
+import { setRoomDoctors } from '@/server/rooms/roomDoctors';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,7 +35,7 @@ export const GET = route(async () => {
   return ok({ departments, doctors, rooms });
 });
 
-/** Adds a doctor, optionally putting their name on a room. */
+/** Adds a doctor, optionally adding their name to a room (alongside any doctors already in it). */
 export const POST = route(async (request: Request) => {
   const denied = await requireAdmin();
   if (denied) return denied;
@@ -42,6 +44,7 @@ export const POST = route(async (request: Request) => {
   const name = cleanName(body.name);
   if (!name) return badRequest('Doctor name is required.');
   if (name.length > 80) return badRequest('Doctor name is too long.');
+  if (name.includes(',')) return badRequest('A doctor name cannot contain a comma.');
 
   const existing = await db.doctor.findFirst({
     where: { deletedAt: null, name: { equals: name, mode: 'insensitive' } },
@@ -50,7 +53,7 @@ export const POST = route(async (request: Request) => {
   if (existing) return conflict(`A doctor named "${name}" already exists.`);
 
   const room = body.roomId
-    ? await db.room.findFirst({ where: { id: body.roomId, deletedAt: null }, select: { id: true, roomNumber: true, departmentId: true } })
+    ? await db.room.findFirst({ where: { id: body.roomId, deletedAt: null }, select: { id: true, roomNumber: true, departmentId: true, doctorName: true } })
     : null;
   if (body.roomId && !room) return badRequest('Room not found.');
 
@@ -63,7 +66,7 @@ export const POST = route(async (request: Request) => {
       },
       select: { id: true, name: true },
     });
-    if (room) await tx.room.update({ where: { id: room.id }, data: { doctorName: name } });
+    if (room) await setRoomDoctors(tx, room.id, [...splitDoctorNames(room.doctorName), name]);
     return created;
   });
 

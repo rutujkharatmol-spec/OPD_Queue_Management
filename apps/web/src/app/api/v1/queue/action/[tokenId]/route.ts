@@ -1,12 +1,27 @@
 import { db } from '@/lib/db';
 import { ok, badRequest, notFound, route, readJson } from '@/server/http';
 import { serviceDateFor } from '@/server/tokens/tokenNumber';
+import {
+  ABSENT_AFTER_TIMES_LATE,
+  LATE_AFTER_MINUTES,
+  latePassCount,
+  passIssuedAt,
+} from '@/lib/queuePass';
+import type { TokenPriority, TokenStatus } from '@/generated/prisma/enums';
 
 export const dynamic = 'force-dynamic';
 
 type Context = { params: Promise<{ tokenId: string }> };
 type Body = {
-  action: 'SKIP' | 'ABSENT' | 'NOT_AVAILABLE' | 'COMPLETE' | 'RETURN_TO_QUEUE' | 'RESET_TO_WAITING' | 'CANCEL' | 'DELETE';
+  /**
+   * ARRIVED: the called patient came into the room (booklet scanned or "Came in" tapped);
+   *          they are now in consultation (IN_PROGRESS).
+   * LATE:    the called patient didn't come in time. The server checks the time itself and
+   *          moves them back further each time they are late (see lib/queuePass.ts).
+   */
+  action:
+    | 'SKIP' | 'ABSENT' | 'NOT_AVAILABLE' | 'COMPLETE' | 'RETURN_TO_QUEUE' | 'RESET_TO_WAITING'
+    | 'CANCEL' | 'DELETE' | 'ARRIVED' | 'LATE';
   passCount?: number;
   /**
    * Scopes a lookup by token *number* to one department. Token numbers restart at 1 for
@@ -29,11 +44,20 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
 
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tokenId);
 
-  // Only the three columns below are read, and the response returns the *updated* row,
-  // not this one. The previous `include: { patient: true, department: true }` joined and
+  // Only the columns below are read, and the response returns the *updated* row, not
+  // this one. The previous `include: { patient: true, department: true }` joined and
   // shipped both rows in full on every Complete / Absent / Pass click and then dropped
-  // them on the floor.
-  const TOKEN_LOOKUP_SELECT = { id: true, departmentId: true, serviceDate: true } as const;
+  // them on the floor. The rest are for Pass and the late check.
+  const TOKEN_LOOKUP_SELECT = {
+    id: true,
+    departmentId: true,
+    serviceDate: true,
+    status: true,
+    priority: true,
+    issuedAt: true,
+    calledAt: true,
+    absentCount: true,
+  } as const;
 
   // A token number is only unique within (department, service date) — `token_counters` is
   // keyed on exactly that pair, so every department restarts at 1 each morning. Resolving
@@ -114,47 +138,102 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
     return ok(updated);
   }
 
+  // Back into the line after being passed or late: no room, not called, one more pass.
+  const BACK_IN_LINE = {
+    status: 'WAITING' as const,
+    calledAt: null,
+    roomNumber: null,
+    servedByDoctorName: null,
+    absentCount: { increment: 1 },
+    ...UNSTAGE,
+  };
+
   if (body.action === 'SKIP' || body.action === 'NOT_AVAILABLE') {
+    // Same 1–50 range the doctor's screen allows.
     const passCount = (typeof body.passCount === 'number' && body.passCount > 0)
-      ? Math.floor(body.passCount)
+      ? Math.min(50, Math.floor(body.passCount))
       : 3;
-
-    // Penalty: bump absent count and push back in queue
-    const waitingTokens = await db.token.findMany({
-      where: {
-        departmentId: token.departmentId,
-        serviceDate: token.serviceDate,
-        status: 'WAITING',
-        deletedAt: null,
-      },
-      orderBy: { issuedAt: 'asc' },
-      take: passCount + 1,
-      // Only the timestamp is read below.
-      select: { issuedAt: true },
-    });
-
-    // If there are waiting tokens, place this token after the Nth one
-    let targetIssuedAt = new Date();
-    if (waitingTokens.length >= passCount) {
-      targetIssuedAt = new Date(waitingTokens[passCount - 1].issuedAt.getTime() + 1000);
-    } else if (waitingTokens.length > 0) {
-      targetIssuedAt = new Date(waitingTokens[waitingTokens.length - 1].issuedAt.getTime() + 1000);
-    }
+    const movedTo = await passTarget(token, passCount);
 
     const updated = await db.token.update({
       where: { id: token.id },
-      data: {
-        status: 'WAITING',
-        calledAt: null,
-        roomNumber: null,
-        servedByDoctorName: null,
-        absentCount: { increment: 1 },
-        ...UNSTAGE,
-        issuedAt: targetIssuedAt,
-      },
+      data: { ...BACK_IN_LINE, ...(movedTo ? { issuedAt: movedTo } : {}) },
     });
     return ok(updated);
   }
 
+  if (body.action === 'ARRIVED') {
+    // Only a called patient can come in. Anything else (already in, done, moved back)
+    // is left alone, so a second scan or a slow tap can't undo a later change.
+    const { count } = await db.token.updateMany({
+      where: { id: token.id, status: 'CALLED' },
+      data: { status: 'IN_PROGRESS' },
+    });
+    return ok({ changed: count > 0, status: count > 0 ? 'IN_PROGRESS' : token.status });
+  }
+
+  if (body.action === 'LATE') {
+    // The screen asks; the server decides, from its own clock, so two desks or a wrong
+    // PC clock can't penalise anyone early.
+    const lateSince = Date.now() - LATE_AFTER_MINUTES * 60_000;
+    if (token.status !== 'CALLED' || !token.calledAt || token.calledAt.getTime() > lateSince) {
+      return ok({ changed: false });
+    }
+
+    // The update only applies if the token is still late when it lands: still called, and
+    // called before the cutoff. A "Came in" or a fresh call at the same moment wins, and the
+    // patient keeps their place. (A cutoff, not the exact call time: the database keeps
+    // microseconds that a JavaScript date drops, so exact equality can miss.)
+    const stillLate = { id: token.id, status: 'CALLED' as const, calledAt: { lte: new Date(lateSince) } };
+    const timesLate = token.absentCount + 1;
+
+    if (timesLate >= ABSENT_AFTER_TIMES_LATE) {
+      const { count } = await db.token.updateMany({
+        where: stillLate,
+        data: { status: 'ABSENT', absentCount: { increment: 1 }, ...UNSTAGE },
+      });
+      return ok({ changed: count > 0, outcome: 'ABSENT', timesLate });
+    }
+
+    const places = latePassCount(token.absentCount);
+    const movedTo = await passTarget(token, places);
+    const { count } = await db.token.updateMany({
+      where: stillLate,
+      data: { ...BACK_IN_LINE, ...(movedTo ? { issuedAt: movedTo } : {}) },
+    });
+    return ok({ changed: count > 0, outcome: 'MOVED_BACK', places, timesLate });
+  }
+
   return badRequest(`Unknown action ${body.action}`);
 });
+
+/**
+ * The new issue time for a patient moved `passCount` places back, or null to leave it.
+ * Finds the patients they can go behind: same priority, waiting, and for a patient still
+ * in the line, already behind them. passIssuedAt explains why.
+ */
+async function passTarget(
+  token: { id: string; departmentId: string; serviceDate: Date; status: TokenStatus; priority: TokenPriority; issuedAt: Date },
+  passCount: number
+): Promise<Date | null> {
+  const stillWaiting = token.status === 'WAITING';
+  const others = await db.token.findMany({
+    where: {
+      id: { not: token.id },
+      departmentId: token.departmentId,
+      serviceDate: token.serviceDate,
+      status: 'WAITING',
+      priority: token.priority,
+      deletedAt: null,
+      ...(stillWaiting ? { issuedAt: { gt: token.issuedAt } } : {}),
+    },
+    orderBy: { issuedAt: 'asc' },
+    take: passCount,
+    select: { issuedAt: true },
+  });
+  return passIssuedAt(
+    others.map((t) => t.issuedAt),
+    passCount,
+    stillWaiting ? token.issuedAt : null
+  );
+}

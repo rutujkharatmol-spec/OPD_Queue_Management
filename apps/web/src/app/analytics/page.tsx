@@ -593,7 +593,7 @@ function AnalyticsContent() {
                       <td className="p-3.5 font-bold text-slate-900">
                         <span className="flex items-center gap-2">
                           <Stethoscope size={14} className="text-emerald-600 shrink-0" />
-                          {doc.doctorName || <span className="text-slate-400 italic font-medium">No doctor set for room</span>}
+                          {doc.doctorName || <span className="text-slate-400 italic font-medium">No doctor recorded</span>}
                         </span>
                       </td>
                       <td className="p-3.5 text-slate-600 font-medium">

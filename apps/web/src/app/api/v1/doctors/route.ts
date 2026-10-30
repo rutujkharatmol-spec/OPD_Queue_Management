@@ -1,5 +1,6 @@
 import { db } from '@/lib/db';
 import { ok, route } from '@/server/http';
+import { splitDoctorNames } from '@/lib/roomDoctors';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,7 +33,8 @@ export const GET = route(async () => {
   };
 
   for (const d of doctors) add(d.name, d.departmentId, d.roomNumber);
-  for (const r of rooms) add(r.doctorName, r.departmentId, r.roomNumber);
+  // A room's list can name several doctors sharing it.
+  for (const r of rooms) for (const name of splitDoctorNames(r.doctorName)) add(name, r.departmentId, r.roomNumber);
 
   return ok(Array.from(byKey.values()).sort((a, b) => a.name.localeCompare(b.name)));
 });

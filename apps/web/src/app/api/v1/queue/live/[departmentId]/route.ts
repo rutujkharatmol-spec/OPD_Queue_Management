@@ -3,6 +3,7 @@ import { ok, notFound, route } from '@/server/http';
 import { serviceDateFor } from '@/server/tokens/tokenNumber';
 import { PATIENT_BOARD_WAITING_LIMIT, type PatientBoard } from '@/lib/patientBoard';
 import { isStaff } from '@/server/staff/auth';
+import { isPlaceholderPatientName, maskPatientName } from '@/lib/nameLookup';
 
 // Polled every 3 seconds by every TV board and doctor dashboard.
 export const dynamic = 'force-dynamic';
@@ -41,12 +42,14 @@ export const GET = route(async (request: Request, { params }: Context) => {
       where: { departmentId, deletedAt: null },
       select: { roomNumber: true, doctorName: true, isActive: true },
     }),
+    // In a room: called to the door, or already with the doctor (came in).
     db.token.findMany({
-      where: { departmentId, serviceDate, status: 'CALLED', deletedAt: null },
+      where: { departmentId, serviceDate, status: { in: ['CALLED', 'IN_PROGRESS'] }, deletedAt: null },
       orderBy: { calledAt: 'desc' },
       select: {
         id: true,
         tokenNumber: true,
+        status: true,
         roomNumber: true,
         calledAt: true,
         recalledAt: true,
@@ -89,23 +92,31 @@ export const GET = route(async (request: Request, { params }: Context) => {
     if (room.doctorName) doctorByRoom.set(room.roomNumber, room.doctorName);
   }
 
-  // TV boards read this view without a login; the UHID is for staff screens only.
-  const showUhid = await isStaff();
+  // TV boards read this view without a login. Staff screens get the full name and UHID;
+  // everyone else (the waiting-hall TVs) gets "Ravi K." and no UHID, so a patient's
+  // surname isn't shown or announced to the whole hall.
+  const staffView = await isStaff();
 
   // Return all currently active called tokens for all rooms
   const activeTokens = [];
 
   for (const token of activeRaw) {
     const room = token.roomNumber || '101';
-    const name = `${token.patient?.firstName || ''} ${token.patient?.lastName || ''}`.trim();
+    const first = token.patient?.firstName;
+    const last = token.patient?.lastName;
+    const name = `${first || ''} ${last || ''}`.trim();
+    // Placeholders ("Patient #12") pass through unchanged: the TVs recognise and hide them.
+    const shownName = staffView || isPlaceholderPatientName(name) ? name : maskPatientName(first, last);
 
     activeTokens.push({
       id: token.id,
       token: token.tokenNumber,
+      // CALLED: on the way to the room. IN_PROGRESS: came in, with the doctor.
+      status: token.status,
       room,
       doctorName: doctorByRoom.get(room) || undefined,
-      patientName: name || 'Patient',
-      uhid: showUhid ? token.patient?.uhid || '' : '',
+      patientName: shownName || 'Patient',
+      uhid: staffView ? token.patient?.uhid || '' : '',
       calledAt: token.calledAt?.getTime(),
       recalledAt: token.recalledAt?.getTime(),
     });

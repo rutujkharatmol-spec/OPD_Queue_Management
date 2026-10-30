@@ -1,24 +1,34 @@
 "use client";
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import {
   Menu, X, Search, Printer, CheckCircle2,
-  Building2, ArrowRightLeft, HeartPulse, User, Phone, FileText, QrCode, Hash,
-  Copy, Check, Sparkles, ChevronRight, Plus, Minus
+  Building2, ArrowRightLeft, HeartPulse, User, Phone, ScanLine, QrCode, Hash, Stethoscope,
+  Copy, Check, Sparkles, ChevronRight
 } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { QRCodeSVG } from 'qrcode.react';
-import { generateToken, searchTokens, getRooms } from '../../lib/api';
-import { addMultipleTokensToRoomQueue } from '../../lib/roomQueueSettings';
+import {
+  generateToken, searchTokens, getRooms, getDoctors, lookupPatientByUhid, type DoctorListItem,
+} from '../../lib/api';
+import { sameDoctor, splitDoctorNames } from '../../lib/roomDoctors';
 import { useSimpleMode } from '../../lib/uiSettings';
 
 import { useDepartmentStore, useEffectiveDeptId } from '../../store/useDepartmentStore';
 import { useQueueStore } from '../../store/useQueueStore';
 
+/**
+ * Puts the cursor in a box by itself only on a computer (mouse and, usually, a barcode
+ * scanner). On phones and tablets it would pop up the on-screen keyboard uninvited.
+ * preventScroll: the page shouldn't jump to the box when something else is in view.
+ */
+function focusOnComputer(el: HTMLElement | null) {
+  if (el && window.matchMedia?.('(pointer: fine)').matches) el.focus({ preventScroll: true });
+}
+
 export default function RegistrationDesk() {
   const searchParams = useSearchParams();
   const requestedDeptId = searchParams.get('deptId');
-  const selectedDeptId = useDepartmentStore((state) => state.selectedDeptId);
   const departments = useDepartmentStore((state) => state.departments);
   const setSelectedDeptId = useDepartmentStore((state) => state.setSelectedDeptId);
   const loadDepartments = useDepartmentStore((state) => state.loadDepartments);
@@ -28,7 +38,8 @@ export default function RegistrationDesk() {
   const deptName = currentDept?.name || 'Department';
 
   const [isSidebarOpen, setSidebarOpen] = useState(false);
-  // Simple UI: only priority, name, phone, Generate and Print.
+  // Simple UI: only CRN scan, priority, name, phone, doctor, Generate and Print.
+  // (CRN is stored in the `uhid` field.)
   const simple = useSimpleMode();
 
   // Form State
@@ -37,12 +48,90 @@ export default function RegistrationDesk() {
     name: '',
     phone: '',
   });
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const scanInputRef = useRef<HTMLInputElement>(null);
+  const [scanInfo, setScanInfo] = useState<{ kind: 'looking' | 'found' | 'new' | 'error'; text: string } | null>(null);
+
+  // Ready for the first booklet as soon as the desk opens.
+  useEffect(() => {
+    focusOnComputer(scanInputRef.current);
+  }, []);
+
+  const generateButtonRef = useRef<HTMLButtonElement>(null);
   const [customTokenNumber, setCustomTokenNumber] = useState('');
   const [priority, setPriority] = useState<'NORMAL' | 'SENIOR' | 'EMERGENCY'>('NORMAL');
 
-  // Target Room / Queue Destination State
-  const [availableRooms, setAvailableRooms] = useState<Array<{ id: string; roomNumber: string; doctorName?: string }>>([]);
-  const [targetRoom, setTargetRoom] = useState<string>('GENERAL'); // 'GENERAL' | 'DISTRIBUTE' | roomNumber
+  // The doctor this patient is for ('' = any doctor). The server sends the token to the
+  // room that doctor is in, and the slip prints both.
+  const [assignedDoctor, setAssignedDoctor] = useState('');
+  const [availableRooms, setAvailableRooms] = useState<Array<{ id: string; roomNumber: string; doctorName?: string | null; isActive?: boolean }>>([]);
+  const [knownDoctors, setKnownDoctors] = useState<DoctorListItem[]>([]);
+
+  // Doctors for this department and the room each is in now (from the rooms' lists, as on
+  // the TV), in room order. A doctor of this department who isn't on a room today is still
+  // listed: the server then uses the room where they last saw a patient.
+  const doctorOptions = useMemo(() => {
+    const out: { name: string; room: string | null }[] = [];
+    const rooms = availableRooms
+      .filter((r) => r.isActive !== false)
+      .sort((a, b) => a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true }));
+    for (const r of rooms) {
+      for (const name of splitDoctorNames(r.doctorName)) {
+        if (!out.some((o) => sameDoctor(o.name, name))) out.push({ name, room: r.roomNumber });
+      }
+    }
+    for (const d of knownDoctors) {
+      if (d.departmentId !== deptId || /^doctor for /i.test(d.name)) continue;
+      if (!out.some((o) => sameDoctor(o.name, d.name))) out.push({ name: d.name, room: null });
+    }
+    return out;
+  }, [availableRooms, knownDoctors, deptId]);
+  const chosenDoctor = doctorOptions.find((o) => o.name === assignedDoctor);
+
+  /**
+   * A scanned or typed CRN: fill in a returning patient's name, mobile and doctor so the
+   * desk only has to press Generate. Anything left from the previous patient is replaced.
+   */
+  const handleScan = async () => {
+    const uhid = patientData.uhid.trim();
+    if (!uhid) return;
+    setScanInfo({ kind: 'looking', text: 'Looking up…' });
+
+    const result = await lookupPatientByUhid(uhid, deptId || undefined);
+    if (!result) {
+      setScanInfo({ kind: 'error', text: "Couldn't look this up. Type the name and mobile instead." });
+      nameInputRef.current?.focus();
+      return;
+    }
+    if (!result.found) {
+      setPatientData((prev) => ({ ...prev, uhid, name: '', phone: '' }));
+      setAssignedDoctor('');
+      setScanInfo({ kind: 'new', text: 'New patient. Type their name and mobile, and choose the doctor.' });
+      nameInputRef.current?.focus();
+      return;
+    }
+
+    setPatientData((prev) => ({ ...prev, uhid, name: result.name, phone: result.phone }));
+    // Same doctor as last time, if they are working in this department today.
+    const lastDoctor = result.lastDoctorName
+      ? doctorOptions.find((o) => sameDoctor(o.name, result.lastDoctorName))
+      : undefined;
+    setAssignedDoctor(lastDoctor?.name ?? '');
+
+    const visit = result.lastVisit
+      ? ` · last visit ${new Date(`${result.lastVisit.date}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}${result.lastVisit.department ? `, ${result.lastVisit.department}` : ''}`
+      : '';
+    const doctorNote = lastDoctor
+      ? ` · ${lastDoctor.name}${lastDoctor.room ? `, Room ${lastDoctor.room}` : ''}`
+      : result.lastDoctorName
+        ? ` · last doctor ${result.lastDoctorName} isn't listed today, choose a doctor`
+        : '';
+    setScanInfo({ kind: 'found', text: `✓ Returning patient: ${result.name || 'name not saved'}${doctorNote}${visit}` });
+
+    // Everything filled in: one Enter issues the token. Otherwise go to what's missing.
+    if (!result.name) nameInputRef.current?.focus();
+    else generateButtonRef.current?.focus();
+  };
 
   // Generated Output State
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
@@ -69,12 +158,19 @@ export default function RegistrationDesk() {
     loadDepartments(requestedDeptId);
   }, [requestedDeptId, loadDepartments]);
 
+  // Rooms (and who is in them) for the doctor list. Refreshed every minute, because
+  // doctors sit down and move rooms during the day.
   useEffect(() => {
-    if (deptId) {
+    if (!deptId) return;
+    const load = () => {
       getRooms(deptId).then((data) => {
         if (Array.isArray(data)) setAvailableRooms(data);
       }).catch(() => {});
-    }
+      getDoctors().then(setKnownDoctors).catch(() => {});
+    };
+    load();
+    const id = setInterval(load, 60_000);
+    return () => clearInterval(id);
   }, [deptId]);
 
   const handleGenerateToken = async (e: React.FormEvent) => {
@@ -89,7 +185,6 @@ export default function RegistrationDesk() {
       const formattedTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
       const randomPatientId = crypto.randomUUID();
-      const dummyDoctorId = "550e8400-e29b-41d4-a716-446655440000";
 
       const trimmedName = patientData.name.trim();
       const nameParts = trimmedName ? trimmedName.split(' ') : [];
@@ -97,14 +192,14 @@ export default function RegistrationDesk() {
       const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
       const phone = patientData.phone.trim();
       // Fields hidden in Simple UI are ignored, so stale values typed earlier can't sneak in.
-      const uhid = simple ? '' : patientData.uhid.trim();
+      // CRN is shown in both, because it is how a returning patient is found.
+      const uhid = patientData.uhid.trim();
       const cleanCustomToken = simple ? '' : customTokenNumber.trim();
-      const destination = simple ? 'GENERAL' : targetRoom;
 
       const res = await generateToken(
         deptId,
         randomPatientId,
-        dummyDoctorId,
+        undefined,
         priority,
         {
           firstName: firstName,
@@ -113,9 +208,13 @@ export default function RegistrationDesk() {
           uhid: uhid || undefined
         },
         cleanCustomToken || undefined,
-        1
+        1,
+        undefined,
+        assignedDoctor || undefined
       );
 
+      // The doctor and room the server settled on (null when no doctor was chosen).
+      const assigned: { doctorName: string; roomNumber: string | null } | null = res.assignedDoctor ?? null;
       const tokensArray = res.tokens || (Array.isArray(res) ? res : [res]);
       const formattedTokens = tokensArray.map((t: any) => ({
         tokenNumber: t.tokenNumber,
@@ -124,6 +223,8 @@ export default function RegistrationDesk() {
         uhid: t.patient?.uhid || uhid || '',
         priority: t.priority || priority,
         deptName: deptName || 'Medicine',
+        doctorName: assigned?.doctorName || '',
+        roomNumber: assigned?.roomNumber || '',
         date: formattedDate,
         issuedAt: formattedTime
       }));
@@ -133,20 +234,17 @@ export default function RegistrationDesk() {
       setGeneratedTokenData(formattedTokens[0]);
       setSelectedTokenIndex(0);
       setCustomTokenNumber('');
-
-      // Auto-stage to room queue if target room selected
-      if (destination && destination !== 'GENERAL') {
-        const tokenNums = formattedTokens.map((t: any) => t.tokenNumber);
-        if (destination === 'DISTRIBUTE' && availableRooms.length > 0) {
-          availableRooms.forEach((r, rIdx) => {
-            const roomToks = tokenNums.filter((_, idx) => idx % availableRooms.length === rIdx);
-            if (roomToks.length > 0) {
-              addMultipleTokensToRoomQueue(deptId, r.roomNumber, roomToks);
-            }
-          });
-        } else {
-          addMultipleTokensToRoomQueue(deptId, destination, tokenNums);
-        }
+      // A clean form for the next patient, with the cursor in the scan box: the next scan
+      // can't be appended to this CRN, and this patient's doctor or priority can't carry
+      // over to someone else by mistake.
+      setPatientData({ uhid: '', name: '', phone: '' });
+      setAssignedDoctor('');
+      setPriority('NORMAL');
+      setScanInfo(null);
+      focusOnComputer(scanInputRef.current);
+      // Phones and narrow windows show the slip below the form: bring it into view.
+      if (!window.matchMedia?.('(min-width: 1280px)').matches) {
+        setTimeout(() => document.getElementById('print-ticket')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
       }
 
       // Refresh the queue store immediately
@@ -217,12 +315,13 @@ export default function RegistrationDesk() {
     window.print();
   };
 
-  const todayDateStr = new Intl.DateTimeFormat('en-CA').format(new Date());
   // Department-specific QR Code: points to the department's live queue & token tracker
   const qrUrl = deptId ? `${appOrigin}/patient?deptId=${deptId}` : `${appOrigin}/patient`;
 
   return (
-    <div className="flex h-screen w-full bg-slate-100 font-sans overflow-hidden print:overflow-visible print:bg-white print:h-auto">
+    // Large screens: a fixed-height desk with its own scrolling panel. Phones and tablets:
+    // the page just scrolls, so nothing hides under the browser's address bar.
+    <div className="flex min-h-screen lg:h-screen w-full bg-slate-100 font-sans lg:overflow-hidden print:overflow-visible print:bg-white print:h-auto">
       {isSidebarOpen && (
         <div
           className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-40 lg:hidden transition-opacity"
@@ -299,7 +398,7 @@ export default function RegistrationDesk() {
       </aside>
 
       {/* Main Registration Area */}
-      <main className="flex-1 flex flex-col h-screen overflow-y-auto print:overflow-visible print:h-auto">
+      <main className="flex-1 min-w-0 flex flex-col lg:h-screen lg:overflow-y-auto print:overflow-visible print:h-auto">
         <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between print:hidden">
           <div className="flex items-center gap-4">
             <button
@@ -366,6 +465,62 @@ export default function RegistrationDesk() {
                 </div>
 
                 <form onSubmit={handleGenerateToken} className="space-y-6">
+                      {/* Booklet scan: a handheld barcode scanner types the CRN and presses Enter */}
+                      <div className="rounded-2xl border-2 border-dashed border-blue-300 bg-blue-50/60 p-4">
+                        <label htmlFor="booklet-scan" className="block text-sm font-bold text-blue-900 mb-2 flex items-center gap-2">
+                          <ScanLine size={18} className="text-blue-600" /> Scan booklet (CRN)
+                        </label>
+                        <div className="flex gap-2">
+                          <input
+                            id="booklet-scan"
+                            ref={scanInputRef}
+                            type="text"
+                            autoComplete="off"
+                            value={patientData.uhid}
+                            onChange={e => {
+                              setPatientData({ ...patientData, uhid: e.target.value });
+                              setScanInfo(null);
+                            }}
+                            // A new scan replaces the last one instead of being added to it.
+                            onFocus={e => e.target.select()}
+                            onKeyDown={e => {
+                              // The scanner's Enter looks the patient up; it must not issue
+                              // the token before the desk has checked the details.
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleScan();
+                              }
+                            }}
+                            className="flex-1 min-w-0 bg-white border border-blue-300 rounded-xl px-4 py-3 text-slate-800 font-mono font-bold tracking-wide placeholder:font-sans placeholder:font-normal placeholder:tracking-normal focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
+                            placeholder="Scan or type CRN"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleScan}
+                            disabled={!patientData.uhid.trim() || scanInfo?.kind === 'looking'}
+                            className="px-4 rounded-xl bg-blue-600 text-white font-bold text-sm hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1.5"
+                          >
+                            <Search size={16} /> Find
+                          </button>
+                        </div>
+                        {scanInfo && (
+                          <p
+                            role="status"
+                            className={`mt-2 text-sm font-semibold ${
+                              scanInfo.kind === 'found'
+                                ? 'text-emerald-700'
+                                : scanInfo.kind === 'new'
+                                  ? 'text-blue-800'
+                                  : scanInfo.kind === 'error'
+                                    ? 'text-amber-700'
+                                    : 'text-slate-500'
+                            }`}
+                          >
+                            {scanInfo.text}
+                          </p>
+                        )}
+                      </div>
+
                       {/* Priority Selector */}
                       <div>
                         <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
@@ -417,40 +572,26 @@ export default function RegistrationDesk() {
                             <User size={16} className="text-slate-400" /> Patient Full Name (Optional)
                           </label>
                           <input
+                            ref={nameInputRef}
                             type="text"
                             value={patientData.name}
                             onChange={e => setPatientData({ ...patientData, name: e.target.value })}
                             className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-800 focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
-                            placeholder="E.g. Rahul Kumar (Leave blank for generic token)"
+                            placeholder="E.g. Rahul Kumar"
                           />
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
-                              <Phone size={16} className="text-slate-400" /> Mobile Number (Optional)
-                            </label>
-                            <input
-                              type="tel"
-                              value={patientData.phone}
-                              onChange={e => setPatientData({ ...patientData, phone: e.target.value })}
-                              className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-800 focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
-                              placeholder="10-digit mobile (Optional)"
-                            />
-                          </div>
-
-                          <div className={simple ? 'hidden' : ''}>
-                            <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
-                              <FileText size={16} className="text-slate-400" /> UHID (Optional)
-                            </label>
-                            <input
-                              type="text"
-                              value={patientData.uhid}
-                              onChange={e => setPatientData({ ...patientData, uhid: e.target.value })}
-                              className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-800 focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
-                              placeholder="UHID-XXXXXX (Optional)"
-                            />
-                          </div>
+                        <div>
+                          <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center gap-2">
+                            <Phone size={16} className="text-slate-400" /> Mobile Number (Optional)
+                          </label>
+                          <input
+                            type="tel"
+                            value={patientData.phone}
+                            onChange={e => setPatientData({ ...patientData, phone: e.target.value })}
+                            className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-800 focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
+                            placeholder="10-digit mobile (Optional)"
+                          />
                         </div>
 
                         {/* Custom Token Number Input */}
@@ -473,45 +614,36 @@ export default function RegistrationDesk() {
                         </div>
                       </div>
 
-                      {/* Target Room / Queue Destination Selector */}
-                      <div className={`bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-1.5 ${simple ? 'hidden' : ''}`}>
-                        <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center justify-between">
-                          <span className="flex items-center gap-1.5">
-                            <Building2 size={14} className="text-blue-600" />
-                            Target Doctor Room / Queue Destination
-                          </span>
-                          {targetRoom !== 'GENERAL' && (
-                            <span className="text-[10px] text-indigo-700 font-bold bg-indigo-100/80 px-2 py-0.5 rounded-md border border-indigo-200">
-                              Direct Staging Active
-                            </span>
-                          )}
+                      {/* Doctor: the patient goes to the room this doctor is in */}
+                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-1.5">
+                        <label htmlFor="assign-doctor" className="block text-sm font-semibold text-slate-700 flex items-center gap-2">
+                          <Stethoscope size={16} className="text-blue-600" /> Doctor
                         </label>
                         <select
-                          value={targetRoom}
-                          onChange={(e) => setTargetRoom(e.target.value)}
-                          className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-slate-800 text-xs font-bold focus:ring-2 focus:ring-blue-500 outline-none transition-all cursor-pointer"
+                          id="assign-doctor"
+                          value={assignedDoctor}
+                          onChange={(e) => setAssignedDoctor(e.target.value)}
+                          className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-800 font-semibold focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all cursor-pointer"
                         >
-                          <option value="GENERAL">🌐 General Waiting Line (Any Doctor Room can call/pull)</option>
-                          {availableRooms.length > 1 && (
-                            <option value="DISTRIBUTE">⚡ Distribute Evenly Across All Active Rooms ({availableRooms.map((r) => `Room ${r.roomNumber}`).join(', ')})</option>
-                          )}
-                          {availableRooms.map((r) => (
-                            <option key={r.id} value={r.roomNumber}>
-                              🚪 Stage Directly to Room {r.roomNumber} Queue {r.doctorName ? `(${r.doctorName})` : ''}
+                          <option value="">Any doctor (general line)</option>
+                          {doctorOptions.map((o) => (
+                            <option key={o.name} value={o.name}>
+                              {o.name}{o.room ? ` · Room ${o.room}` : ' · not in a room right now'}
                             </option>
                           ))}
                         </select>
-                        <p className="text-[10px] text-slate-400">
-                          {targetRoom === 'GENERAL'
-                            ? 'Tokens enter the general line and can be called or staged by any room.'
-                            : targetRoom === 'DISTRIBUTE'
-                              ? 'Tokens will be distributed evenly into each doctor room’s dedicated queue.'
-                              : `Tokens will appear directly in Room ${targetRoom}'s dedicated staged queue.`}
+                        <p className="text-xs text-slate-500">
+                          {!assignedDoctor
+                            ? 'Any doctor can call this patient.'
+                            : chosenDoctor?.room
+                              ? `The patient goes to Room ${chosenDoctor.room}. The slip shows the doctor and room.`
+                              : 'This doctor is not in a room right now. The slip shows the room they last used.'}
                         </p>
                       </div>
 
                       {/* Submit Button */}
                       <button
+                        ref={generateButtonRef}
                         type="submit"
                         disabled={isGenerating}
                         className={`w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-3 transition-all transform active:scale-[0.98] shadow-lg cursor-pointer ${isGenerating
@@ -622,6 +754,13 @@ export default function RegistrationDesk() {
                             🟡 Senior Citizen
                           </span>
                         )}
+                        {/* Where to go: the room of the doctor chosen at the desk */}
+                        {generatedTokenData.roomNumber ? (
+                          <p className="mt-3 text-2xl font-black text-slate-900">Room {generatedTokenData.roomNumber}</p>
+                        ) : null}
+                        {generatedTokenData.doctorName ? (
+                          <p className="text-sm font-bold text-slate-600">{generatedTokenData.doctorName}</p>
+                        ) : null}
                       </div>
 
                       {/* QR Code on Ticket */}
@@ -651,7 +790,7 @@ export default function RegistrationDesk() {
                         </div>
                         {generatedTokenData.uhid ? (
                           <div className="flex justify-between">
-                            <span className="text-slate-500">UHID:</span>
+                            <span className="text-slate-500">CRN:</span>
                             <span className="font-mono font-bold">{generatedTokenData.uhid}</span>
                           </div>
                         ) : null}
@@ -731,7 +870,7 @@ export default function RegistrationDesk() {
                 </div>
                 <div>
                   <h3 className="font-black text-slate-900 text-lg">Find Patient / Reprint Token</h3>
-                  <p className="text-xs text-slate-500">Search by Mobile Number, UHID, Patient Name, or Token Number</p>
+                  <p className="text-xs text-slate-500">Search by Mobile Number, CRN, Patient Name, or Token Number</p>
                 </div>
               </div>
               <button onClick={() => setSearchModalOpen(false)} className="p-2 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer">
@@ -745,7 +884,7 @@ export default function RegistrationDesk() {
                 type="text"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Enter phone, UHID, name, or token number (e.g. 101)..."
+                placeholder="Enter phone, CRN, name, or token number (e.g. 101)..."
                 className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 font-medium focus:ring-2 focus:ring-blue-500 outline-none"
                 autoFocus
               />
@@ -780,7 +919,7 @@ export default function RegistrationDesk() {
                         )}
                       </div>
                       <p className="text-sm font-semibold text-slate-700 mt-1">{pName} {t.patient?.phone && t.patient.phone !== '0000000000' ? `(${t.patient.phone})` : ''}</p>
-                      <p className="text-xs text-slate-400">{t.patient?.uhid ? `UHID: ${t.patient.uhid} • ` : ''}{t.department?.name || 'Medicine'} OPD</p>
+                      <p className="text-xs text-slate-400">{t.patient?.uhid ? `CRN: ${t.patient.uhid} • ` : ''}{t.department?.name || 'Medicine'} OPD</p>
                     </div>
 
                     <button

@@ -187,7 +187,12 @@ function handleWithLocalStore(url: string, method: string, options: RequestInit)
     return jsonResponse(getLocalDoctors(), 200);
   }
   if (pathname.endsWith('/doctors/assign') && method === 'POST') {
-    const data = localAssignDoctorToRoom(parsedBody.doctorName, parsedBody.departmentId, parsedBody.roomId);
+    const data = localAssignDoctorToRoom(
+      parsedBody.doctorName,
+      parsedBody.departmentId,
+      parsedBody.roomId,
+      parsedBody.shareRoom !== false
+    );
     return data ? jsonResponse(data, 200) : jsonResponse({ message: 'Room not found.' }, 400);
   }
 

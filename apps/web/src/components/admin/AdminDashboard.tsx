@@ -6,6 +6,7 @@ import {
   Activity, AlertTriangle, BarChart3, Building2, CheckCircle2, DoorOpen, Loader2, LogOut,
   Pencil, Plus, RefreshCw, Settings as SettingsIcon, Stethoscope, Trash2, Users, Wrench, X,
 } from 'lucide-react';
+import { splitDoctorNames } from '@/lib/roomDoctors';
 
 /* ------------------------------------------------------------------ */
 /* Shared                                                              */
@@ -248,7 +249,7 @@ function OverviewTab() {
                 icon={<Stethoscope size={14} />}
                 head={['Doctor', 'Rooms', 'Served', 'With now', 'Avg min']}
                 rows={d.doctorStats.map((s) => [
-                  s.doctorName || 'No doctor set',
+                  s.doctorName || 'No doctor recorded',
                   s.rooms.join(', ') || '—',
                   s.servedCount,
                   s.inConsultationCount,
@@ -473,9 +474,10 @@ function DoctorsTab({ notify }: { notify: (text: string, bad?: boolean) => void 
 
       {/* Rooms */}
       <section className="bg-white rounded-3xl border border-slate-200 p-4 sm:p-6">
-        <h2 className="text-lg font-black flex items-center gap-2"><DoorOpen size={18} className="text-blue-600" /> Doctor on each room</h2>
+        <h2 className="text-lg font-black flex items-center gap-2"><DoorOpen size={18} className="text-blue-600" /> Doctors in each room</h2>
         <p className="text-sm text-slate-500 mt-1">
-          This name shows on the TV and the Doctor Desk. Add or remove rooms themselves in Settings.
+          These names show on the TV and the Doctor Desk. Separate doctors sharing a room with a comma. A doctor is in
+          one room at a time, so adding them here takes them off any other room. Add or remove rooms themselves in Settings.
         </p>
         {data.departments.map((dept) => {
           const rooms = data.rooms
@@ -495,10 +497,10 @@ function DoctorsTab({ notify }: { notify: (text: string, bad?: boolean) => void 
                       <input
                         value={draft}
                         onChange={(e) => setRoomDrafts((d) => ({ ...d, [room.id]: e.target.value }))}
-                        placeholder="No doctor"
+                        placeholder="No doctor (e.g. Dr. Roy, Dr. Das)"
                         className="flex-1 min-w-40 min-h-10 px-3 rounded-xl border border-slate-300 bg-slate-50 font-semibold outline-none focus:border-blue-500 focus:bg-white"
                       />
-                      {looksWrong(room.doctorName) && (
+                      {splitDoctorNames(room.doctorName).some(looksWrong) && (
                         <span className="text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 rounded-full px-2 py-1 flex items-center gap-1">
                           <AlertTriangle size={12} /> looks wrong
                         </span>

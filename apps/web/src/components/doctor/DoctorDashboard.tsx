@@ -1,14 +1,14 @@
 "use client";
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
-  Home, Users, LogOut, CheckCircle, Clock, PauseCircle,
-  PhoneOff, AlertTriangle, UserPlus, Settings, Bell, Stethoscope, ArrowRight,
-  Plus, Trash2, Edit2, Check, X, Building2, SkipForward, Sliders, RotateCcw, Minus,
-  CheckCircle2, GripVertical, UserCheck, CornerDownRight, Sparkles, Zap, ListOrdered,
-  Play, ShieldCheck, Eye, Layers, LayoutGrid, ArrowRightLeft, ArrowLeftCircle, Undo2, Search, Hash, Volume2
+  Users, CheckCircle, Clock,
+  AlertTriangle, UserPlus, Settings, Bell, Stethoscope, ArrowRight,
+  Plus, Trash2, Edit2, Check, X, Building2, SkipForward, RotateCcw, Minus,
+  CheckCircle2, GripVertical, CornerDownRight, Sparkles, Zap, ListOrdered,
+  Play, Eye, LayoutGrid, ArrowRightLeft, Search, Hash, Volume2
 } from 'lucide-react';
 import {
-  API_BASE_URL, callNextPatient, markTokenAction, recallPatient, bulkDeleteTokens,
+  callNextPatient, markTokenAction, recallPatient, bulkDeleteTokens,
   getRooms, createRoom, updateRoom, deleteRoom, searchTokens, generateToken
 } from '../../lib/api';
 import { announcePatientCall } from '../../lib/speechService';
@@ -48,9 +48,6 @@ interface Room {
   isActive: boolean;
   doctorName?: string;
 }
-
-/** Max patients that can be active in a single room when Auto-Call is ON. */
-const MAX_ROOM_PATIENTS = 4;
 
 /** Stable fallback so an empty queue does not produce a new object identity per render. */
 const EMPTY_QUEUE = { department: 'Medicine', activeTokens: [], nextTokens: [] as string[] };
@@ -206,7 +203,6 @@ export default function DoctorDashboard() {
   // Search Token in Doctor Dashboard
   const [tokenSearchQuery, setTokenSearchQuery] = useState('');
   const [dbSearchResults, setDbSearchResults] = useState<any[]>([]);
-  const [isSearchingDb, setIsSearchingDb] = useState(false);
 
   /** Filtered waiting line tokens based on search query */
   const filteredNextTokens = useMemo(() => {
@@ -226,14 +222,11 @@ export default function DoctorDashboard() {
       return;
     }
     const timer = setTimeout(async () => {
-      setIsSearchingDb(true);
       try {
         const results = await searchTokens(query, deptId);
         setDbSearchResults(Array.isArray(results) ? results : []);
       } catch {
         setDbSearchResults([]);
-      } finally {
-        setIsSearchingDb(false);
       }
     }, 250);
     return () => clearTimeout(timer);
@@ -402,7 +395,8 @@ export default function DoctorDashboard() {
   const saveEditRoom = async (id: string) => {
     if (!editRoomNumber.trim()) return;
     try {
-      await updateRoom(id, editRoomNumber.trim(), true, editDoctorName.trim() || undefined);
+      // An empty box clears the room's doctors (undefined would leave them as they were).
+      await updateRoom(id, editRoomNumber.trim(), true, editDoctorName.trim());
       setEditingRoomId(null);
       await fetchRooms();
     } catch (err) {
@@ -427,12 +421,11 @@ export default function DoctorDashboard() {
       const cleanCustomToken = addPatientCustomToken.trim();
 
       const randomPatientId = crypto.randomUUID();
-      const dummyDoctorId = "550e8400-e29b-41d4-a716-446655440000";
 
       const res = await generateToken(
         deptId,
         randomPatientId,
-        dummyDoctorId,
+        undefined,
         addPatientPriority,
         {
           firstName,
@@ -485,12 +478,11 @@ export default function DoctorDashboard() {
 
     try {
       const randomPatientId = crypto.randomUUID();
-      const dummyDoctorId = "550e8400-e29b-41d4-a716-446655440000";
 
       await generateToken(
         deptId,
         randomPatientId,
-        dummyDoctorId,
+        undefined,
         priority,
         {
           firstName: `Patient #${clean}`,
@@ -519,10 +511,12 @@ export default function DoctorDashboard() {
     }
   };
 
-  /** Deletes / cancels a token directly from the waiting queue (Instant 1-Click, No Confirmation) */
+  /** Deletes / cancels a token from the queue, after asking: it takes the patient out of the line. */
   const handleDeleteTokenDirect = async (tokenIdentifier: string) => {
     const clean = tokenIdentifier.replace(' 🚨', '').trim();
     if (!clean) return;
+    const where = queueData.department ? ` (${queueData.department})` : '';
+    if (!window.confirm(`Delete token ${clean}${where}?\n\nThey will be taken out of today's line.`)) return;
 
     // 1. Instantly remove optimistically from UI state for zero-lag responsiveness
     const currentQueue = useQueueStore.getState().liveQueues[deptId];
@@ -696,7 +690,7 @@ export default function DoctorDashboard() {
         await ensureTokenCreated(cleanToken, 'NORMAL', patientName);
       }
 
-      const called = await callNextPatient(deptId, roomNumber, cleanToken);
+      await callNextPatient(deptId, roomNumber, cleanToken);
       
       // If a specific/staged token was called, remove it from the staged queue
       if (cleanToken) {
@@ -728,12 +722,22 @@ export default function DoctorDashboard() {
     }
   };
 
+  /** Done and Absent take a patient out of the line, so ask first, as the Doctor Desk does. */
+  const confirmOutOfLine = (action: 'COMPLETE' | 'ABSENT', tokenLabel: string): boolean => {
+    const where = queueData.department ? ` (${queueData.department})` : '';
+    return window.confirm(
+      action === 'COMPLETE'
+        ? `Mark token ${tokenLabel}${where} as Done?`
+        : `Mark token ${tokenLabel}${where} as Absent?\n\nThey will be taken out of the line.`
+    );
+  };
+
   const handleTokenAction = async (tokenId: string, action: 'COMPLETE' | 'ABSENT' | 'NOT_AVAILABLE' | 'RETURN_TO_QUEUE' | 'RESET_TO_WAITING', roomNumber?: string) => {
     try {
       await markTokenAction(tokenId, action, passCount);
       await useQueueStore.getState().fetchQueue(deptId);
 
-      // Auto-Call trigger: automatically fill room back to MAX_ROOM_PATIENTS if enabled
+      // Auto-Call trigger: automatically fill the room back up to its Auto-Pull limit if enabled
       if (roomNumber && autoCallRooms[roomNumber]) {
         later(() => {
           autoFillRoom(roomNumber);
@@ -1417,7 +1421,7 @@ export default function DoctorDashboard() {
                               )}
                             </div>
                             {st.patient?.uhid && (
-                              <span className="text-[10px] text-slate-400 block font-mono">UHID: {st.patient.uhid}</span>
+                              <span className="text-[10px] text-slate-400 block font-mono">CRN: {st.patient.uhid}</span>
                             )}
                           </div>
                         </div>
@@ -1426,11 +1430,11 @@ export default function DoctorDashboard() {
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
                             st.status === 'WAITING'
                               ? 'bg-amber-100 text-amber-800'
-                              : st.status === 'CALLED'
+                              : st.status === 'CALLED' || st.status === 'IN_PROGRESS'
                                 ? 'bg-blue-100 text-blue-800'
                                 : 'bg-slate-100 text-slate-600'
                           }`}>
-                            {st.status || 'TOKEN'}
+                            {st.status === 'IN_PROGRESS' ? 'IN CONSULTATION' : st.status || 'TOKEN'}
                           </span>
                           <button
                             type="button"
@@ -2243,7 +2247,7 @@ export default function DoctorDashboard() {
                         )}
                         {activePatient.uhid && (
                           <span className="text-[10px] font-semibold text-slate-400">
-                            UHID: {activePatient.uhid}
+                            CRN: {activePatient.uhid}
                           </span>
                         )}
 
@@ -2402,6 +2406,9 @@ export default function DoctorDashboard() {
                             <button
                               type="button"
                               onClick={() => {
+                                const n = activeList.length;
+                                if (n === 0) return;
+                                if (!window.confirm(`Mark all ${n} patient${n === 1 ? '' : 's'} in Room ${room.roomNumber} as Done?`)) return;
                                 for (const p of activeList) {
                                   handleTokenAction(p.id, 'COMPLETE', room.roomNumber);
                                 }
@@ -2443,7 +2450,9 @@ export default function DoctorDashboard() {
                               className="border border-blue-200/90 rounded-2xl p-3 bg-gradient-to-r from-blue-50/60 via-white to-slate-50 shadow-xs cursor-grab active:cursor-grabbing hover:border-blue-400 hover:shadow-md transition-all group/item select-none"
                               title="Drag patient to another room or click to add more patients"
                             >
-                              <div className="flex items-center justify-between gap-2">
+                              {/* Wraps on a phone: the buttons go under the token and name
+                                  instead of squeezing the name out. */}
+                              <div className="flex flex-wrap items-center justify-between gap-2">
                                 <div
                                   role="button"
                                   tabIndex={0}
@@ -2451,7 +2460,7 @@ export default function DoctorDashboard() {
                                     setDirectInputRoom(room.roomNumber);
                                     setDirectTokenVal('');
                                   }}
-                                  className="flex items-center gap-2 cursor-pointer group/tok hover:opacity-80 transition-opacity"
+                                  className="flex flex-1 min-w-[8rem] items-center gap-2 cursor-pointer group/tok hover:opacity-80 transition-opacity"
                                   title="Click to add another patient into this room"
                                 >
                                   <GripVertical size={14} className="text-blue-400 group-hover/item:text-blue-600 transition-colors shrink-0" />
@@ -2463,16 +2472,16 @@ export default function DoctorDashboard() {
                                       )}
                                     </div>
                                     {p.uhid && (
-                                      <span className="text-[9px] text-slate-400 block">UHID: {p.uhid}</span>
+                                      <span className="text-[9px] text-slate-400 block">CRN: {p.uhid}</span>
                                     )}
                                   </div>
                                 </div>
 
                                 {/* Individual patient action buttons */}
-                                <div className="flex items-center gap-1">
+                                <div className="flex flex-wrap items-center gap-1">
                                   <button
                                     type="button"
-                                    onClick={() => handleTokenAction(p.id, 'COMPLETE', room.roomNumber)}
+                                    onClick={() => confirmOutOfLine('COMPLETE', p.token) && handleTokenAction(p.id, 'COMPLETE', room.roomNumber)}
                                     className="px-2 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold text-[10px] rounded-lg transition-colors cursor-pointer"
                                     title="Complete this patient"
                                   >
@@ -2490,7 +2499,7 @@ export default function DoctorDashboard() {
                                   )}
                                   <button
                                     type="button"
-                                    onClick={() => handleTokenAction(p.id, 'ABSENT', room.roomNumber)}
+                                    onClick={() => confirmOutOfLine('ABSENT', p.token) && handleTokenAction(p.id, 'ABSENT', room.roomNumber)}
                                     className="px-1.5 py-1 bg-rose-100 hover:bg-rose-200 text-rose-800 font-bold text-[10px] rounded-lg transition-colors cursor-pointer"
                                     title="Mark absent"
                                   >
@@ -2698,7 +2707,7 @@ export default function DoctorDashboard() {
                       {activeList.length <= 1 && (
                         <div className={`grid ${simple ? 'grid-cols-2' : 'grid-cols-3'} gap-2`}>
                           <button
-                            onClick={() => activePatient && handleTokenAction(activePatient.id, 'COMPLETE', room.roomNumber)}
+                            onClick={() => activePatient && confirmOutOfLine('COMPLETE', activePatient.token) && handleTokenAction(activePatient.id, 'COMPLETE', room.roomNumber)}
                             disabled={!activePatient}
                             className={`${simple ? 'py-3.5 text-sm font-black bg-emerald-600 text-white hover:bg-emerald-700' : 'py-2.5 text-xs font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100'} rounded-xl transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer`}
                           >
@@ -2718,7 +2727,7 @@ export default function DoctorDashboard() {
                           )}
 
                           <button
-                            onClick={() => activePatient && handleTokenAction(activePatient.id, 'ABSENT', room.roomNumber)}
+                            onClick={() => activePatient && confirmOutOfLine('ABSENT', activePatient.token) && handleTokenAction(activePatient.id, 'ABSENT', room.roomNumber)}
                             disabled={!activePatient}
                             className={`${simple ? 'py-3.5 text-sm font-black' : 'py-2.5 text-xs font-bold'} rounded-xl bg-rose-50 text-rose-700 hover:bg-rose-100 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer`}
                           >
@@ -3162,12 +3171,12 @@ export default function DoctorDashboard() {
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-medium text-slate-400 mb-1">Doctor Name (Optional)</label>
+                    <label className="block text-[11px] font-medium text-slate-400 mb-1">Doctors (optional, comma between)</label>
                     <input
                       type="text"
                       value={newDoctorName}
                       onChange={(e) => setNewDoctorName(e.target.value)}
-                      placeholder="e.g. Dr. A. Sharma"
+                      placeholder="e.g. Dr. A. Sharma, Dr. B. Roy"
                       className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white font-medium placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
@@ -3216,7 +3225,7 @@ export default function DoctorDashboard() {
                                 value={editDoctorName}
                                 onChange={(e) => setEditDoctorName(e.target.value)}
                                 className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
-                                placeholder="Doctor Name"
+                                placeholder="Doctors (comma between)"
                               />
                             </div>
                             <div className="flex justify-end gap-1.5">
@@ -3452,7 +3461,7 @@ export default function DoctorDashboard() {
                 />
               </div>
 
-              {/* Phone & UHID in 2 columns */}
+              {/* Phone & CRN in 2 columns */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
@@ -3468,7 +3477,7 @@ export default function DoctorDashboard() {
                 </div>
                 <div>
                   <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                    UHID / Hospital ID (Optional)
+                    CRN (Optional)
                   </label>
                   <input
                     type="text"

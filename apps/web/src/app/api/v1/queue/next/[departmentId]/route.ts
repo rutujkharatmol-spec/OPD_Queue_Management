@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { ok, badRequest, notFound, route, readJson } from '@/server/http';
 import { serviceDateFor } from '@/server/tokens/tokenNumber';
+import { soleDoctor } from '@/lib/roomDoctors';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,7 +34,9 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
   const serviceDate = serviceDateFor();
 
   // Who is sitting in this room right now, saved on the token for doctor-wise analytics.
-  // A room set up for this department wins over a shared room with no department.
+  // A room set up for this department wins over a shared room with no department. When
+  // several doctors share the room and the caller did not say which one, nobody is
+  // credited yet: the doctor who presses Done is.
   const roomRows = await db.room.findMany({
     where: {
       roomNumber,
@@ -46,7 +49,7 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
     typeof body.doctorName === 'string' ? body.doctorName.trim().replace(/\s+/g, ' ').slice(0, 120) : '';
   const servedByDoctorName =
     callingDoctor ||
-    (roomRows.find((r) => r.departmentId === departmentId) ?? roomRows[0])?.doctorName?.trim() ||
+    soleDoctor((roomRows.find((r) => r.departmentId === departmentId) ?? roomRows[0])?.doctorName) ||
     null;
 
   const cleanId =(body.tokenIdentifier || body.tokenNumber || body.tokenId)?.replace(' 🚨', '').trim();
@@ -57,30 +60,25 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
 
     if (cleanId) {
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanId);
-      
-      // 1. Try finding in current department by UUID or tokenNumber
+
+      // A number is looked up in today's queue for this department only. Numbers restart
+      // at 1 in every department every day, so the old wider search (any date, then any
+      // department) could call last week's #12, or another department's #12, into this
+      // room. Any status matches, so a patient marked absent can be called back in.
       waitingToken = await tx.token.findFirst({
         where: {
           departmentId,
           deletedAt: null,
-          ...(isUuid ? { id: cleanId } : { tokenNumber: { equals: cleanId, mode: 'insensitive' } }),
+          ...(isUuid
+            ? { id: cleanId }
+            : { serviceDate, tokenNumber: { equals: cleanId, mode: 'insensitive' } }),
         },
-        orderBy: { createdAt: 'desc' },
       });
-
-      // 2. Try finding globally across departments if not found in current
-      if (!waitingToken && !isUuid) {
-        waitingToken = await tx.token.findFirst({
-          where: {
-            deletedAt: null,
-            tokenNumber: { equals: cleanId, mode: 'insensitive' },
-          },
-          orderBy: { createdAt: 'desc' },
-        });
-      }
     } else {
-      // 3. No specific token requested: find next waiting token for today, skipping
-      //    patients already sent to a different room.
+      // No specific token requested: the next waiting token for today, skipping patients
+      // already sent to a different room. There is deliberately no fallback to earlier
+      // days: tokens left waiting yesterday are not in the building, and calling one put
+      // a patient "in the room" who appeared on no screen.
       waitingToken = await tx.token.findFirst({
         where: {
           departmentId,
@@ -91,33 +89,12 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
         },
         orderBy: [{ priority: 'desc' }, { issuedAt: 'asc' }],
       });
-
-      // Fallback: any waiting token in department
-      if (!waitingToken) {
-        waitingToken = await tx.token.findFirst({
-          where: {
-            departmentId,
-            status: 'WAITING',
-            deletedAt: null,
-          },
-          orderBy: [{ priority: 'desc' }, { issuedAt: 'asc' }],
-        });
-      }
     }
 
     if (!waitingToken && cleanId) {
-      // Find or create default doctor for department
-      let doctor = await tx.doctor.findFirst({ where: { departmentId: department.id } });
-      if (!doctor) {
-        doctor = await tx.doctor.create({
-          data: {
-            name: `Doctor for Department`,
-            roomNumber,
-            departmentId: department.id,
-          },
-        });
-      }
-
+      // A walk-in has no doctor assigned at registration, so none is recorded (the old
+      // made-up "Doctor for Department" record is gone, as in POST /tokens). Who saw them
+      // is servedByDoctorName below.
       // Create new walk-in patient
       const patient = await tx.patient.create({
         data: {
@@ -139,7 +116,6 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
           servedByDoctorName,
           departmentId: department.id,
           patientId: patient.id,
-          doctorId: doctor.id,
         },
         include: { patient: true, department: true, doctor: true },
       });
