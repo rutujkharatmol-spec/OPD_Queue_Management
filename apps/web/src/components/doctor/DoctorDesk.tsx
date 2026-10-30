@@ -13,7 +13,7 @@ import {
 import { splitDoctorNames } from '../../lib/roomDoctors';
 import { LATE_AFTER_MINUTES } from '../../lib/queuePass';
 import BarcodeScanner, { isSlipQrCode, useCameraAvailable } from '../BarcodeScanner';
-import { normalizeCrn } from '../../lib/crn';
+import { INVALID_CRN_MESSAGE, isValidCrn, normalizeCrn } from '../../lib/crn';
 import { useDepartmentStore } from '../../store/useDepartmentStore';
 import { useQueueStore } from '../../store/useQueueStore';
 
@@ -761,6 +761,10 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
       setScanMsg({ kind: 'warn', text: "That is the QR code on a queue slip. Scan the barcode on the patient's booklet." });
       return;
     }
+    if (!isValidCrn(crn)) {
+      setScanMsg({ kind: 'warn', text: INVALID_CRN_MESSAGE });
+      return;
+    }
     const p = patients.find((x) => sameCrn(x.uhid, crn));
     if (!p) {
       setScanMsg({ kind: 'warn', text: `CRN ${crn} is not a patient in your room right now.` });
@@ -1039,6 +1043,7 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
 
       {cameraOpen && (
         <BarcodeScanner
+          accept={(code) => isValidCrn(code) || isSlipQrCode(code)}
           onClose={() => setCameraOpen(false)}
           onDetected={(code) => {
             setCameraOpen(false);

@@ -14,7 +14,7 @@ import {
 import { sameDoctor, splitDoctorNames } from '../../lib/roomDoctors';
 import { useSimpleMode } from '../../lib/uiSettings';
 import BarcodeScanner, { isSlipQrCode, useCameraAvailable } from '../BarcodeScanner';
-import { normalizeCrn } from '../../lib/crn';
+import { INVALID_CRN_MESSAGE, isValidCrn, normalizeCrn } from '../../lib/crn';
 
 import { useDepartmentStore, useEffectiveDeptId } from '../../store/useDepartmentStore';
 import { useQueueStore } from '../../store/useQueueStore';
@@ -107,6 +107,10 @@ export default function RegistrationDesk() {
     }
     const uhid = normalizeCrn(raw);
     setPatientData((prev) => ({ ...prev, uhid }));
+    if (!isValidCrn(uhid)) {
+      setScanInfo({ kind: 'error', text: INVALID_CRN_MESSAGE });
+      return;
+    }
     setScanInfo({ kind: 'looking', text: 'Looking up…' });
 
     const result = await lookupPatientByUhid(uhid, deptId || undefined);
@@ -206,6 +210,11 @@ export default function RegistrationDesk() {
       // Fields hidden in Simple UI are ignored, so stale values typed earlier can't sneak in.
       // CRN is shown in both, because it is how a returning patient is found.
       const uhid = normalizeCrn(patientData.uhid);
+      // A misread or mistyped CR No must not be saved against the patient.
+      if (uhid && !isValidCrn(uhid)) {
+        setScanInfo({ kind: 'error', text: INVALID_CRN_MESSAGE });
+        return;
+      }
       const cleanCustomToken = simple ? '' : customTokenNumber.trim();
 
       const res = await generateToken(
@@ -893,6 +902,7 @@ export default function RegistrationDesk() {
       {/* Camera scan of the booklet barcode: same lookup as a handheld scan */}
       {cameraOpen && (
         <BarcodeScanner
+          accept={(code) => isValidCrn(code) || isSlipQrCode(code)}
           onClose={() => setCameraOpen(false)}
           onDetected={(code) => {
             setCameraOpen(false);
