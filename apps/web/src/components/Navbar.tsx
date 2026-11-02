@@ -96,12 +96,16 @@ function NavbarContent() {
     setIsMobileMenuOpen(false);
   }, [pathname]);
 
-  // Hide Navbar completely on the patient page and the standalone Doctor Desk
-  // The admin's own pages (admin panel, its Settings and Analytics) have their own header.
+  // Hidden on the patient page (public), and on the admin's own pages (admin panel, its
+  // Settings and Analytics), which have their own header.
   const adminPage = ['/admin', '/settings', '/analytics'].some((p) => pathname.startsWith(p));
-  if (pathname.startsWith('/patient') || pathname.startsWith('/doctor-desk') || adminPage) {
+  if (pathname.startsWith('/patient') || adminPage) {
     return null;
   }
+
+  // Whole path segments only: /doctor-desk is not inside /doctor.
+  const isCurrent = (href: string) =>
+    pathname === href || (href !== '/' && pathname.startsWith(`${href}/`));
 
   const getHref = (path: string) => {
     return activeDeptId ? `${path}?deptId=${activeDeptId}` : path;
@@ -378,7 +382,7 @@ function NavbarContent() {
             <div className="hidden lg:flex min-w-0 overflow-x-auto scrollbar-none">
               <div className="flex items-baseline space-x-1 sm:space-x-2 md:space-x-3">
                 {links.map((link) => {
-                  const isActive = pathname === link.href || (link.href !== '/' && pathname.startsWith(link.href));
+                  const isActive = isCurrent(link.href);
                   return (
                     <Link
                       key={link.href}
@@ -441,7 +445,7 @@ function NavbarContent() {
         <div id="mobile-nav-menu" className="lg:hidden border-t border-slate-800 bg-slate-950 max-h-[calc(100dvh-4rem)] overflow-y-auto">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-col gap-1">
             {links.map((link) => {
-              const isActive = pathname === link.href || (link.href !== '/' && pathname.startsWith(link.href));
+              const isActive = isCurrent(link.href);
               return (
                 <Link
                   key={link.href}
