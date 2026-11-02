@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { ok, badRequest, notFound, route, readJson } from '@/server/http';
 import { serviceDateFor } from '@/server/tokens/tokenNumber';
+import { requireAdminToDelete } from '@/server/admin/auth';
 import {
   ABSENT_AFTER_TIMES_LATE,
   LATE_AFTER_MINUTES,
@@ -41,6 +42,12 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
   const body = await readJson<Body>(request);
 
   if (!body.action) return badRequest('action is required.');
+
+  // Deleting a token is for the admin only (admin panel, Clean up tab).
+  if (body.action === 'DELETE' || body.action === 'CANCEL') {
+    const denied = await requireAdminToDelete();
+    if (denied) return denied;
+  }
 
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tokenId);
 

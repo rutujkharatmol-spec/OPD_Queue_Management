@@ -2,6 +2,7 @@ import { db } from '@/lib/db';
 import { ok, route } from '@/server/http';
 import { serviceDateFor } from '@/server/tokens/tokenNumber';
 import { ANALYTICS_TOKEN_SELECT, summariseTokens } from '@/server/queue/analytics';
+import { isAdmin } from '@/server/admin/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,15 +13,19 @@ export const GET = route(async (request: Request, { params }: Context) => {
   const url = new URL(request.url);
   const dateQuery = url.searchParams.get('date');
 
-  const targetDate = dateQuery ? serviceDateFor(new Date(dateQuery)) : serviceDateFor();
+  // Staff (from the main menu) see today only, without per-doctor figures; the admin's
+  // Analytics page sees any date, all-time, and everything.
+  const admin = await isAdmin();
+  const isAllTime = admin && dateQuery === 'all';
+  const targetDate = isAllTime ? null : (admin && dateQuery ? serviceDateFor(new Date(dateQuery)) : serviceDateFor());
+
+  const tokenWhere = isAllTime
+    ? { departmentId, deletedAt: null }
+    : { departmentId, serviceDate: targetDate!, deletedAt: null };
 
   const [tokens, rooms] = await Promise.all([
     db.token.findMany({
-      where: {
-        departmentId,
-        serviceDate: targetDate,
-        deletedAt: null,
-      },
+      where: tokenWhere,
       select: ANALYTICS_TOKEN_SELECT,
     }),
     db.room.findMany({
@@ -34,5 +39,7 @@ export const GET = route(async (request: Request, { params }: Context) => {
     if (r.doctorName) doctorByRoom.set(r.roomNumber, r.doctorName);
   }
 
-  return ok(summariseTokens(tokens, targetDate.toISOString().slice(0, 10), doctorByRoom));
+  const dateLabel = isAllTime ? 'All Time' : targetDate!.toISOString().slice(0, 10);
+  const summary = summariseTokens(tokens, dateLabel, doctorByRoom);
+  return ok(admin ? summary : { ...summary, doctorStats: [] });
 });

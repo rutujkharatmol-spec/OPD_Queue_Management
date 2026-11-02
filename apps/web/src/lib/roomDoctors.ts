@@ -15,6 +15,9 @@
 /** Longest list kept on a room. */
 export const MAX_ROOM_DOCTORS_LENGTH = 400;
 
+/** Most doctors the registration desk can list, in order of preference, for one patient. */
+export const MAX_DOCTOR_CHOICES = 5;
+
 export const cleanDoctorName = (name?: string | null) => (name ?? '').trim().replace(/\s+/g, ' ');
 
 // "Dr. S. Roy" and "dr.  s. roy " are the same person.

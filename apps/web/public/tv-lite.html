@@ -564,7 +564,7 @@
     if (gen !== generation || !deptId) return;
     getJSON(API + '/queue/live/' + encodeURIComponent(deptId), function (data) {
       if (gen !== generation) return;
-      if (frameAttempted) { store(FRAME_OK_KEY, '1'); frameAttempted = false; }
+      if (reloadedForFirewall) { store(RELOAD_WORKS_KEY, '1'); reloadedForFirewall = false; }
       firewallStreak = 0;
       setStatus(true);
       var active = data.activeTokens || [];
@@ -598,19 +598,38 @@
   }
 
   // ---------- Vercel security check ----------
-  // Vercel's firewall sometimes starts challenging this TV. A background request can't
-  // answer the challenge, but loading the page can, which is why a reload fixes it.
-  // So reload straight away. (A hidden-frame refresh keeps full screen and sound, but is
-  // only tried once it has been seen to work on this TV.) Reloads are limited so a
-  // firewall that keeps blocking can't cause an endless loop.
+  // When Vercel's firewall challenges visitors, a browser that passes the check gets a
+  // pass that lasts 1 hour. After that this board's background requests are blocked.
+  // The proper fix is a Bypass rule for the TV paths in the Vercel dashboard; this code
+  // is only a fallback for when that rule is missing.
+  //
+  // 1. Load a tiny page in a hidden frame. If the TV can pass the check there, the pass
+  //    is renewed without touching the visible board (full screen and sound stay on).
+  // 2. Otherwise reload the page, but only on TVs where a reload has been seen to work.
+  //    On many old TV browsers the Security Checkpoint page can't finish, and a reload
+  //    leaves a white screen until someone reloads by hand. So the first reload is a
+  //    test: if the page doesn't come back within a minute and a half, reloading is
+  //    switched off for this TV and the board stays up with a "blocked" notice instead.
   var RELOADS_KEY = 'tv_lite_auto_reloads';
-  var FRAME_OK_KEY = 'tv_lite_frame_refresh_works';
+  var RELOAD_STARTED_KEY = 'tv_lite_reload_started';
+  var RELOAD_WORKS_KEY = 'tv_lite_reload_works';   // '1' works, '0' white-screens, '' unknown
   var RELOAD_GAP_MS = 15 * 1000;        // normal minimum time between automatic reloads
   var BUSY_GAP_MS = 60 * 1000;          // after many reloads in a short time
   var BUSY_WINDOW_MS = 5 * 60 * 1000;
   var BUSY_RELOADS = 4;
+  var RELOAD_STUCK_MS = 90 * 1000;      // longer than this means the reload got stuck
+  var BLOCKED_RETRY_MS = 30 * 1000;     // retry while blocked and reloading is off
+  var FRAME_EVERY = 10;                 // while blocked, retry the hidden frame every 10 tries
   var firewallStreak = 0;
-  var frameAttempted = false;
+  var reloadedForFirewall = false;
+
+  (function checkLastReload() {
+    var started = Number(store(RELOAD_STARTED_KEY) || 0);
+    if (!started) return;
+    store(RELOAD_STARTED_KEY, '');
+    if (new Date().getTime() - started > RELOAD_STUCK_MS) store(RELOAD_WORKS_KEY, '0');
+    else reloadedForFirewall = true; // confirmed on the next good refresh
+  })();
 
   function showFirewallStatus(text) {
     var s = $('status');
@@ -627,24 +646,34 @@
     return keep;
   }
 
+  function blockedText() {
+    return 'Blocked by Vercel security' + (lastOkAt ? ' · last update ' + timeText(lastOkAt) : '');
+  }
+
   function recoverFromFirewall(gen) {
     firewallStreak++;
 
-    // A hidden-frame refresh was just tried and the TV is still blocked: it doesn't work here.
-    if (frameAttempted) { store(FRAME_OK_KEY, '0'); frameAttempted = false; }
-
-    if (firewallStreak === 1 && store(FRAME_OK_KEY) === '1') {
-      frameAttempted = true;
+    // Step 1: hidden frame. Harmless to the board, so always try it first, and again now
+    // and then while the block lasts.
+    if (firewallStreak % FRAME_EVERY === 1) {
       showFirewallStatus('Refreshing security check...');
       var frame = document.createElement('iframe');
       frame.setAttribute('aria-hidden', 'true');
       frame.style.cssText = 'position:absolute;width:1px;height:1px;left:-10px;top:-10px;border:0;visibility:hidden;';
       frame.src = '/tv-ping.html?t=' + new Date().getTime();
       document.body.appendChild(frame);
+      // Old TVs are slow at the checkpoint's sums; give it time.
       pollTimer = setTimeout(function () {
         try { document.body.removeChild(frame); } catch (e) {}
         poll(gen);
-      }, 6000);
+      }, 10000);
+      return;
+    }
+
+    // Step 2: reload, unless this TV is known to get stuck on the checkpoint page.
+    if (store(RELOAD_WORKS_KEY) === '0') {
+      showFirewallStatus(blockedText());
+      pollTimer = setTimeout(function () { poll(gen); }, BLOCKED_RETRY_MS);
       return;
     }
 
@@ -654,12 +683,13 @@
     var gap = reloads.length >= BUSY_RELOADS ? BUSY_GAP_MS : RELOAD_GAP_MS;
     var wait = last + gap - now;
     if (wait > 0) {
-      showFirewallStatus('Reconnecting · blocked by Vercel security' + (lastOkAt ? ' · last update ' + timeText(lastOkAt) : ''));
+      showFirewallStatus(blockedText());
       pollTimer = setTimeout(function () { poll(gen); }, Math.max(3000, wait));
       return;
     }
     reloads.push(now);
     store(RELOADS_KEY, JSON.stringify(reloads));
+    store(RELOAD_STARTED_KEY, String(now));
     showFirewallStatus('Reloading...');
     setTimeout(function () { window.location.reload(); }, 300);
   }

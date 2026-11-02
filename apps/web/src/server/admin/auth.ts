@@ -86,6 +86,22 @@ export async function requireAdmin(): Promise<NextResponse | null> {
   return NextResponse.json({ message: 'Admin login required.' }, { status: 401 });
 }
 
+/**
+ * Hospital-wide changes are for the admin only, from the admin panel: deleting
+ * departments, rooms and tokens, and adding or renaming departments. For the shared API
+ * routes that staff screens also use. 403, not 401: a 401 makes the staff screens ask
+ * for the staff password again, which wouldn't help.
+ */
+export async function requireAdminOnly(action: string): Promise<NextResponse | null> {
+  if (await isAdmin()) return null;
+  return NextResponse.json(
+    { message: `Only the admin can ${action}. Use the Admin panel.`, code: 'ADMIN_ONLY' },
+    { status: 403 }
+  );
+}
+
+export const requireAdminToDelete = () => requireAdminOnly('delete');
+
 /** Cookies marked Secure are dropped over plain http (the on-site server on the LAN). */
 export function isHttps(request: Request): boolean {
   const forwarded = request.headers.get('x-forwarded-proto');

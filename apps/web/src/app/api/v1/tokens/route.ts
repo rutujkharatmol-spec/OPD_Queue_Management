@@ -2,9 +2,9 @@ import { db } from '@/lib/db';
 import { ok, badRequest, notFound, route, readJson } from '@/server/http';
 import { reserveTokenNumbers, serviceDateFor } from '@/server/tokens/tokenNumber';
 import { isPlaceholderPatientName } from '@/lib/nameLookup';
-import { cleanDoctorName } from '@/lib/roomDoctors';
+import { MAX_DOCTOR_CHOICES, cleanDoctorName, sameDoctor } from '@/lib/roomDoctors';
 import { INVALID_CRN_MESSAGE, isValidCrn, normalizeCrn } from '@/lib/crn';
-import { doctorAndRoomFor } from '@/server/rooms/roomDoctors';
+import { firstAvailableDoctor } from '@/server/rooms/roomDoctors';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,6 +14,11 @@ type Body = {
   doctorId?: string;
   /** The doctor the registration desk chose, by name (doctors are named, as on the rooms). */
   assignedDoctorName?: string;
+  /**
+   * Several doctors in order of preference. The token goes to the first one who is in a
+   * room right now. Takes the place of assignedDoctorName when both are sent.
+   */
+  assignedDoctorNames?: string[];
   priority?: 'NORMAL' | 'SENIOR' | 'EMERGENCY';
   firstName?: string;
   lastName?: string;
@@ -40,8 +45,18 @@ export const POST = route(async (request: Request) => {
 
   if (!body.departmentId) return badRequest('A department is required to issue a token.');
 
-  const wantedDoctor = cleanDoctorName(body.assignedDoctorName);
-  if (wantedDoctor.length > 80 || wantedDoctor.includes(',')) return badRequest('That doctor name is not valid.');
+  // The doctors the desk chose, first choice first, without repeats.
+  const wantedDoctors: string[] = [];
+  const requested = Array.isArray(body.assignedDoctorNames) ? body.assignedDoctorNames : [body.assignedDoctorName];
+  for (const raw of requested) {
+    const name = cleanDoctorName(typeof raw === 'string' ? raw : '');
+    if (!name || wantedDoctors.some((n) => sameDoctor(n, name))) continue;
+    if (name.length > 80 || name.includes(',')) return badRequest('That doctor name is not valid.');
+    wantedDoctors.push(name);
+  }
+  if (wantedDoctors.length > MAX_DOCTOR_CHOICES) {
+    return badRequest(`Choose at most ${MAX_DOCTOR_CHOICES} doctors.`);
+  }
 
   const uhid = normalizeCrn(body.uhid) || null;
   // Digits only: a letter means a misread barcode or a typo, never a real CR No.
@@ -76,13 +91,15 @@ export const POST = route(async (request: Request) => {
       // Deliberately sequential: a transaction runs on a single connection and the driver
       // queues statements on it, so `Promise.all` here would still execute one after the
       // other — it would only make the ordering harder to read.
+      //
+      // With several doctors chosen, the first one in a room right now gets the patient.
       let doctorId: string | null = null;
-      let assigned: { doctorName: string; roomNumber: string | null } | null = null;
+      let assigned: { doctorName: string; roomNumber: string | null; skipped: string[] } | null = null;
 
-      if (wantedDoctor) {
-        const found = await doctorAndRoomFor(tx, wantedDoctor, department.id);
+      if (wantedDoctors.length > 0) {
+        const found = await firstAvailableDoctor(tx, wantedDoctors, department.id);
         doctorId = found.doctorId;
-        assigned = { doctorName: found.doctorName, roomNumber: found.roomNumber };
+        assigned = { doctorName: found.doctorName, roomNumber: found.roomNumber, skipped: found.skipped };
       } else if (body.doctorId) {
         const named = await tx.doctor.findUnique({
           where: { id: body.doctorId },
@@ -142,27 +159,31 @@ export const POST = route(async (request: Request) => {
           !(i === 0 && body.patientId) &&
           !(itemPhone && itemPhone !== PLACEHOLDER_PHONE) &&
           isPlaceholderPatientName(`${itemFirstName} ${itemLastName}`);
-        const keptPatientId =
+        const kept =
           itemCustomToken && namesNobody
-            ? (
-                await tx.token.findUnique({
-                  where: {
-                    departmentId_serviceDate_tokenNumber: {
-                      departmentId: department.id,
-                      serviceDate,
-                      tokenNumber: itemCustomToken,
-                    },
+            ? await tx.token.findUnique({
+                where: {
+                  departmentId_serviceDate_tokenNumber: {
+                    departmentId: department.id,
+                    serviceDate,
+                    tokenNumber: itemCustomToken,
                   },
-                  select: { patientId: true },
-                })
-              )?.patientId ?? null
+                },
+                select: { patientId: true, patient: { select: { deletedAt: true } } },
+              })
             : null;
+        // Not a patient deleted in the admin panel.
+        const keptPatientId = kept?.patient && !kept.patient.deletedAt ? kept.patientId : null;
 
         let patient =
           (keptPatientId ? { id: keptPatientId } : null) ??
-          (itemUhid ? await tx.patient.findFirst({ where: { uhid: itemUhid }, select: ID_ONLY }) : null) ??
+          // Patients deleted in the admin panel are not matched again: the booklet or
+          // mobile then registers a new patient.
+          (itemUhid ? await tx.patient.findFirst({ where: { uhid: itemUhid, deletedAt: null }, select: ID_ONLY }) : null) ??
           (i === 0 && body.patientId ? await tx.patient.findUnique({ where: { id: body.patientId }, select: ID_ONLY }) : null) ??
-          (itemPhone && itemPhone !== PLACEHOLDER_PHONE ? await tx.patient.findFirst({ where: { phone: itemPhone }, select: ID_ONLY }) : null);
+          (itemPhone && itemPhone !== PLACEHOLDER_PHONE
+            ? await tx.patient.findFirst({ where: { phone: itemPhone, deletedAt: null }, select: ID_ONLY })
+            : null);
 
         if (keptPatientId) {
           // Nothing to update: the request carried no details about them.

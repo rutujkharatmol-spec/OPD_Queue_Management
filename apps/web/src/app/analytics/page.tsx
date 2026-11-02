@@ -134,15 +134,39 @@ function AnalyticsContent() {
             </select>
           </div>
 
-          {/* Date Picker */}
-          <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-0 sm:py-2">
-            <Calendar size={16} className="text-slate-500" />
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="bg-transparent font-bold text-xs text-slate-800 outline-none cursor-pointer py-2 sm:py-0 min-w-0"
-            />
+          {/* Date Picker & All Time Toggle */}
+          <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 rounded-xl p-1">
+            <button
+              type="button"
+              onClick={() => setSelectedDate(new Date().toISOString().split('T')[0])}
+              className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-colors ${
+                selectedDate === new Date().toISOString().split('T')[0]
+                  ? 'bg-blue-600 text-white'
+                  : 'text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              Today
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedDate('all')}
+              className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-colors ${
+                selectedDate === 'all'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              All Time
+            </button>
+            <div className="flex items-center gap-1 pl-1.5 border-l border-slate-300">
+              <Calendar size={14} className="text-slate-500" />
+              <input
+                type="date"
+                value={selectedDate === 'all' ? '' : selectedDate}
+                onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
+                className="bg-transparent font-bold text-xs text-slate-800 outline-none cursor-pointer py-1 min-w-0"
+              />
+            </div>
           </div>
 
           <button
@@ -174,20 +198,27 @@ function AnalyticsContent() {
         {/* KPI Top Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
 
-          {/* Card 1: Total Registrations */}
+          {/* Card 1: Unique Patients */}
           <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col justify-between">
             <div className="flex justify-between items-start">
               <div>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Patients Today</p>
-                <h3 className="text-4xl font-black text-slate-900 mt-2">{totalTokens}</h3>
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                  {selectedDate === 'all' ? 'Real Patients (All-Time)' : 'Real Patients Today'}
+                </p>
+                <h3 className="text-4xl font-black text-slate-900 mt-2">{analytics?.uniquePatientsCount ?? totalTokens}</h3>
+                <p className="text-[11px] text-blue-600 font-bold mt-1">
+                  {totalTokens} token{totalTokens === 1 ? '' : 's'} issued · unique (not counted twice)
+                </p>
               </div>
               <div className="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
                 <Users size={20} />
               </div>
             </div>
             <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-medium">
-              <span>Department:</span>
-              <strong className="text-slate-800">{currentDept ? currentDept.name : 'All OPDs'}</strong>
+              <span>Scope:</span>
+              <strong className="text-slate-800">
+                {currentDept ? currentDept.name : 'All OPDs'} · {selectedDate === 'all' ? 'All Time' : selectedDate}
+              </strong>
             </div>
           </div>
 
@@ -197,6 +228,11 @@ function AnalyticsContent() {
               <div>
                 <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Completed Consultations</p>
                 <h3 className="text-4xl font-black text-emerald-600 mt-2">{completedCount}</h3>
+                {analytics?.uniqueServedCount !== undefined && (
+                  <p className="text-[11px] text-emerald-700 font-bold mt-1">
+                    {analytics.uniqueServedCount} unique patient{analytics.uniqueServedCount === 1 ? '' : 's'} served
+                  </p>
+                )}
               </div>
               <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
                 <CheckCircle2 size={20} />

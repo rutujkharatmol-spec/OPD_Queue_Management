@@ -41,10 +41,14 @@ export async function generateToken(
   customTokenNumber?: string,
   count: number = 1,
   patients?: Array<{ firstName?: string; lastName?: string; phone?: string; uhid?: string; priority?: string; customTokenNumber?: string }>,
-  // The doctor the desk chose. The server puts the token on that doctor's room list and
-  // returns `assignedDoctor` ({ doctorName, roomNumber }) for the slip.
-  assignedDoctorName?: string
+  // The doctor the desk chose, or several in order of preference. The server puts the
+  // token on the room list of the first one in a room right now and returns
+  // `assignedDoctor` ({ doctorName, roomNumber, skipped }) for the slip.
+  assignedDoctorNames?: string | string[]
 ) {
+  const doctorNames = (Array.isArray(assignedDoctorNames) ? assignedDoctorNames : [assignedDoctorNames]).filter(
+    (n): n is string => !!n
+  );
   const cleanCustomToken = customTokenNumber?.trim() || undefined;
   const response = await fetchWithOfflineSync(`${API_BASE_URL}/tokens`, {
     method: 'POST',
@@ -58,7 +62,7 @@ export async function generateToken(
       tokenNumber: cleanCustomToken,
       count,
       patients,
-      assignedDoctorName: assignedDoctorName || undefined,
+      assignedDoctorNames: doctorNames.length > 0 ? doctorNames : undefined,
       ...(patientData || {})
     }),
   });

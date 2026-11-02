@@ -159,3 +159,30 @@ export async function doctorAndRoomFor(
   // 3. The room on their record.
   return found(lastSeen?.roomNumber ?? doctor.roomNumber ?? null);
 }
+
+/**
+ * Registration with several doctors in order of preference: the patient goes to the
+ * first one who is in a room right now (their name is on an active room's list, as on
+ * the TV). A doctor who isn't in any room is skipped.
+ *
+ * If none of them is in a room, the first choice keeps the patient, sent to the room
+ * they last used, as when only one doctor is chosen.
+ *
+ * `skipped` lists the doctors passed over, in order, so the desk can say why.
+ */
+export async function firstAvailableDoctor(
+  tx: Tx,
+  names: string[],
+  departmentId: string
+): Promise<{ doctorId: string; doctorName: string; roomNumber: string | null; skipped: string[] }> {
+  const rooms = await tx.room.findMany({
+    where: { deletedAt: null, isActive: true, doctorName: { not: null }, OR: [{ departmentId }, { departmentId: null }] },
+    select: { doctorName: true },
+  });
+  const inRoom = (name: string) => rooms.some((r) => splitDoctorNames(r.doctorName).some((n) => sameDoctor(n, name)));
+
+  const index = names.findIndex(inRoom);
+  const pick = index >= 0 ? index : 0;
+  const found = await doctorAndRoomFor(tx, names[pick], departmentId);
+  return { ...found, skipped: names.slice(0, pick) };
+}

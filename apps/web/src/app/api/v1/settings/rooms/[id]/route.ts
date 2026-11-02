@@ -2,6 +2,7 @@ import { db } from '@/lib/db';
 import { ok, badRequest, notFound, route, readJson } from '@/server/http';
 import { parseDoctorList, setRoomDoctors } from '@/server/rooms/roomDoctors';
 import { splitDoctorNames } from '@/lib/roomDoctors';
+import { requireAdminToDelete } from '@/server/admin/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,7 +50,10 @@ export const PUT = route(async (request: Request, { params }: Context) => {
   return ok(updated);
 });
 
+/** Admin only: the admin panel's Doctors & Rooms tab. */
 export const DELETE = route(async (_request: Request, { params }: Context) => {
+  const denied = await requireAdminToDelete();
+  if (denied) return denied;
   const { id } = await params;
 
   const room = await db.room.findUnique({ where: { id } });

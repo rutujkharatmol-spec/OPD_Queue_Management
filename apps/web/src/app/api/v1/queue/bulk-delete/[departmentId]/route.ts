@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { ok, badRequest, notFound, route, readJson } from '@/server/http';
 import { serviceDateFor } from '@/server/tokens/tokenNumber';
+import { requireAdminToDelete } from '@/server/admin/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,7 +23,10 @@ function cleanNumber(token: string): string {
   return token.replace(' 🚨', '').trim();
 }
 
+/** Admin only: the admin panel's Clean up tab. */
 export const PATCH = route(async (request: Request, { params }: Context) => {
+  const denied = await requireAdminToDelete();
+  if (denied) return denied;
   const { departmentId } = await params;
   const body = await readJson<Body>(request);
 

@@ -5,12 +5,13 @@ import { joinDoctorNames } from '@/lib/roomDoctors';
 /**
  * The columns the summary actually reads.
  *
- * Declared as a structural type rather than the full Prisma `Token` so the callers'
- * `select` can stay narrow: the routes used to `include: { patient: true }` and never
- * touch a single patient field, which turned every analytics request into a join that
- * hauled back every patient column for the day.
+ * Includes patient identity metadata (patientId, UHID, phone) so the summary can
+ * accurately deduplicate and report the TRUE number of individual patients rather than
+ * counting the same patient twice when they hold multiple tokens or visit multiple rooms.
  */
 export type SummarisableToken = {
+  id?: string;
+  patientId?: string | null;
   status: TokenStatus;
   priority: TokenPriority;
   roomNumber: string | null;
@@ -18,10 +19,17 @@ export type SummarisableToken = {
   issuedAt: Date;
   calledAt: Date | null;
   completedAt: Date | null;
+  patient?: {
+    id?: string;
+    uhid?: string | null;
+    phone?: string | null;
+  } | null;
 };
 
 /** The columns above, as a Prisma `select` the routes can share. */
 export const ANALYTICS_TOKEN_SELECT = {
+  id: true,
+  patientId: true,
   status: true,
   priority: true,
   roomNumber: true,
@@ -29,12 +37,44 @@ export const ANALYTICS_TOKEN_SELECT = {
   issuedAt: true,
   calledAt: true,
   completedAt: true,
+  patient: {
+    select: {
+      id: true,
+      uhid: true,
+      phone: true,
+    },
+  },
 } as const;
+
+/**
+ * Derives a reliable, collision-resistant deduplication key for a token's patient.
+ *
+ * Priority:
+ * 1. Normalized CR No / UHID (the physical hospital registration booklet)
+ * 2. Mobile phone number (if non-placeholder)
+ * 3. Foreign key patientId
+ * 4. Token ID fallback for unlinked walk-ins
+ */
+export function patientDeduplicationKey(t: SummarisableToken): string {
+  const uhid = t.patient?.uhid?.trim();
+  if (uhid) return `uhid:${uhid}`;
+
+  const phone = t.patient?.phone?.trim();
+  if (phone && phone !== '0000000000' && phone.length >= 6) return `phone:${phone}`;
+
+  if (t.patientId) return `pid:${t.patientId}`;
+  if (t.patient?.id) return `pid:${t.patient.id}`;
+
+  return `token:${t.id || `${t.issuedAt ? new Date(t.issuedAt).getTime() : ''}:${t.roomNumber || ''}`}`;
+}
 
 export type RoomPatientStats = {
   roomNumber: string;
   doctorName?: string;
+  /** Real unique patients seen in this room (not counted twice). */
   totalPatients: number;
+  /** Total token visits/actions in this room. */
+  totalTokens: number;
   completedCount: number;
   activeCount: number;
   absentCount: number;
@@ -44,7 +84,8 @@ export type RoomPatientStats = {
 
 type RoomStatAccumulator = {
   roomNumber: string;
-  totalPatients: number;
+  totalTokens: number;
+  uniquePatientKeys: Set<string>;
   completedCount: number;
   activeCount: number;
   absentCount: number;
@@ -82,21 +123,37 @@ export function summariseTokens(
   }
 
   const roomStatsMap = new Map<string, RoomStatAccumulator>();
+  const allUniquePatientKeys = new Set<string>();
+  const servedUniquePatientKeys = new Set<string>();
+  const waitingUniquePatientKeys = new Set<string>();
+  const inRoomUniquePatientKeys = new Set<string>();
 
   for (const t of tokens) {
+    const pKey = patientDeduplicationKey(t);
+    allUniquePatientKeys.add(pKey);
+
     const isCompleted = t.status === 'COMPLETED';
-    if (isCompleted) completedCount++;
-    else if (t.status === 'WAITING') waitingCount++;
-    else if (t.status === 'CALLED' || t.status === 'IN_PROGRESS') calledCount++;
-    else if (t.status === 'ABSENT') absentCount++;
-    else if (t.status === 'SKIPPED') skippedCount++;
+    if (isCompleted) {
+      completedCount++;
+      servedUniquePatientKeys.add(pKey);
+    } else if (t.status === 'WAITING') {
+      waitingCount++;
+      waitingUniquePatientKeys.add(pKey);
+    } else if (t.status === 'CALLED' || t.status === 'IN_PROGRESS') {
+      calledCount++;
+      inRoomUniquePatientKeys.add(pKey);
+    } else if (t.status === 'ABSENT') {
+      absentCount++;
+    } else if (t.status === 'SKIPPED') {
+      skippedCount++;
+    }
 
     if (t.priority === 'EMERGENCY') emergency++;
     else if (t.priority === 'SENIOR') senior++;
     else if (t.priority === 'NORMAL') normal++;
 
-    const issuedAtMs = t.issuedAt.getTime();
-    const calledAtMs = t.calledAt ? t.calledAt.getTime() : 0;
+    const issuedAtMs = new Date(t.issuedAt).getTime();
+    const calledAtMs = t.calledAt ? new Date(t.calledAt).getTime() : 0;
 
     if (t.calledAt && t.issuedAt) {
       waitTimeTotal += (calledAtMs - issuedAtMs) / 60_000;
@@ -104,11 +161,11 @@ export function summariseTokens(
     }
 
     if (isCompleted && t.calledAt && t.completedAt) {
-      consultationTotal += (t.completedAt.getTime() - calledAtMs) / 60_000;
+      consultationTotal += (new Date(t.completedAt).getTime() - calledAtMs) / 60_000;
       consultationCount++;
     }
 
-    const hour = `${String(t.issuedAt.getHours()).padStart(2, '0')}:00`;
+    const hour = `${String(new Date(t.issuedAt).getHours()).padStart(2, '0')}:00`;
     if (hourlyDistribution[hour] !== undefined) {
       hourlyDistribution[hour]++;
     }
@@ -119,7 +176,8 @@ export function summariseTokens(
       if (!roomStatsMap.has(room)) {
         roomStatsMap.set(room, {
           roomNumber: room,
-          totalPatients: 0,
+          totalTokens: 0,
+          uniquePatientKeys: new Set<string>(),
           completedCount: 0,
           activeCount: 0,
           absentCount: 0,
@@ -129,13 +187,14 @@ export function summariseTokens(
         });
       }
       const acc = roomStatsMap.get(room)!;
-      acc.totalPatients++;
+      acc.totalTokens++;
+      acc.uniquePatientKeys.add(pKey);
       if (t.servedByDoctorName) acc.doctors.push(t.servedByDoctorName);
 
       if (isCompleted) {
         acc.completedCount++;
         if (t.calledAt && t.completedAt) {
-          acc.consultationTotalMins += (t.completedAt.getTime() - calledAtMs) / 60_000;
+          acc.consultationTotalMins += (new Date(t.completedAt).getTime() - calledAtMs) / 60_000;
           acc.consultationCount++;
         }
       } else if (t.status === 'CALLED' || t.status === 'IN_PROGRESS') {
@@ -153,7 +212,8 @@ export function summariseTokens(
       // Who actually saw patients here that day (doctors share rooms and move between
       // them); the room's current list only when nobody was credited yet.
       doctorName: joinDoctorNames(acc.doctors) ?? doctorByRoom?.get(acc.roomNumber),
-      totalPatients: acc.totalPatients,
+      totalPatients: acc.uniquePatientKeys.size,
+      totalTokens: acc.totalTokens,
       completedCount: acc.completedCount,
       activeCount: acc.activeCount,
       absentCount: acc.absentCount,
@@ -167,6 +227,11 @@ export function summariseTokens(
   return {
     date,
     totalGenerated: tokens.length,
+    /** Distinct individual patients who visited (same patient is NEVER counted twice). */
+    uniquePatientsCount: allUniquePatientKeys.size,
+    uniqueServedCount: servedUniquePatientKeys.size,
+    uniqueWaitingCount: waitingUniquePatientKeys.size,
+    uniqueInRoomCount: inRoomUniquePatientKeys.size,
     completedCount,
     waitingCount,
     calledCount,

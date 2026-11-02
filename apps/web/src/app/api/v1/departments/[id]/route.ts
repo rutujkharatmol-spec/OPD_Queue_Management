@@ -1,11 +1,15 @@
 import { db } from '@/lib/db';
 import { ok, badRequest, notFound, conflict, route, readJson } from '@/server/http';
+import { requireAdminOnly, requireAdminToDelete } from '@/server/admin/auth';
 
 export const dynamic = 'force-dynamic';
 
 type Context = { params: Promise<{ id: string }> };
 
+/** Admin only: the admin panel's Settings page. */
 export const PATCH = route(async (request: Request, { params }: Context) => {
+  const denied = await requireAdminOnly('rename a department');
+  if (denied) return denied;
   const { id } = await params;
   const { name, code, description } = await readJson<{
     name?: string;
@@ -36,7 +40,10 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
   return ok(updated);
 });
 
+/** Admin only: the admin panel's Doctors & Rooms tab. */
 export const DELETE = route(async (_request: Request, { params }: Context) => {
+  const denied = await requireAdminToDelete();
+  if (denied) return denied;
   const { id } = await params;
 
   const department = await db.department.findUnique({ where: { id } });

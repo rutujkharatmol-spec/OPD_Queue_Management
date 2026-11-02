@@ -9,13 +9,14 @@ export const dynamic = 'force-dynamic';
  * Admin clean-up. Everything here is a soft delete (deletedAt set, status SKIPPED where
  * the token was still open), matching the bulk-delete route, so rows stay recoverable.
  *
- *  clear-waiting  today's waiting line for a department
- *  clear-rooms    today's patients still marked "in room" for a department
- *  close-stale    tokens left waiting or in a room on earlier days (one or all departments)
- *  delete-date    every token of a department on one date (needs confirm: "DELETE")
+ *  clear-waiting        today's waiting line for a department
+ *  clear-rooms          today's patients still marked "in room" for a department
+ *  close-stale          tokens left waiting or in a room on earlier days (one or all departments)
+ *  delete-date          every token of a department on one date (needs confirm: "DELETE")
+ *  delete-all-patients  every registered patient and their tokens (needs confirm: "DELETE")
  */
 
-type Action = 'clear-waiting' | 'clear-rooms' | 'close-stale' | 'delete-date';
+type Action = 'clear-waiting' | 'clear-rooms' | 'close-stale' | 'delete-date' | 'delete-all-patients';
 
 function parseDate(value: string | null | undefined): Date | null {
   const m = value ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim()) : null;
@@ -49,14 +50,15 @@ export const GET = route(async (request: Request) => {
   const date = parseDate(url.searchParams.get('date'));
   const f = filters(departmentId, date);
 
-  const [waiting, inRooms, stale, onDate] = await Promise.all([
+  const [waiting, inRooms, stale, onDate, allPatients] = await Promise.all([
     departmentId && departmentId !== 'all' ? db.token.count({ where: f['clear-waiting'] }) : Promise.resolve(0),
     departmentId && departmentId !== 'all' ? db.token.count({ where: f['clear-rooms'] }) : Promise.resolve(0),
     db.token.count({ where: f['close-stale'] }),
     f['delete-date'] && departmentId && departmentId !== 'all' ? db.token.count({ where: f['delete-date'] }) : Promise.resolve(0),
+    db.patient.count({ where: { deletedAt: null } }),
   ]);
 
-  return ok({ waiting, inRooms, stale, onDate });
+  return ok({ waiting, inRooms, stale, onDate, allPatients });
 });
 
 export const POST = route(async (request: Request) => {
@@ -68,15 +70,42 @@ export const POST = route(async (request: Request) => {
   const departmentId = body.departmentId || null;
   const date = parseDate(body.date);
 
-  if (!action || !['clear-waiting', 'clear-rooms', 'close-stale', 'delete-date'].includes(action)) {
+  if (!action || !['clear-waiting', 'clear-rooms', 'close-stale', 'delete-date', 'delete-all-patients'].includes(action)) {
     return badRequest('Unknown action.');
   }
-  if (action !== 'close-stale' && (!departmentId || departmentId === 'all')) {
+  if (action !== 'close-stale' && action !== 'delete-all-patients' && (!departmentId || departmentId === 'all')) {
     return badRequest('Choose a department.');
   }
 
-  const f = filters(departmentId, date);
   const now = new Date();
+
+  if (action === 'delete-all-patients') {
+    if (body.confirm !== 'DELETE' && body.confirm !== 'DELETE ALL') {
+      return badRequest('Type DELETE to confirm.');
+    }
+    const result = await db.$transaction(async (tx) => {
+      const open = await tx.token.updateMany({
+        where: { deletedAt: null, status: { in: ['WAITING', 'CALLED', 'IN_PROGRESS'] } },
+        data: { deletedAt: now, status: 'SKIPPED', stagedRoom: null, stagedAt: null },
+      });
+      const allTokens = await tx.token.updateMany({
+        where: { deletedAt: null },
+        data: { deletedAt: now },
+      });
+      await tx.queue.updateMany({
+        where: { currentTokenId: { not: null } },
+        data: { currentTokenId: null },
+      });
+      const patients = await tx.patient.updateMany({
+        where: { deletedAt: null },
+        data: { deletedAt: now },
+      });
+      return { count: patients.count, tokensRemoved: allTokens.count, openTokensSkipped: open.count };
+    });
+    return ok({ action, ...result });
+  }
+
+  const f = filters(departmentId, date);
 
   if (action === 'delete-date') {
     if (!f['delete-date']) return badRequest('Choose a date.');

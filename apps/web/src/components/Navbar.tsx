@@ -97,7 +97,9 @@ function NavbarContent() {
   }, [pathname]);
 
   // Hide Navbar completely on the patient page and the standalone Doctor Desk
-  if (pathname.startsWith('/patient') || pathname.startsWith('/doctor-desk') || pathname.startsWith('/admin')) {
+  // The admin's own pages (admin panel, its Settings and Analytics) have their own header.
+  const adminPage = ['/admin', '/settings', '/analytics'].some((p) => pathname.startsWith(p));
+  if (pathname.startsWith('/patient') || pathname.startsWith('/doctor-desk') || adminPage) {
     return null;
   }
 
@@ -134,6 +136,10 @@ function NavbarContent() {
     { href: '/doctor', label: 'Doctor Room', advanced: false },
     { href: '/doctor-desk', label: 'Doctor Desk', advanced: false },
     { href: '/tv', label: 'TV Monitor', advanced: true },
+    // Staff versions: today's numbers, and this computer's settings. The admin's full
+    // Analytics and hospital-wide Settings are in the admin panel.
+    { href: '/stats', label: 'Analytics', advanced: false },
+    { href: '/preferences', label: 'Settings', advanced: false },
   ];
   const links = simple ? allLinks.filter((l) => !l.advanced) : allLinks;
 

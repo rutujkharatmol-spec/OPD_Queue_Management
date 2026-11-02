@@ -1,7 +1,7 @@
 import { db } from '@/lib/db';
 import { ok, route } from '@/server/http';
 import { serviceDateFor } from '@/server/tokens/tokenNumber';
-import { ANALYTICS_TOKEN_SELECT, summariseTokens } from '@/server/queue/analytics';
+import { ANALYTICS_TOKEN_SELECT, patientDeduplicationKey, summariseTokens } from '@/server/queue/analytics';
 import { requireAdmin } from '@/server/admin/auth';
 
 export const dynamic = 'force-dynamic';
@@ -30,6 +30,12 @@ export const GET = route(async () => {
     }),
   ]);
 
+  // Overall hospital deduplication: real individual patients seen today (not counted twice)
+  const hospitalPatientKeys = new Set<string>();
+  for (const t of tokens) {
+    hospitalPatientKeys.add(patientDeduplicationKey(t));
+  }
+
   const result = departments.map((d) => {
     const doctorByRoom = new Map<string, string>();
     for (const r of rooms) {
@@ -45,6 +51,7 @@ export const GET = route(async () => {
       name: d.name,
       code: d.code,
       totalGenerated: s.totalGenerated,
+      uniquePatientsCount: s.uniquePatientsCount,
       waitingCount: s.waitingCount,
       inRoomCount: s.calledCount,
       servedCount: s.completedCount,
@@ -56,5 +63,10 @@ export const GET = route(async () => {
     };
   });
 
-  return ok({ date, departments: result });
+  return ok({
+    date,
+    totalUniquePatients: hospitalPatientKeys.size,
+    totalTokens: tokens.length,
+    departments: result,
+  });
 });

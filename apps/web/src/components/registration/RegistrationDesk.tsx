@@ -11,7 +11,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import {
   generateToken, searchTokens, getRooms, getDoctors, lookupPatientByUhid, type DoctorListItem,
 } from '../../lib/api';
-import { sameDoctor, splitDoctorNames } from '../../lib/roomDoctors';
+import { MAX_DOCTOR_CHOICES, sameDoctor, splitDoctorNames } from '../../lib/roomDoctors';
 import { useSimpleMode } from '../../lib/uiSettings';
 import BarcodeScanner, { isSlipQrCode, useCameraAvailable } from '../BarcodeScanner';
 import { INVALID_CRN_MESSAGE, isValidCrn, normalizeCrn } from '../../lib/crn';
@@ -66,9 +66,10 @@ export default function RegistrationDesk() {
   const [customTokenNumber, setCustomTokenNumber] = useState('');
   const [priority, setPriority] = useState<'NORMAL' | 'SENIOR' | 'EMERGENCY'>('NORMAL');
 
-  // The doctor this patient is for ('' = any doctor). The server sends the token to the
-  // room that doctor is in, and the slip prints both.
-  const [assignedDoctor, setAssignedDoctor] = useState('');
+  // The doctors this patient is for, in order of preference (empty = any doctor). The
+  // server sends the token to the room of the first one in a room right now, and the
+  // slip prints that doctor and room.
+  const [assignedDoctors, setAssignedDoctors] = useState<string[]>([]);
   const [availableRooms, setAvailableRooms] = useState<Array<{ id: string; roomNumber: string; doctorName?: string | null; isActive?: boolean }>>([]);
   const [knownDoctors, setKnownDoctors] = useState<DoctorListItem[]>([]);
 
@@ -91,7 +92,27 @@ export default function RegistrationDesk() {
     }
     return out;
   }, [availableRooms, knownDoctors, deptId]);
-  const chosenDoctor = doctorOptions.find((o) => o.name === assignedDoctor);
+  const chosenDoctors = assignedDoctors.map(
+    (name) => doctorOptions.find((o) => o.name === name) ?? { name, room: null }
+  );
+  // Who gets the patient as things stand: the first chosen doctor in a room. The server
+  // checks again when Generate is pressed, since doctors move during the day.
+  const pickIndex = chosenDoctors.findIndex((o) => o.room);
+  const pickedDoctor = pickIndex >= 0 ? chosenDoctors[pickIndex] : null;
+  const unchosenDoctors = doctorOptions.filter((o) => !assignedDoctors.includes(o.name));
+
+  const addDoctor = (name: string) => {
+    if (!name) return;
+    setAssignedDoctors((list) => (list.includes(name) || list.length >= MAX_DOCTOR_CHOICES ? list : [...list, name]));
+  };
+  const removeDoctor = (index: number) => setAssignedDoctors((list) => list.filter((_, i) => i !== index));
+  const moveDoctorUp = (index: number) =>
+    setAssignedDoctors((list) => {
+      if (index <= 0) return list;
+      const next = [...list];
+      [next[index - 1], next[index]] = [next[index], next[index - 1]];
+      return next;
+    });
 
   /**
    * A scanned or typed CRN: fill in a returning patient's name, mobile and doctor so the
@@ -121,7 +142,7 @@ export default function RegistrationDesk() {
     }
     if (!result.found) {
       setPatientData((prev) => ({ ...prev, uhid, name: '', phone: '' }));
-      setAssignedDoctor('');
+      setAssignedDoctors([]);
       setScanInfo({ kind: 'new', text: 'New patient. Type their name and mobile, and choose the doctor.' });
       nameInputRef.current?.focus();
       return;
@@ -132,7 +153,7 @@ export default function RegistrationDesk() {
     const lastDoctor = result.lastDoctorName
       ? doctorOptions.find((o) => sameDoctor(o.name, result.lastDoctorName))
       : undefined;
-    setAssignedDoctor(lastDoctor?.name ?? '');
+    setAssignedDoctors(lastDoctor ? [lastDoctor.name] : []);
 
     const visit = result.lastVisit
       ? ` · last visit ${new Date(`${result.lastVisit.date}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}${result.lastVisit.department ? `, ${result.lastVisit.department}` : ''}`
@@ -231,7 +252,7 @@ export default function RegistrationDesk() {
         cleanCustomToken || undefined,
         1,
         undefined,
-        assignedDoctor || undefined
+        assignedDoctors
       );
 
       // The doctor and room the server settled on (null when no doctor was chosen).
@@ -259,7 +280,7 @@ export default function RegistrationDesk() {
       // can't be appended to this CRN, and this patient's doctor or priority can't carry
       // over to someone else by mistake.
       setPatientData({ uhid: '', name: '', phone: '' });
-      setAssignedDoctor('');
+      setAssignedDoctors([]);
       setPriority('NORMAL');
       setScanInfo(null);
       focusOnComputer(scanInputRef.current);
@@ -654,30 +675,82 @@ export default function RegistrationDesk() {
                         </div>
                       </div>
 
-                      {/* Doctor: the patient goes to the room this doctor is in */}
+                      {/* Doctors, in order of preference: the patient goes to the room of
+                          the first one who is in a room right now */}
                       <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-1.5">
                         <label htmlFor="assign-doctor" className="block text-sm font-semibold text-slate-700 flex items-center gap-2">
-                          <Stethoscope size={16} className="text-blue-600" /> Doctor
+                          <Stethoscope size={16} className="text-blue-600" />
+                          {assignedDoctors.length > 1 ? 'Doctors (in order of preference)' : 'Doctor'}
                         </label>
-                        <select
-                          id="assign-doctor"
-                          value={assignedDoctor}
-                          onChange={(e) => setAssignedDoctor(e.target.value)}
-                          className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-800 font-semibold focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all cursor-pointer"
-                        >
-                          <option value="">Any doctor (general line)</option>
-                          {doctorOptions.map((o) => (
-                            <option key={o.name} value={o.name}>
-                              {o.name}{o.room ? ` · Room ${o.room}` : ' · not in a room right now'}
+                        {chosenDoctors.length > 0 && (
+                          <ol className="space-y-1.5">
+                            {chosenDoctors.map((o, i) => (
+                              <li
+                                key={o.name}
+                                className={`flex items-center gap-2 bg-white border rounded-xl px-3 py-2 ${
+                                  i === pickIndex ? 'border-blue-400 ring-2 ring-blue-500/15' : 'border-slate-300'
+                                }`}
+                              >
+                                <span className="shrink-0 w-6 h-6 rounded-full bg-slate-100 text-slate-600 text-xs font-black flex items-center justify-center">
+                                  {i + 1}
+                                </span>
+                                <span className="flex-1 min-w-0">
+                                  <span className="block font-semibold text-slate-800 truncate">{o.name}</span>
+                                  <span className={`block text-xs ${o.room ? 'text-slate-500' : 'text-amber-700'}`}>
+                                    {o.room ? `Room ${o.room}` : 'Not in a room right now'}
+                                  </span>
+                                </span>
+                                {i > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => moveDoctorUp(i)}
+                                    className="shrink-0 px-2 py-1 text-xs font-bold text-slate-600 rounded-lg border border-slate-200 hover:bg-slate-100 cursor-pointer"
+                                    title="Move up"
+                                    aria-label={`Move ${o.name} up`}
+                                  >
+                                    ↑
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => removeDoctor(i)}
+                                  className="shrink-0 p-1 text-slate-400 hover:text-red-600 rounded-lg hover:bg-red-50 cursor-pointer"
+                                  title="Remove"
+                                  aria-label={`Remove ${o.name}`}
+                                >
+                                  <X size={16} />
+                                </button>
+                              </li>
+                            ))}
+                          </ol>
+                        )}
+                        {assignedDoctors.length < MAX_DOCTOR_CHOICES && unchosenDoctors.length > 0 && (
+                          <select
+                            id="assign-doctor"
+                            value=""
+                            onChange={(e) => addDoctor(e.target.value)}
+                            className="w-full bg-white border border-slate-300 rounded-xl px-4 py-3 text-slate-800 font-semibold focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all cursor-pointer"
+                          >
+                            <option value="">
+                              {assignedDoctors.length === 0 ? 'Any doctor (general line)' : '+ Add a next-choice doctor'}
                             </option>
-                          ))}
-                        </select>
+                            {unchosenDoctors.map((o) => (
+                              <option key={o.name} value={o.name}>
+                                {o.name}{o.room ? ` · Room ${o.room}` : ' · not in a room right now'}
+                              </option>
+                            ))}
+                          </select>
+                        )}
                         <p className="text-xs text-slate-500">
-                          {!assignedDoctor
-                            ? 'Any doctor can call this patient.'
-                            : chosenDoctor?.room
-                              ? `The patient goes to Room ${chosenDoctor.room}. The slip shows the doctor and room.`
-                              : 'This doctor is not in a room right now. The slip shows the room they last used.'}
+                          {chosenDoctors.length === 0
+                            ? 'Any doctor can call this patient. Choose more than one doctor to have a next choice.'
+                            : !pickedDoctor
+                              ? `${chosenDoctors.length > 1 ? 'None of these doctors is' : 'This doctor is not'} in a room right now. The patient goes to ${chosenDoctors[0].name} at the room they last used.`
+                              : pickIndex > 0
+                                ? `${chosenDoctors.slice(0, pickIndex).map((o) => o.name).join(', ')} ${pickIndex > 1 ? 'are' : 'is'} not in a room right now, so the patient goes to ${pickedDoctor.name}, Room ${pickedDoctor.room}.`
+                                : chosenDoctors.length > 1
+                                  ? `The patient goes to ${pickedDoctor.name}, Room ${pickedDoctor.room}. The next doctor is used only if they are not in a room.`
+                                  : `The patient goes to Room ${pickedDoctor.room}. Add another doctor as a next choice in case this one is not in a room.`}
                         </p>
                       </div>
 

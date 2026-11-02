@@ -3,13 +3,13 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   Users, CheckCircle, Clock,
   AlertTriangle, UserPlus, Settings, Bell, Stethoscope, ArrowRight,
-  Plus, Trash2, Edit2, Check, X, Building2, SkipForward, RotateCcw, Minus,
+  Plus, Edit2, Check, X, Building2, SkipForward, RotateCcw, Minus,
   CheckCircle2, GripVertical, CornerDownRight, Sparkles, Zap, ListOrdered,
   Play, Eye, LayoutGrid, ArrowRightLeft, Search, Hash, Volume2
 } from 'lucide-react';
 import {
-  callNextPatient, markTokenAction, recallPatient, bulkDeleteTokens,
-  getRooms, createRoom, updateRoom, deleteRoom, searchTokens, generateToken
+  callNextPatient, markTokenAction, recallPatient,
+  getRooms, createRoom, updateRoom, searchTokens, generateToken
 } from '../../lib/api';
 import { announcePatientCall } from '../../lib/speechService';
 import { useQueueStore } from '../../store/useQueueStore';
@@ -26,8 +26,6 @@ import {
   addTokenToRoomQueue,
   addMultipleTokensToRoomQueue,
   removeTokenFromRoomQueue,
-  clearRoomQueue,
-  clearAllRoomQueues,
   getAutoCallRooms,
   setAutoCallRoom,
   getAutoPullLimits,
@@ -119,8 +117,6 @@ export default function DoctorDashboard() {
   const [callingRoom, setCallingRoom] = useState<string | null>(null);
   const [recallingRoom, setRecallingRoom] = useState<string | null>(null);
   const [recallSuccessRoom, setRecallSuccessRoom] = useState<string | null>(null);
-  /** Which bulk clear is in flight: 'WAITING' for the sidebar, or a room number. */
-  const [isBulkDeleting, setIsBulkDeleting] = useState<string | null>(null);
 
   // UI Visibility State (Show/Hide checkboxes)
   const [uiSettings, setUiSettings] = useState<UiVisibilitySettings>(DEFAULT_UI_SETTINGS);
@@ -381,17 +377,6 @@ export default function DoctorDashboard() {
     }
   };
 
-  const handleDeleteRoom = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this room?')) return;
-    try {
-      await deleteRoom(id);
-      await fetchRooms();
-    } catch (err) {
-      console.error('Failed to delete room', err);
-      alert('Failed to delete room.');
-    }
-  };
-
   const saveEditRoom = async (id: string) => {
     if (!editRoomNumber.trim()) return;
     try {
@@ -508,133 +493,6 @@ export default function DoctorDashboard() {
     } catch (err: any) {
       console.error('Failed to quick add token:', err);
       throw err;
-    }
-  };
-
-  /** Deletes / cancels a token from the queue, after asking: it takes the patient out of the line. */
-  const handleDeleteTokenDirect = async (tokenIdentifier: string) => {
-    const clean = tokenIdentifier.replace(' 🚨', '').trim();
-    if (!clean) return;
-    const where = queueData.department ? ` (${queueData.department})` : '';
-    if (!window.confirm(`Delete token ${clean}${where}?\n\nThey will be taken out of today's line.`)) return;
-
-    // 1. Instantly remove optimistically from UI state for zero-lag responsiveness
-    const currentQueue = useQueueStore.getState().liveQueues[deptId];
-    if (currentQueue) {
-      useQueueStore.getState().updateQueueData(deptId, {
-        ...currentQueue,
-        nextTokens: (currentQueue.nextTokens || []).filter(
-          (t) => t.replace(' 🚨', '').trim().toLowerCase() !== clean.toLowerCase()
-        ),
-        activeTokens: (currentQueue.activeTokens || []).filter(
-          (t) => t.token.trim().toLowerCase() !== clean.toLowerCase()
-        ),
-      });
-    }
-
-    // Also remove from local search results if present
-    setDbSearchResults((prev) =>
-      prev.filter((st) => st.tokenNumber?.toLowerCase() !== clean.toLowerCase())
-    );
-
-    try {
-      // 2. Remove from room staged queue if staged
-      const currentStagedRoom = getStagedRoomForToken(tokenIdentifier);
-      if (currentStagedRoom) {
-        removeTokenFromRoomQueue(deptId, currentStagedRoom, clean);
-      }
-
-      // 3. Mark delete in backend / local storage. `clean` is a token *number*, which only
-      //    names a row once paired with a department — the same number is in use in every
-      //    other department today and on every previous day.
-      await markTokenAction(clean, 'DELETE', undefined, deptId);
-      refreshRoomSettings();
-      await useQueueStore.getState().fetchQueue(deptId);
-      showToast(`Token #${clean} deleted`, 2500);
-    } catch (err: any) {
-      console.error('Failed to delete token:', err);
-      // If error, re-fetch to restore true state
-      await useQueueStore.getState().fetchQueue(deptId);
-    }
-  };
-
-  /**
-   * Clears the whole general waiting line for this department.
-   *
-   * One request rather than a loop over `handleDeleteTokenDirect`: the server decides which
-   * tokens are WAITING, so a sidebar that is a few seconds stale cannot widen or narrow the
-   * delete, and a hundred-patient line does not drain visibly one token at a time.
-   */
-  const handleDeleteAllWaiting = async () => {
-    const total = (queueData.nextTokens || []).length;
-    if (total === 0) {
-      showToast('Waiting line is already empty.', 2500);
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `Delete all ${total} patient${total === 1 ? '' : 's'} from the ${queueData.department || ''} waiting line?\n\n` +
-      `They will be removed from the OPD queue for today. This cannot be undone.`
-    );
-    if (!confirmed) return;
-
-    setIsBulkDeleting('WAITING');
-    try {
-      const { deleted } = await bulkDeleteTokens(deptId, 'WAITING');
-      // Staged tokens are WAITING tokens a room has claimed, so they went with the line.
-      // Their staging entries have to go too, or each room keeps pointing at deleted rows.
-      clearAllRoomQueues(deptId);
-      refreshRoomSettings();
-      await useQueueStore.getState().fetchQueue(deptId);
-      showToast(`Waiting line cleared — ${deleted} patient${deleted === 1 ? '' : 's'} removed`, 3500);
-    } catch (err: any) {
-      console.error('Failed to clear waiting line:', err);
-      alert(err?.message || 'Failed to clear the waiting line.');
-      await useQueueStore.getState().fetchQueue(deptId);
-    } finally {
-      setIsBulkDeleting(null);
-    }
-  };
-
-  /** Clears one room: the patients called into it plus everything staged for it. */
-  const handleDeleteAllInRoom = async (roomNumber: string) => {
-    const staged = roomStagedQueues[roomNumber] || [];
-    const active = activePatientsByRoom.get(roomNumber) || [];
-    const total = staged.length + active.length;
-
-    if (total === 0) {
-      showToast(`Room ${roomNumber} is already empty.`, 2500);
-      return;
-    }
-
-    const parts = [
-      active.length > 0 ? `${active.length} active` : '',
-      staged.length > 0 ? `${staged.length} staged` : '',
-    ].filter(Boolean).join(' + ');
-
-    const confirmed = window.confirm(
-      `Clear Room ${roomNumber}? (${parts})\n\n` +
-      `These patients will be removed from the OPD queue for today. This cannot be undone.`
-    );
-    if (!confirmed) return;
-
-    setIsBulkDeleting(roomNumber);
-    try {
-      // Staging lives only in this browser, so the server cannot derive it — send the list.
-      const { deleted } = await bulkDeleteTokens(deptId, 'ROOM', {
-        roomNumber,
-        tokenNumbers: staged,
-      });
-      clearRoomQueue(deptId, roomNumber);
-      refreshRoomSettings();
-      await useQueueStore.getState().fetchQueue(deptId);
-      showToast(`Room ${roomNumber} cleared — ${deleted} patient${deleted === 1 ? '' : 's'} removed`, 3500);
-    } catch (err: any) {
-      console.error('Failed to clear room:', err);
-      alert(err?.message || `Failed to clear Room ${roomNumber}.`);
-      await useQueueStore.getState().fetchQueue(deptId);
-    } finally {
-      setIsBulkDeleting(null);
     }
   };
 
@@ -1069,32 +927,6 @@ export default function DoctorDashboard() {
                   {queueData.nextTokens.length} Patients Waiting
                 </p>
 
-                {/* Sits with the count rather than in the icon row above, so a destructive
-                    clear is never a slipped click away from "Add Patient". */}
-                {!simple && (
-                <button
-                  type="button"
-                  onClick={handleDeleteAllWaiting}
-                  disabled={queueData.nextTokens.length === 0 || isBulkDeleting !== null}
-                  className={`inline-flex items-center gap-1 px-2.5 py-1.5 sm:px-2 sm:py-0.5 rounded-lg text-[11px] sm:text-[10px] font-black uppercase tracking-wide border transition-all ${
-                    queueData.nextTokens.length === 0 || isBulkDeleting !== null
-                      ? 'bg-slate-900 text-slate-600 border-slate-800 cursor-not-allowed'
-                      : 'bg-red-950/60 text-red-300 border-red-800/70 hover:bg-red-600 hover:text-white hover:border-red-500 cursor-pointer active:scale-95'
-                  }`}
-                  title={
-                    queueData.nextTokens.length === 0
-                      ? 'Waiting line is already empty'
-                      : `Delete all ${queueData.nextTokens.length} patients from the waiting line`
-                  }
-                >
-                  {isBulkDeleting === 'WAITING' ? (
-                    <span className="w-2.5 h-2.5 border-2 border-red-300 border-t-transparent rounded-full animate-spin"></span>
-                  ) : (
-                    <Trash2 size={11} />
-                  )}
-                  <span>{isBulkDeleting === 'WAITING' ? 'Clearing...' : 'Delete All'}</span>
-                </button>
-                )}
               </div>
             </div>
             <div className={`flex gap-2 ${simple ? 'hidden' : ''}`}>
@@ -1350,18 +1182,6 @@ export default function DoctorDashboard() {
                         <CornerDownRight size={14} />
                       </button>
 
-                      {/* Delete Token Directly Button */}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteTokenDirect(tokenStr);
-                        }}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
-                        title={`Delete / Cancel Token ${token}`}
-                      >
-                        <Trash2 size={14} />
-                      </button>
                       </>)}
                     </div>
                   </div>
@@ -1443,14 +1263,6 @@ export default function DoctorDashboard() {
                             title="Assign to Room"
                           >
                             <CornerDownRight size={13} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteTokenDirect(st.tokenNumber)}
-                            className="p-1 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
-                            title={`Delete / Cancel Token ${st.tokenNumber}`}
-                          >
-                            <Trash2 size={13} />
                           </button>
                         </div>
                       </div>
@@ -1911,35 +1723,6 @@ export default function DoctorDashboard() {
                           <span>{isRecallSuccess ? 'Called!' : isRecalling ? 'Calling...' : 'Recall'}</span>
                         </button>
 
-                        {/* Clears the room: patients called into it, plus everything staged for it. */}
-                        {(() => {
-                          if (simple) return null;
-                          const roomTotal = activeList.length + stagedList.length;
-                          const busy = isBulkDeleting === room.roomNumber;
-                          return (
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteAllInRoom(room.roomNumber)}
-                              disabled={roomTotal === 0 || isBulkDeleting !== null}
-                              className={`p-2 rounded-xl transition-all shadow-sm ${
-                                roomTotal === 0 || isBulkDeleting !== null
-                                  ? 'bg-slate-100 text-slate-300 cursor-not-allowed'
-                                  : 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-600 hover:text-white hover:border-red-600 cursor-pointer active:scale-95'
-                              }`}
-                              title={
-                                roomTotal === 0
-                                  ? `Room ${room.roomNumber} is already empty`
-                                  : `Delete all ${roomTotal} patient${roomTotal === 1 ? '' : 's'} in Room ${room.roomNumber} (${activeList.length} active, ${stagedList.length} staged)`
-                              }
-                            >
-                              {busy ? (
-                                <span className="block w-3.5 h-3.5 border-2 border-red-500 border-t-transparent rounded-full animate-spin"></span>
-                              ) : (
-                                <Trash2 size={14} />
-                              )}
-                            </button>
-                          );
-                        })()}
                       </div>
                     </div>
 
@@ -2960,21 +2743,7 @@ export default function DoctorDashboard() {
               )}
             </div>
 
-            <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
-              <button
-                type="button"
-                onClick={() => {
-                  const tok = quickAssignToken;
-                  setQuickAssignToken(null);
-                  handleDeleteTokenDirect(tok);
-                }}
-                className="px-3 py-2 bg-red-950/60 hover:bg-red-900/80 text-red-400 hover:text-red-200 border border-red-800/80 text-xs font-bold rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer"
-                title="Delete this token from the queue"
-              >
-                <Trash2 size={13} />
-                <span>Delete Token</span>
-              </button>
-
+            <div className="pt-3 border-t border-slate-800 flex items-center justify-end">
               <button
                 type="button"
                 onClick={() => setQuickAssignToken(null)}
@@ -3141,7 +2910,7 @@ export default function DoctorDashboard() {
                   Rooms — {queueData.department || 'Medicine'}
                 </h2>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Add, edit, or delete consultation rooms for this department.
+                  Add or edit consultation rooms for this department. Rooms are deleted in the Admin panel.
                 </p>
               </div>
               <button
@@ -3267,13 +3036,6 @@ export default function DoctorDashboard() {
                                 title="Edit"
                               >
                                 <Edit2 size={14} />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteRoom(r.id)}
-                                className="p-1.5 text-slate-400 hover:text-red-400 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
-                                title="Delete"
-                              >
-                                <Trash2 size={14} />
                               </button>
                             </div>
                           </>
