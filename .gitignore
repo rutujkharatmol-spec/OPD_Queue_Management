@@ -11,3 +11,6 @@ CLAUDE.md
 *.tsbuildinfo
 .claude
 .neon
+
+# Tesseract OCR files, copied from node_modules by scripts/copy-ocr-assets.mjs
+apps/web/public/ocr/

@@ -449,6 +449,24 @@ function mmss(ms: number) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
+/**
+ * "Coming in · moved back if not here in 4:05". Ticks every second by itself, so only
+ * this badge re-renders each second, not the whole desk. null: the doctor is with
+ * another patient, so the clock is paused.
+ */
+function LateCountdown({ due }: { due: number | null }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (due === null) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(id);
+  }, [due]);
+  if (due === null) return <>Waiting at the door · you are with another patient</>;
+  const left = due - now;
+  return <>{left > 0 ? `Coming in · moved back if not here in ${mmss(left)}` : 'Late · moving back…'}</>;
+}
+
 const sameCrn = (a?: string | null, b?: string | null) =>
   !!normalizeCrn(a) && normalizeCrn(a) === normalizeCrn(b);
 
@@ -559,9 +577,10 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
     return () => useQueueStore.getState().disconnectWebSocket();
   }, [departmentId]);
 
-  // Every second, for the "late in 4:05" countdown on a called patient.
+  // Every 5 s: the late check and "called 3 min ago". The one-second countdown ticks on
+  // its own (LateCountdown) rather than re-rendering this whole screen every second.
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1_000);
+    const id = setInterval(() => setNow(Date.now()), 5_000);
     return () => clearInterval(id);
   }, []);
 
@@ -979,7 +998,6 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
           {patients.map((p) => {
             const inConsult = p.status === 'IN_PROGRESS';
             const due = lateAt(p);
-            const lateIn = due === null ? null : due - now;
             return (
               <li
                 key={p.id}
@@ -998,11 +1016,7 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
                   ) : (
                     <p className="mt-2 inline-flex items-center gap-1.5 text-xs font-black text-amber-800 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1">
                       <Clock size={13} />
-                      {lateIn === null
-                        ? 'Waiting at the door · you are with another patient'
-                        : lateIn > 0
-                          ? `Coming in · moved back if not here in ${mmss(lateIn)}`
-                          : 'Late · moving back…'}
+                      <LateCountdown due={due} />
                     </p>
                   )}
                 </div>

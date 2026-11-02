@@ -1,8 +1,7 @@
 "use client";
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useSearchParams, useRouter } from 'next/navigation';
-import { getDepartments, createDepartment, updateDepartment, deleteDepartment } from '../lib/api';
+import { useSearchParams } from 'next/navigation';
 
 import { useDepartmentStore } from '../store/useDepartmentStore';
 import { useSimpleMode } from '../lib/uiSettings';
@@ -15,7 +14,6 @@ interface Department {
 
 function HomeContent() {
   const searchParams = useSearchParams();
-  const router = useRouter();
   const urlDeptId = searchParams.get('deptId');
 
   // Narrow selectors: destructuring the hook subscribes to every store field, including
@@ -28,71 +26,25 @@ function HomeContent() {
   // Simple UI: department picker + two big buttons (Registration, Doctor Room), no admin actions or decoration.
   const simple = useSimpleMode();
 
-  const [isAddingDept, setIsAddingDept] = useState(false);
-  const [newDeptName, setNewDeptName] = useState('');
-  const [newDeptCode, setNewDeptCode] = useState('');
-
-  const [isManagingDept, setIsManagingDept] = useState(false);
-  const [editDeptName, setEditDeptName] = useState('');
-  const [editDeptCode, setEditDeptCode] = useState('');
-
   useEffect(() => {
     loadDepartments(urlDeptId);
   }, [urlDeptId, loadDepartments]);
 
-  const fetchDepartments = async () => {
-    await loadDepartments(urlDeptId);
-  };
-
-  const handleAddDepartment = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      await createDepartment(newDeptName, newDeptCode);
-      setIsAddingDept(false);
-      setNewDeptName('');
-      setNewDeptCode('');
-      fetchDepartments();
-    } catch (err) {
-      console.error('Failed to add department', err);
-      alert('Failed to add department. Please ensure API is running.');
-    }
-  };
-
-  const openManageModal = () => {
-    const dept = departments.find(d => d.id === selectedDeptId);
-    if (dept) {
-      setEditDeptName(dept.name);
-      setEditDeptCode(dept.code);
-      setIsManagingDept(true);
-    }
-  };
-
-  const handleUpdateDepartment = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedDeptId) return;
-    try {
-      await updateDepartment(selectedDeptId, editDeptName, editDeptCode);
-      setIsManagingDept(false);
-      fetchDepartments();
-    } catch (err) {
-      console.error('Failed to update department', err);
-      alert('Failed to update department.');
-    }
-  };
-
-  const handleDeleteDepartment = async () => {
-    if (!selectedDeptId) return;
-    if (!confirm('Are you sure you want to delete this department?')) return;
-    try {
-      await deleteDepartment(selectedDeptId);
-      setIsManagingDept(false);
-      setSelectedDeptId('');
-      fetchDepartments();
-    } catch (err) {
-      console.error('Failed to delete department', err);
-      alert('Failed to delete department. It might have existing rooms or tokens.');
-    }
-  };
+  // Patient numbers, view only: patients are edited and deleted in the admin panel.
+  // Hidden if they can't be loaded (offline, or not logged in yet).
+  const [patientStats, setPatientStats] = useState<{ total: number; totalUnique?: number; cameToday: number; totalTokens?: number } | null>(null);
+  useEffect(() => {
+    const load = () =>
+      fetch('/api/v1/patients/stats', { cache: 'no-store' })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (d && typeof d.total === 'number') setPatientStats(d);
+        })
+        .catch(() => {});
+    load();
+    const id = setInterval(load, 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   const getHref = (path: string) => {
     return selectedDeptId ? `${path}?deptId=${selectedDeptId}` : path;
@@ -101,23 +53,6 @@ function HomeContent() {
   return (
     <div className="min-h-screen bg-slate-950 text-white overflow-hidden relative selection:bg-blue-500/30">
       
-      {/* Top Navigation */}
-      <div className={`absolute top-0 left-0 right-0 p-4 sm:p-6 z-20 flex flex-col sm:flex-row justify-between items-center gap-3 ${simple ? '!hidden' : ''}`}>
-        <button 
-          onClick={openManageModal}
-          disabled={!selectedDeptId}
-          className="w-full sm:w-auto bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors border border-slate-700 shadow-lg flex items-center justify-center gap-2"
-        >
-          ⚙️ Manage Selected Dept
-        </button>
-        <button 
-          onClick={() => setIsAddingDept(true)}
-          className="w-full sm:w-auto bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors border border-slate-700 shadow-lg"
-        >
-          + ADD OPD Department
-        </button>
-      </div>
-
       {/* Dynamic Background Elements */}
       {!simple && (<>
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[500px] opacity-20 pointer-events-none">
@@ -152,7 +87,7 @@ function HomeContent() {
             {simple ? 'Choose your department' : 'Which department do you want to manage?'}
           </label>
           {departments.length === 0 ? (
-            <div className="text-slate-500 text-sm py-3">No departments found. Please add one first.</div>
+            <div className="text-slate-500 text-sm py-3">No departments yet. The admin adds them in Admin → Settings.</div>
           ) : (
             <select 
               value={selectedDeptId}
@@ -165,6 +100,26 @@ function HomeContent() {
             </select>
           )}
         </div>
+
+        {/* Patient numbers (view only) */}
+        {patientStats && (
+          <div className="mb-10 grid grid-cols-2 gap-3 w-full max-w-md">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/80 px-4 py-3 text-center">
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Real patients (All-Time)</p>
+              <p className="mt-1 text-3xl font-black tabular-nums text-white">
+                {(patientStats.totalUnique ?? patientStats.total).toLocaleString('en-IN')}
+              </p>
+              <p className="text-[10px] text-blue-400 font-medium">Unique (not counted twice)</p>
+            </div>
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/80 px-4 py-3 text-center">
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Real patients today</p>
+              <p className="mt-1 text-3xl font-black tabular-nums text-blue-300">
+                {patientStats.cameToday.toLocaleString('en-IN')}
+              </p>
+              <p className="text-[10px] text-slate-500 font-medium">Unique (not counted twice)</p>
+            </div>
+          </div>
+        )}
 
         {/* Modules Grid */}
         <div className={`grid grid-cols-1 sm:grid-cols-2 ${simple ? 'lg:grid-cols-2 max-w-3xl' : 'lg:grid-cols-3 max-w-5xl'} gap-6 w-full transition-all duration-300 ${!selectedDeptId ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
@@ -227,109 +182,6 @@ function HomeContent() {
 
         </div>
       </div>
-
-      {/* Add Department Modal */}
-      {isAddingDept && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 max-w-md w-full shadow-2xl relative">
-            <h2 className="text-2xl font-bold text-white mb-6">Create New Department</h2>
-            <form onSubmit={handleAddDepartment} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-400 mb-1">Department Name</label>
-                <input 
-                  type="text" 
-                  value={newDeptName}
-                  onChange={e => setNewDeptName(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="e.g. Orthopedics"
-                  required 
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-400 mb-1">Department Code (e.g. ORTHO)</label>
-                <input 
-                  type="text" 
-                  value={newDeptCode}
-                  onChange={e => setNewDeptCode(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="e.g. ORTHO"
-                  required 
-                />
-              </div>
-              <div className="pt-4 flex gap-3">
-                <button 
-                  type="button" 
-                  onClick={() => setIsAddingDept(false)}
-                  className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-semibold py-3 rounded-xl transition-colors"
-                >
-                  Cancel
-                </button>
-                <button 
-                  type="submit" 
-                  className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 rounded-xl transition-colors"
-                >
-                  Create
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Manage Department Modal */}
-      {isManagingDept && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 max-w-md w-full shadow-2xl relative">
-            <h2 className="text-2xl font-bold text-white mb-6">Manage Department</h2>
-            <form onSubmit={handleUpdateDepartment} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-400 mb-1">Department Name</label>
-                <input 
-                  type="text" 
-                  value={editDeptName}
-                  onChange={e => setEditDeptName(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required 
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-400 mb-1">Department Code</label>
-                <input 
-                  type="text" 
-                  value={editDeptCode}
-                  onChange={e => setEditDeptCode(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required 
-                />
-              </div>
-              <div className="pt-4 flex justify-between gap-3">
-                <button 
-                  type="button" 
-                  onClick={handleDeleteDepartment}
-                  className="bg-red-600/10 hover:bg-red-600/20 text-red-500 font-semibold py-3 px-6 rounded-xl transition-colors border border-red-600/20"
-                >
-                  Delete
-                </button>
-                <div className="flex flex-1 gap-3">
-                  <button 
-                    type="button" 
-                    onClick={() => setIsManagingDept(false)}
-                    className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-semibold py-3 rounded-xl transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    type="submit" 
-                    className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 rounded-xl transition-colors"
-                  >
-                    Save
-                  </button>
-                </div>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
     </div>
   );

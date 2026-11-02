@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Camera, Loader2, X } from 'lucide-react';
+import { Camera, Loader2, Type, X } from 'lucide-react';
+import { isNumberReaderReady, readNumber } from '../lib/numberOcr';
 
 /**
  * Reads a barcode with the device camera: the CRN on a patient's booklet, at registration
@@ -14,6 +15,12 @@ import { Camera, Loader2, X } from 'lucide-react';
  *
  * Browsers only allow the camera on a secure link: https, or localhost on the same
  * computer. On a plain http:// address (a server on the hospital network) it says so.
+ *
+ * Scan Text: when the barcode won't read, the printed number can be read instead. The
+ * barcode reader pauses, the picture freezes, and the part inside the green box is read
+ * once for digits (lib/numberOcr.ts). The digits go to `onDetected` exactly like a
+ * barcode, so the screens using this treat both the same. Nothing found: the camera
+ * carries on scanning barcodes.
  */
 
 // The AIIMS Kalyani OPD booklet prints the CR No (15 digits) as a small, dense 1-D barcode
@@ -92,6 +99,43 @@ export function useCameraAvailable(): boolean {
   return available;
 }
 
+/**
+ * The part of the camera picture inside the green box, as the person sees it, for Scan
+ * Text. The video fills its frame with object-cover (cropped, not stretched), so screen
+ * positions are mapped back to the camera's own pixels. Small pictures are enlarged:
+ * the text reader does best with digits about 30 pixels tall.
+ */
+function captureGuideBox(video: HTMLVideoElement): HTMLCanvasElement | null {
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  const w = video.clientWidth;
+  const h = video.clientHeight;
+  if (!vw || !vh || !w || !h) return null;
+
+  const scale = Math.max(w / vw, h / vh);
+  const offX = (w - vw * scale) / 2;
+  const offY = (h - vh * scale) / 2;
+  // The box: 16px in from each side, the middle quarter of the height (see the overlay
+  // below), plus a little above and below in case the number sits on its edge.
+  const pad = h * 0.05;
+  const toVideo = (px: number, off: number, max: number) => Math.min(max, Math.max(0, (px - off) / scale));
+  const sx = toVideo(16, offX, vw);
+  const sy = toVideo(h * 0.375 - pad, offY, vh);
+  const sw = toVideo(w - 16, offX, vw) - sx;
+  const sh = toVideo(h * 0.625 + pad, offY, vh) - sy;
+  if (sw < 8 || sh < 8) return null;
+
+  const enlarge = Math.min(3, Math.max(1, 1600 / sw));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(sw * enlarge);
+  canvas.height = Math.round(sh * enlarge);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
 /** The QR code on the queue slip is a web link, not a CRN. */
 export function isSlipQrCode(code: string): boolean {
   return /^https?:\/\//i.test(code.trim());
@@ -121,11 +165,21 @@ export default function BarcodeScanner({
   const acceptRef = useRef(accept);
   acceptRef.current = accept;
 
+  // Scan Text: 'loading' the first time (the reader's files), then 'reading'.
+  const [ocr, setOcr] = useState<'loading' | 'reading' | null>(null);
+  const [ocrNote, setOcrNote] = useState('');
+  // Set by the camera effect: pause and resume barcode decoding, and hand over a final
+  // code (the same last step a barcode read takes).
+  const controlRef = useRef<{ pause: () => void; resume: () => void; deliver: (code: string) => boolean } | null>(null);
+
   useEffect(() => {
     let stopped = false;
     let stream: MediaStream | null = null;
     let stopDecoding: (() => void) | null = null;
     let timer: number | undefined;
+    // While Scan Text reads a frozen picture, barcode decoding is paused.
+    let paused = false;
+    let restartZxing: (() => Promise<void>) | null = null;
 
     const cleanup = () => {
       if (timer) window.clearTimeout(timer);
@@ -138,8 +192,17 @@ export default function BarcodeScanner({
     // The booklet barcode has no check digit, so one frame can misread a bar group. Take a
     // code only when it passes `accept` and the same value is read twice in a row.
     let lastRead = '';
+    // The one way a code leaves the scanner, from a barcode or from Scan Text.
+    const finish = (code: string) => {
+      stopped = true;
+      cleanup();
+      try {
+        navigator.vibrate?.(80);
+      } catch {}
+      onDetectedRef.current(code);
+    };
     const found = (code: string) => {
-      if (stopped || !code) return;
+      if (stopped || paused || !code) return;
       if (acceptRef.current && !acceptRef.current(code)) {
         lastRead = '';
         return;
@@ -148,12 +211,29 @@ export default function BarcodeScanner({
         lastRead = code;
         return;
       }
-      stopped = true;
-      cleanup();
-      try {
-        navigator.vibrate?.(80);
-      } catch {}
-      onDetectedRef.current(code);
+      finish(code);
+    };
+
+    controlRef.current = {
+      pause: () => {
+        paused = true;
+        lastRead = '';
+        try {
+          stopDecoding?.();
+        } catch {}
+        stopDecoding = null;
+      },
+      resume: () => {
+        if (stopped || !paused) return;
+        paused = false;
+        lastRead = '';
+        void restartZxing?.();
+      },
+      deliver: (code: string) => {
+        if (stopped) return false;
+        finish(code);
+        return true;
+      },
     };
 
     const fail = (text: string) => {
@@ -206,7 +286,7 @@ export default function BarcodeScanner({
         const tick = async () => {
           if (stopped) return;
           try {
-            if (video.readyState >= 2) {
+            if (!paused && video.readyState >= 2) {
               const codes = await detector.detect(video);
               const code = codes?.[0]?.rawValue?.trim();
               if (code) found(code); // keeps scanning until a read is confirmed
@@ -237,12 +317,17 @@ export default function BarcodeScanner({
           ],
         ]);
         const reader = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: SCAN_EVERY_MS });
-        const controls = await reader.decodeFromVideoElement(video, (result) => {
-          const code = result?.getText()?.trim();
-          if (code) found(code);
-        });
-        stopDecoding = () => controls.stop();
-        if (stopped) controls.stop();
+        // Stopping ZXing leaves the camera on (the video element is ours), so after Scan
+        // Text it is simply started again on the same video.
+        restartZxing = async () => {
+          const controls = await reader.decodeFromVideoElement(video, (result) => {
+            const code = result?.getText()?.trim();
+            if (code) found(code);
+          });
+          if (stopped || paused) controls.stop();
+          else stopDecoding = () => controls.stop();
+        };
+        await restartZxing();
       } catch {
         fail('Could not start the barcode reader. Type the CRN instead.');
       }
@@ -250,9 +335,45 @@ export default function BarcodeScanner({
 
     return () => {
       stopped = true;
+      controlRef.current = null;
       cleanup();
     };
   }, []);
+
+  /**
+   * Scan Text: pause barcode reading, freeze the picture, read the digits inside the
+   * green box once, and hand them on like a barcode. If no number is found, say so and
+   * go back to scanning.
+   */
+  const scanText = async () => {
+    const control = controlRef.current;
+    const video = videoRef.current;
+    if (!control || !video || ocr) return;
+    control.pause();
+    video.pause(); // the frozen picture is the one being read
+    setOcrNote('');
+    setOcr(isNumberReaderReady() ? 'reading' : 'loading');
+    let code: string | null = null;
+    let failed = false;
+    try {
+      const picture = captureGuideBox(video);
+      if (picture) {
+        code = await readNumber(picture, (digits) => !acceptRef.current || acceptRef.current(digits));
+      }
+    } catch {
+      failed = true;
+    }
+    if (code && controlRef.current?.deliver(code)) return;
+    if (!controlRef.current) return; // closed while reading
+    setOcr(null);
+    setOcrNote(
+      failed
+        ? "The text reader couldn't start. Scan the barcode, or type the CR No."
+        : "Couldn't read a number. Hold the CR No digits inside the green box, keep still, and tap Scan Text again."
+    );
+    await video.play().catch(() => {});
+    controlRef.current?.resume();
+  };
 
   // Escape closes; the page behind doesn't scroll while the camera is open.
   useEffect(() => {
@@ -301,6 +422,24 @@ export default function BarcodeScanner({
               className="absolute inset-x-4 top-1/2 -translate-y-1/2 h-1/4 rounded-xl border-4 border-emerald-400 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]"
             />
           )}
+          {status === 'scanning' && ocr && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/40 text-white">
+              <Loader2 className="animate-spin" size={28} />
+              <span className="text-sm font-semibold">
+                {ocr === 'loading' ? 'Getting the text reader ready…' : 'Reading the number…'}
+              </span>
+            </div>
+          )}
+          {status === 'scanning' && (
+            <button
+              type="button"
+              onClick={() => void scanText()}
+              disabled={!!ocr}
+              className="absolute bottom-3 left-1/2 -translate-x-1/2 min-h-11 px-4 rounded-full bg-white/90 text-slate-900 text-sm font-black flex items-center gap-2 shadow-lg hover:bg-white disabled:opacity-60"
+            >
+              <Type size={16} /> Scan Text
+            </button>
+          )}
           {status === 'starting' && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-white">
               <Loader2 className="animate-spin" size={28} />
@@ -317,7 +456,13 @@ export default function BarcodeScanner({
         {status !== 'error' && (
           <p className="mt-3 text-center text-sm text-slate-300">
             Point at the barcode next to <strong className="text-white">CR No</strong> on the booklet. Move closer until
-            it fills the green box and looks sharp. It is read by itself.
+            it fills the green box and looks sharp. It is read by itself. If it won&rsquo;t read, put the printed CR No
+            digits in the box and tap <strong className="text-white">Scan Text</strong>.
+          </p>
+        )}
+        {status !== 'error' && ocrNote && (
+          <p role="alert" className="mt-2 text-center text-sm font-semibold text-amber-300">
+            {ocrNote}
           </p>
         )}
         <button

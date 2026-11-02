@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   Activity, AlertTriangle, BarChart3, Building2, CheckCircle2, DoorOpen, Loader2, LogOut,
-  Pencil, Plus, RefreshCw, Settings as SettingsIcon, Stethoscope, Trash2, Users, Wrench, X,
+  Pencil, Plus, RefreshCw, Search, Settings as SettingsIcon, Stethoscope, Trash2, User, Users, Wrench, X,
 } from 'lucide-react';
 import { splitDoctorNames } from '@/lib/roomDoctors';
 
@@ -14,9 +14,13 @@ import { splitDoctorNames } from '@/lib/roomDoctors';
 
 type Department = { id: string; name: string; code: string };
 
-/** Calls an admin API route. A 401 means the session ended: reload to the login form. */
+/**
+ * Calls an admin API route. A 401 means the session ended: reload to the login form.
+ * A path starting with /api/ is used as it is: the shared delete routes (departments,
+ * rooms, tokens), which only accept the admin login.
+ */
 async function adminFetch<T = any>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api/v1/admin${path}`, {
+  const res = await fetch(path.startsWith('/api/') ? path : `/api/v1/admin${path}`, {
     ...init,
     cache: 'no-store',
     headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
@@ -38,7 +42,7 @@ function todayLocal(): string {
 /** Names that are probably typing mistakes rather than a doctor ("132", "x"). */
 const looksWrong = (name?: string | null) => !!name && (/^\d+$/.test(name.trim()) || name.trim().length < 3);
 
-type Tab = 'overview' | 'doctors' | 'cleanup';
+type Tab = 'overview' | 'patients' | 'doctors' | 'cleanup';
 
 export default function AdminDashboard() {
   const [tab, setTab] = useState<Tab>('overview');
@@ -62,6 +66,7 @@ export default function AdminDashboard() {
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'overview', label: "Today's overview", icon: <Activity size={16} /> },
+    { id: 'patients', label: 'Patients', icon: <User size={16} /> },
     { id: 'doctors', label: 'Doctors & Rooms', icon: <Stethoscope size={16} /> },
     { id: 'cleanup', label: 'Clean up', icon: <Wrench size={16} /> },
   ];
@@ -106,6 +111,7 @@ export default function AdminDashboard() {
 
       <main className="max-w-6xl mx-auto px-4 py-6">
         {tab === 'overview' && <OverviewTab />}
+        {tab === 'patients' && <PatientsTab notify={notify} />}
         {tab === 'doctors' && <DoctorsTab notify={notify} />}
         {tab === 'cleanup' && <CleanupTab notify={notify} />}
       </main>
@@ -133,6 +139,7 @@ type RoomStat = { roomNumber: string; doctorName?: string; activeCount: number; 
 type DoctorStat = { doctorName: string | null; rooms: string[]; servedCount: number; inConsultationCount: number; noShowCount: number; avgConsultMins: number };
 type DeptOverview = Department & {
   totalGenerated: number;
+  uniquePatientsCount: number;
   waitingCount: number;
   inRoomCount: number;
   servedCount: number;
@@ -143,7 +150,7 @@ type DeptOverview = Department & {
   doctorStats: DoctorStat[];
 };
 
-function Stat({ label, value, tone = 'slate' }: { label: string; value: number | string; tone?: 'slate' | 'blue' | 'emerald' | 'amber' | 'rose' }) {
+function Stat({ label, value, tone = 'slate', subtext }: { label: string; value: number | string; tone?: 'slate' | 'blue' | 'emerald' | 'amber' | 'rose'; subtext?: string }) {
   const colors = {
     slate: 'text-slate-900',
     blue: 'text-blue-700',
@@ -152,22 +159,31 @@ function Stat({ label, value, tone = 'slate' }: { label: string; value: number |
     rose: 'text-rose-700',
   };
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 p-4">
-      <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">{label}</p>
-      <p className={`mt-1 text-3xl font-black leading-none ${colors[tone]}`}>{value}</p>
+    <div className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-col justify-between">
+      <div>
+        <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">{label}</p>
+        <p className={`mt-1 text-3xl font-black leading-none ${colors[tone]}`}>{value}</p>
+      </div>
+      {subtext && <p className="mt-2 text-[11px] font-bold text-slate-400">{subtext}</p>}
     </div>
   );
 }
 
 function OverviewTab() {
-  const [data, setData] = useState<{ date: string; departments: DeptOverview[] } | null>(null);
+  const [data, setData] = useState<{ date: string; totalUniquePatients?: number; totalTokens?: number; departments: DeptOverview[] } | null>(null);
+  const [patientCounts, setPatientCounts] = useState<PatientCounts | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setData(await adminFetch('/overview'));
+      const [overview, patients] = await Promise.all([
+        adminFetch('/overview'),
+        adminFetch<PatientCounts>('/patients').catch(() => null),
+      ]);
+      setData(overview);
+      if (patients) setPatientCounts(patients);
       setError('');
     } catch (e: any) {
       setError(e?.message || 'Could not load the overview.');
@@ -210,8 +226,20 @@ function OverviewTab() {
       </div>
       {error && <p className="text-rose-700 text-sm font-semibold">{error}</p>}
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <Stat label="Tokens today" value={totals.total} />
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+        <Stat
+          label="Real Patients All-Time"
+          value={patientCounts?.totalUnique ?? patientCounts?.total ?? '…'}
+          tone="blue"
+          subtext="Unique (not counted twice)"
+        />
+        <Stat
+          label="Real patients today"
+          value={data.totalUniquePatients ?? patientCounts?.cameToday ?? totals.total}
+          tone="emerald"
+          subtext="Unique (not counted twice)"
+        />
+        <Stat label="Tokens today" value={totals.total} subtext="Total tokens issued" />
         <Stat label="Waiting" value={totals.waiting} tone="blue" />
         <Stat label="In rooms" value={totals.inRoom} tone="amber" />
         <Stat label="Served" value={totals.served} tone="emerald" />
@@ -226,6 +254,7 @@ function OverviewTab() {
               <span className="text-xs font-bold text-slate-400">{d.code}</span>
             </h2>
             <p className="text-sm text-slate-600">
+              <strong className="text-blue-700 font-black">{d.uniquePatientsCount ?? d.totalGenerated}</strong> real patient{(d.uniquePatientsCount ?? d.totalGenerated) === 1 ? '' : 's'} ({d.totalGenerated} token{d.totalGenerated === 1 ? '' : 's'}) ·{' '}
               <strong>{d.waitingCount}</strong> waiting · <strong>{d.inRoomCount}</strong> in rooms ·{' '}
               <strong className="text-emerald-700">{d.servedCount}</strong> served · <strong>{d.absentCount}</strong> absent
               {d.avgWaitTimeMins ? <> · avg wait {d.avgWaitTimeMins} min</> : null}
@@ -303,6 +332,290 @@ function Spinner() {
   return (
     <div className="py-20 flex justify-center text-slate-400">
       <Loader2 className="animate-spin" />
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Patients                                                            */
+/* ------------------------------------------------------------------ */
+
+type PatientCounts = { total: number; totalUnique: number; cameToday: number; totalTokens: number; tokensToday: number };
+type PatientRow = {
+  id: string;
+  name: string;
+  phone: string;
+  uhid: string;
+  registeredAt: string;
+  tokenCount: number;
+  lastVisit: { date: string; tokenNumber: string; department: string } | null;
+};
+type PatientSearch = PatientCounts & { query: string; patients: PatientRow[]; more?: boolean };
+
+const showDate = (iso: string) =>
+  new Date(iso.length === 10 ? `${iso}T00:00:00` : iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+
+function PatientsTab({ notify }: { notify: (text: string, bad?: boolean) => void }) {
+  const [counts, setCounts] = useState<PatientCounts | null>(null);
+  const [query, setQuery] = useState('');
+  const [result, setResult] = useState<PatientSearch | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [editing, setEditing] = useState<{ id: string; name: string; uhid: string; phone: string } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [deleteAllConfirm, setDeleteAllConfirm] = useState('');
+  const [deletingAll, setDeletingAll] = useState(false);
+
+  const search = useCallback(
+    async (q: string) => {
+      setSearching(true);
+      try {
+        const r = await adminFetch<PatientSearch>(`/patients?q=${encodeURIComponent(q)}`);
+        setCounts(r);
+        setResult(q ? r : null);
+      } catch (e: any) {
+        notify(e?.message || 'Could not search patients.', true);
+      } finally {
+        setSearching(false);
+      }
+    },
+    [notify]
+  );
+
+  // Counts on open; results as the admin types (after a short pause).
+  useEffect(() => {
+    const q = query.trim();
+    const id = setTimeout(() => void search(q.length >= 2 ? q : ''), q ? 350 : 0);
+    return () => clearTimeout(id);
+  }, [query, search]);
+
+  const remove = async (p: PatientRow) => {
+    const what = [p.name, p.uhid && `CR No ${p.uhid}`, p.phone].filter(Boolean).join(' · ');
+    const tokens = p.tokenCount ? ` and their ${p.tokenCount} token${p.tokenCount === 1 ? '' : 's'}` : '';
+    if (!window.confirm(`Delete ${what}${tokens}?\n\nThey will disappear from every queue, TV, search and report.`)) return;
+    setDeleting(p.id);
+    try {
+      await adminFetch(`/patients/${p.id}`, { method: 'DELETE' });
+      notify(`Deleted ${p.name}`);
+      await search(query.trim().length >= 2 ? query.trim() : '');
+    } catch (e: any) {
+      notify(e?.message || 'Could not delete.', true);
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  const save = async () => {
+    if (!editing || saving) return;
+    setSaving(true);
+    try {
+      const r = await adminFetch(`/patients/${editing.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name: editing.name, uhid: editing.uhid, phone: editing.phone }),
+      });
+      notify(`Saved ${r.name}`);
+      setEditing(null);
+      await search(query.trim().length >= 2 ? query.trim() : '');
+    } catch (e: any) {
+      notify(e?.message || 'Could not save.', true);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeAll = async () => {
+    if (deletingAll || (deleteAllConfirm !== 'DELETE' && deleteAllConfirm !== 'DELETE ALL')) return;
+    const total = counts?.total ?? 0;
+    if (
+      !window.confirm(
+        `Are you SURE you want to delete ALL patients and their tokens?\n\nThis will remove all ${total} registered patient${
+          total === 1 ? '' : 's'
+        } and their active tokens from every queue, TV, search, and report.`
+      )
+    ) {
+      return;
+    }
+    setDeletingAll(true);
+    try {
+      const res = await adminFetch<{ patientsCount: number; tokensCount: number }>('/patients', {
+        method: 'DELETE',
+        body: JSON.stringify({ confirm: 'DELETE' }),
+      });
+      notify(`Deleted all ${res.patientsCount} patients (${res.tokensCount} token${res.tokensCount === 1 ? '' : 's'} removed)`);
+      setDeleteAllConfirm('');
+      setResult(null);
+      setQuery('');
+      const updated = await adminFetch<PatientSearch>('/patients');
+      setCounts(updated);
+    } catch (e: any) {
+      notify(e?.message || 'Could not delete all patients.', true);
+    } finally {
+      setDeletingAll(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-2xl">
+        <Stat
+          label="Real Patients All-Time"
+          value={counts?.totalUnique ?? counts?.total ?? '…'}
+          tone="blue"
+          subtext="Unique (not counted twice)"
+        />
+        <Stat
+          label="Real Patients Today"
+          value={counts?.cameToday ?? '…'}
+          tone="emerald"
+          subtext="Came today (unique)"
+        />
+        <Stat
+          label="Total Tokens All-Time"
+          value={counts?.totalTokens ?? '…'}
+          subtext="Queue visits recorded"
+        />
+      </div>
+
+      <section className="bg-white rounded-3xl border border-slate-200 p-4 sm:p-6">
+        <h2 className="text-lg font-black flex items-center gap-2">
+          <Search size={18} className="text-blue-600" /> Find a patient
+        </h2>
+        <p className="text-sm text-slate-500 mt-1">
+          Search by name, CR No or mobile. Edit fixes a wrong name, CR No or mobile everywhere it shows. Deleting a
+          patient also removes their tokens from every queue, TV and report. It is kept in the database, so it can be
+          recovered if needed.
+        </p>
+        <div className="mt-4 relative">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="e.g. Ravi Kumar, 12345678 or 98XXXXXXXX"
+            className="w-full min-h-11 pl-9 pr-10 rounded-xl border border-slate-300 bg-slate-50 font-semibold outline-none focus:border-blue-500 focus:bg-white"
+          />
+          {searching && <Loader2 size={16} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-slate-400" />}
+        </div>
+
+        {query.trim().length === 1 && <p className="mt-3 text-sm text-slate-400">Type at least 2 letters or digits.</p>}
+
+        {result && (
+          <>
+            <p className="mt-4 text-xs font-bold text-slate-500 uppercase tracking-wide">
+              {result.patients.length === 0
+                ? 'No patients found'
+                : `${result.patients.length}${result.more ? '+' : ''} found${result.more ? ' · showing the 50 most recent, type more to narrow it down' : ''}`}
+            </p>
+            <ul className="mt-2 divide-y divide-slate-100">
+              {result.patients.map((p) => (
+                <li key={p.id} className="py-3 flex flex-wrap items-center gap-2">
+                  {editing?.id === p.id ? (
+                    <form
+                      className="flex-1 grid sm:grid-cols-[2fr_1.5fr_1.2fr_auto_auto] gap-2"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        void save();
+                      }}
+                    >
+                      <input
+                        autoFocus
+                        aria-label="Name"
+                        value={editing.name}
+                        onChange={(e) => setEditing({ ...editing, name: e.target.value })}
+                        placeholder="Name"
+                        className="min-h-10 px-3 rounded-xl border border-blue-400 font-semibold outline-none"
+                      />
+                      <input
+                        aria-label="CR No"
+                        inputMode="numeric"
+                        value={editing.uhid}
+                        onChange={(e) => setEditing({ ...editing, uhid: e.target.value })}
+                        placeholder="CR No"
+                        className="min-h-10 px-3 rounded-xl border border-slate-300 font-semibold font-mono outline-none focus:border-blue-500"
+                      />
+                      <input
+                        aria-label="Mobile"
+                        inputMode="tel"
+                        value={editing.phone}
+                        onChange={(e) => setEditing({ ...editing, phone: e.target.value })}
+                        placeholder="Mobile"
+                        className="min-h-10 px-3 rounded-xl border border-slate-300 font-semibold outline-none focus:border-blue-500"
+                      />
+                      <button type="submit" disabled={saving || !editing.name.trim()} className="min-h-10 px-4 rounded-xl bg-blue-600 text-white font-bold disabled:bg-slate-300">
+                        {saving ? <Loader2 size={14} className="animate-spin" /> : 'Save'}
+                      </button>
+                      <button type="button" onClick={() => setEditing(null)} className="min-h-10 px-3 rounded-xl bg-slate-100 font-bold">
+                        Cancel
+                      </button>
+                    </form>
+                  ) : (
+                  <>
+                  <div className="flex-1 min-w-56">
+                    <p className="font-bold">{p.name}</p>
+                    <p className="text-xs text-slate-500">
+                      {[
+                        p.uhid ? `CR No ${p.uhid}` : 'No CR No',
+                        p.phone || 'No mobile',
+                        `${p.tokenCount} token${p.tokenCount === 1 ? '' : 's'}`,
+                        p.lastVisit
+                          ? `last visit ${showDate(p.lastVisit.date)}${p.lastVisit.department ? `, ${p.lastVisit.department}` : ''} (#${p.lastVisit.tokenNumber})`
+                          : `registered ${showDate(p.registeredAt)}`,
+                      ].join(' · ')}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setEditing({ id: p.id, name: p.name, uhid: p.uhid, phone: p.phone })}
+                    className="min-h-9 px-3 rounded-xl bg-slate-100 text-sm font-bold flex items-center gap-1"
+                  >
+                    <Pencil size={14} /> Edit
+                  </button>
+                  <button
+                    type="button"
+                    disabled={deleting !== null}
+                    onClick={() => void remove(p)}
+                    className="min-h-9 px-3 rounded-xl bg-rose-50 text-rose-700 border border-rose-200 text-sm font-bold flex items-center gap-1 disabled:opacity-50"
+                  >
+                    {deleting === p.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />} Delete
+                  </button>
+                  </>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </section>
+
+      <section className="bg-white rounded-3xl border border-rose-200 p-5 sm:p-6">
+        <h3 className="text-base font-black text-rose-800 flex items-center gap-2">
+          <Trash2 size={18} /> Delete all patients
+        </h3>
+        <p className="text-sm text-slate-600 mt-1 max-w-2xl">
+          Removes all registered patients and their associated tokens from queues, TVs, search, and reports.
+          Soft-deleted records remain recoverable in the database.
+          {counts?.total !== undefined ? (
+            <> Currently <strong>{counts.total}</strong> registered patient{counts.total === 1 ? '' : 's'}.</>
+          ) : null}
+        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <input
+            value={deleteAllConfirm}
+            onChange={(e) => setDeleteAllConfirm(e.target.value)}
+            placeholder="Type DELETE"
+            className="min-h-10 px-3 rounded-xl border border-slate-300 bg-slate-50 font-semibold w-36 outline-none focus:border-rose-500 focus:bg-white"
+          />
+          <button
+            type="button"
+            disabled={deletingAll || (deleteAllConfirm !== 'DELETE' && deleteAllConfirm !== 'DELETE ALL') || !counts?.total}
+            onClick={() => void removeAll()}
+            className="min-h-10 px-4 rounded-xl bg-rose-600 text-white font-bold disabled:bg-slate-200 disabled:text-slate-400 flex items-center gap-1.5 transition-colors"
+          >
+            {deletingAll ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+            Delete all patients
+          </button>
+        </div>
+      </section>
     </div>
   );
 }
@@ -477,7 +790,8 @@ function DoctorsTab({ notify }: { notify: (text: string, bad?: boolean) => void 
         <h2 className="text-lg font-black flex items-center gap-2"><DoorOpen size={18} className="text-blue-600" /> Doctors in each room</h2>
         <p className="text-sm text-slate-500 mt-1">
           These names show on the TV and the Doctor Desk. Separate doctors sharing a room with a comma. A doctor is in
-          one room at a time, so adding them here takes them off any other room. Add or remove rooms themselves in Settings.
+          one room at a time, so adding them here takes them off any other room. New rooms are added on the Doctor Room
+          screen; deleting a room is done here only.
         </p>
         {data.departments.map((dept) => {
           const rooms = data.rooms
@@ -531,6 +845,20 @@ function DoctorsTab({ notify }: { notify: (text: string, bad?: boolean) => void 
                       >
                         <X size={14} /> Clear
                       </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => {
+                          if (!window.confirm(`Delete Room ${room.roomNumber} (${dept.name})? It disappears from the TV, the Doctor Room and the Doctor Desk.`)) return;
+                          void run(async () => {
+                            await adminFetch(`/api/v1/settings/rooms/${room.id}`, { method: 'DELETE' });
+                            return `Deleted Room ${room.roomNumber}`;
+                          });
+                        }}
+                        className="min-h-10 px-3 rounded-xl bg-rose-50 text-rose-700 border border-rose-200 text-sm font-bold flex items-center gap-1 disabled:opacity-50"
+                      >
+                        <Trash2 size={14} /> Delete
+                      </button>
                     </li>
                   );
                 })}
@@ -539,6 +867,11 @@ function DoctorsTab({ notify }: { notify: (text: string, bad?: boolean) => void 
           );
         })}
       </section>
+
+      <p className="text-sm text-slate-500 flex items-center gap-1.5">
+        <Building2 size={14} /> Departments are added, renamed and deleted in{' '}
+        <Link href="/settings" className="font-bold text-blue-700 underline">Settings</Link>.
+      </p>
     </div>
   );
 }
@@ -547,7 +880,7 @@ function DoctorsTab({ notify }: { notify: (text: string, bad?: boolean) => void 
 /* Clean up                                                            */
 /* ------------------------------------------------------------------ */
 
-type Counts = { waiting: number; inRooms: number; stale: number; onDate: number };
+type Counts = { waiting: number; inRooms: number; stale: number; onDate: number; allPatients?: number };
 
 function CleanupTab({ notify }: { notify: (text: string, bad?: boolean) => void }) {
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -555,16 +888,41 @@ function CleanupTab({ notify }: { notify: (text: string, bad?: boolean) => void 
   const [date, setDate] = useState(todayLocal());
   const [counts, setCounts] = useState<Counts | null>(null);
   const [confirmText, setConfirmText] = useState('');
+  const [confirmPatientsText, setConfirmPatientsText] = useState('');
   const [busy, setBusy] = useState(false);
+  // Moved here from the Doctor Room screen: clearing one room, deleting one token.
+  const [allRooms, setAllRooms] = useState<Room[]>([]);
+  const [clearRoomNumber, setClearRoomNumber] = useState('');
+  const [tokenToDelete, setTokenToDelete] = useState('');
 
   useEffect(() => {
-    adminFetch<{ departments: Department[] }>('/doctors')
+    adminFetch<{ departments: Department[]; rooms: Room[] }>('/doctors')
       .then((d) => {
         setDepartments(d.departments);
+        setAllRooms(d.rooms ?? []);
         setDeptId((cur) => cur || d.departments[0]?.id || '');
       })
       .catch((e) => notify(e?.message || 'Could not load departments.', true));
   }, [notify]);
+
+  const deptRooms = allRooms
+    .filter((r) => r.departmentId === deptId)
+    .sort((a, b) => a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true }));
+  useEffect(() => setClearRoomNumber(''), [deptId]);
+
+  /** For the shared delete routes: one call, then a message and fresh counts. */
+  const runDelete = async (question: string, call: () => Promise<string>) => {
+    if (busy || !window.confirm(question)) return;
+    setBusy(true);
+    try {
+      notify(await call());
+      await loadCounts();
+    } catch (e: any) {
+      notify(e?.message || 'Something went wrong.', true);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const loadCounts = useCallback(async () => {
     if (!deptId) return;
@@ -629,6 +987,79 @@ function CleanupTab({ notify }: { notify: (text: string, bad?: boolean) => void 
           disabled={busy}
           onClick={() => act('clear-rooms', `Remove all ${counts?.inRooms ?? ''} in-room tokens in ${dept?.name} today?`)}
         />
+        <div className="bg-white rounded-3xl border border-slate-200 p-5">
+          <p className="font-black">Clear one room</p>
+          <p className="text-sm text-slate-600 mt-1">
+            The patients called into a room and everyone sent to it, in {dept?.name ?? 'this department'} today.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <select
+              value={clearRoomNumber}
+              onChange={(e) => setClearRoomNumber(e.target.value)}
+              aria-label="Room"
+              className="min-h-10 px-3 rounded-xl border border-slate-300 bg-slate-50 font-semibold"
+            >
+              <option value="">Choose a room</option>
+              {deptRooms.map((r) => (
+                <option key={r.id} value={r.roomNumber}>Room {r.roomNumber}{r.doctorName ? ` · ${r.doctorName}` : ''}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={busy || !clearRoomNumber}
+              onClick={() =>
+                void runDelete(`Clear Room ${clearRoomNumber} in ${dept?.name}? Its patients are taken out of today's queue.`, async () => {
+                  const r = await adminFetch<{ deleted: number }>(`/api/v1/queue/bulk-delete/${deptId}`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ scope: 'ROOM', roomNumber: clearRoomNumber }),
+                  });
+                  return `Room ${clearRoomNumber} cleared: ${r.deleted} token${r.deleted === 1 ? '' : 's'} removed`;
+                })
+              }
+              className="min-h-10 px-4 rounded-xl bg-slate-900 text-white text-sm font-bold disabled:bg-slate-200 disabled:text-slate-400"
+            >
+              Clear room
+            </button>
+          </div>
+        </div>
+        <div className="bg-white rounded-3xl border border-slate-200 p-5">
+          <p className="font-black">Delete one token</p>
+          <p className="text-sm text-slate-600 mt-1">
+            Takes one patient out of today&rsquo;s queue in {dept?.name ?? 'this department'}, by token number.
+          </p>
+          <form
+            className="mt-3 flex flex-wrap items-center gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const num = tokenToDelete.trim();
+              if (!num) return;
+              void runDelete(`Delete token ${num} in ${dept?.name} today?`, async () => {
+                await adminFetch(`/api/v1/queue/action/${encodeURIComponent(num)}`, {
+                  method: 'PATCH',
+                  body: JSON.stringify({ action: 'DELETE', departmentId: deptId }),
+                });
+                setTokenToDelete('');
+                return `Token ${num} deleted`;
+              });
+            }}
+          >
+            <input
+              value={tokenToDelete}
+              onChange={(e) => setTokenToDelete(e.target.value)}
+              placeholder="Token number"
+              inputMode="numeric"
+              aria-label="Token number"
+              className="min-h-10 px-3 rounded-xl border border-slate-300 bg-slate-50 font-semibold w-36"
+            />
+            <button
+              type="submit"
+              disabled={busy || !tokenToDelete.trim()}
+              className="min-h-10 px-4 rounded-xl bg-slate-900 text-white text-sm font-bold disabled:bg-slate-200 disabled:text-slate-400"
+            >
+              Delete token
+            </button>
+          </form>
+        </div>
         <CleanupCard
           title="Close unfinished tokens from earlier days"
           detail={`Tokens from before today in ${dept?.name ?? 'this department'} that were never finished (still waiting or in a room).`}
@@ -658,6 +1089,32 @@ function CleanupTab({ notify }: { notify: (text: string, bad?: boolean) => void 
               className="min-h-10 px-4 rounded-xl bg-rose-600 text-white font-bold disabled:bg-slate-200 disabled:text-slate-400"
             >
               Delete tokens
+            </button>
+          </div>
+        </div>
+        <div className="bg-white rounded-3xl border border-rose-200 p-5">
+          <p className="font-black text-rose-800 flex items-center gap-2"><Trash2 size={16} /> Delete all registered patients</p>
+          <p className="text-sm text-slate-600 mt-1">For resetting test data. Removes all registered patients and their tokens across all departments.</p>
+          <div className="mt-3 flex items-center gap-2">
+            <span className="text-sm font-bold text-slate-700">{counts ? `${counts.allPatients ?? 0} patient${counts.allPatients === 1 ? '' : 's'}` : '…'}</span>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <input
+              value={confirmPatientsText}
+              onChange={(e) => setConfirmPatientsText(e.target.value)}
+              placeholder="Type DELETE"
+              className="min-h-10 px-3 rounded-xl border border-slate-300 bg-slate-50 font-semibold w-36"
+            />
+            <button
+              type="button"
+              disabled={busy || confirmPatientsText !== 'DELETE' || !counts?.allPatients}
+              onClick={() => {
+                void act('delete-all-patients', `Delete ALL ${counts?.allPatients} registered patients and their tokens across the hospital?`, { confirm: 'DELETE' });
+                setConfirmPatientsText('');
+              }}
+              className="min-h-10 px-4 rounded-xl bg-rose-600 text-white font-bold disabled:bg-slate-200 disabled:text-slate-400"
+            >
+              Delete all patients
             </button>
           </div>
         </div>

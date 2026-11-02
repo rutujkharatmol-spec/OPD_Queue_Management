@@ -1,5 +1,6 @@
 import { db } from '@/lib/db';
 import { ok, badRequest, conflict, route, readJson } from '@/server/http';
+import { requireAdminOnly } from '@/server/admin/auth';
 
 // Queue state changes constantly; never serve a cached department list to a TV board.
 export const dynamic = 'force-dynamic';
@@ -43,7 +44,10 @@ export const GET = route(async () => {
   return ok(departments);
 });
 
+/** Admin only: the admin panel's Settings page. */
 export const POST = route(async (request: Request) => {
+  const denied = await requireAdminOnly('add a department');
+  if (denied) return denied;
   const { name, code, description } = await readJson<{
     name?: string;
     code?: string;
