@@ -200,6 +200,9 @@ model Token {
   // Drives the live queue board: today's waiting tokens for one department.
   @@index([departmentId, serviceDate, status])
   @@index([tokenNumber])
+  // A patient's visits, newest first, for the booklet look-up at registration. Postgres
+  // does not index foreign keys by itself, so without this every scan read every token.
+  @@index([patientId])
   @@map("tokens")
 }
 
