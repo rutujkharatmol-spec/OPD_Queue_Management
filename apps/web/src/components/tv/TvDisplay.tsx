@@ -600,7 +600,7 @@ export default function TvDisplay() {
                       >
                         {/* Room Header & Doctor Name */}
                         <div className="w-full flex justify-between items-center mb-2 px-2">
-                          <span className={`text-[2.6vh] lg:text-[3vh] font-black tracking-wider uppercase ${isEmergency ? 'text-red-600 dark:text-red-300' : 'text-blue-600 dark:text-blue-300'
+                          <span className={`text-[4.5vh] lg:text-[5vh] leading-tight font-black tracking-wider uppercase whitespace-nowrap ${isEmergency ? 'text-red-600 dark:text-red-300' : 'text-blue-600 dark:text-blue-300'
                             }`}>
                             Room {roomItem.room} {roomItem.tokens.length > 1 ? `(${roomItem.tokens.length} Patients)` : ''}
                           </span>
