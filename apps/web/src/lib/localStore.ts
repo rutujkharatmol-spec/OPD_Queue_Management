@@ -671,14 +671,17 @@ export function localCallNextPatient(
   return nextToken;
 }
 
-export function localRecallPatient(departmentId: string, roomNumber: string): LocalToken | null {
+export function localRecallPatient(departmentId: string, roomNumber: string, tokenId?: string): LocalToken | null {
   const tokens = getLocalTokens();
   const depts = getLocalDepartments();
   const dept = depts.find(d => d.id === departmentId) || depts[0] || DEFAULT_DEPARTMENTS[0];
   const targetDeptId = dept.id;
 
   const activeToken = sortByCalledAtDesc(
-    tokens.filter(t => t.departmentId === targetDeptId && t.roomNumber === roomNumber && t.status === 'CALLED')
+    tokens.filter(t =>
+      t.departmentId === targetDeptId && t.roomNumber === roomNumber && t.status === 'CALLED' &&
+      (!tokenId || t.id === tokenId)
+    )
   )[0];
 
   if (!activeToken) return null;

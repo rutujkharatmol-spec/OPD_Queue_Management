@@ -2,7 +2,7 @@ import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import DoctorDesk from '../../components/doctor/DoctorDesk';
 
-// Standalone page opened by direct link: no app navbar, not listed in the main menu.
+// The doctor's own screen, in the main menu with the app's top bar.
 export const metadata: Metadata = {
   title: 'Doctor Desk | AIIMS Kalyani OPD',
 };

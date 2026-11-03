@@ -7,8 +7,9 @@ import { useDepartmentStore, useEffectiveDeptId } from '../store/useDepartmentSt
 import {
   Building2, ChevronDown, Eye, Sliders, Check, X, RotateCcw,
   LayoutGrid, Users, Stethoscope, Zap, Sparkles, Layers,
-  PhoneCall, Volume2, ShieldAlert, CheckCircle2, Menu
+  PhoneCall, Volume2, ShieldAlert, CheckCircle2, Menu, Download
 } from 'lucide-react';
+import { InstallAppHelp, useInstallApp } from './InstallApp';
 import {
   UiVisibilitySettings,
   DEFAULT_UI_SETTINGS,
@@ -37,6 +38,8 @@ function NavbarContent() {
   // Phone/tablet menu holding the page links and the Simple UI switch.
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  // "Download App": hidden once the app is opened from its installed icon.
+  const { installed, install, helpOpen, closeHelp } = useInstallApp();
   const logoClickRef = useRef<{ count: number; timer: NodeJS.Timeout | null }>({ count: 0, timer: null });
 
   const handleLogoClick = (e: React.MouseEvent) => {
@@ -96,12 +99,16 @@ function NavbarContent() {
     setIsMobileMenuOpen(false);
   }, [pathname]);
 
-  // Hide Navbar completely on the patient page and the standalone Doctor Desk
-  // The admin's own pages (admin panel, its Settings and Analytics) have their own header.
+  // Hidden on the patient page (public), and on the admin's own pages (admin panel, its
+  // Settings and Analytics), which have their own header.
   const adminPage = ['/admin', '/settings', '/analytics'].some((p) => pathname.startsWith(p));
-  if (pathname.startsWith('/patient') || pathname.startsWith('/doctor-desk') || adminPage) {
+  if (pathname.startsWith('/patient') || adminPage) {
     return null;
   }
+
+  // Whole path segments only: /doctor-desk is not inside /doctor.
+  const isCurrent = (href: string) =>
+    pathname === href || (href !== '/' && pathname.startsWith(`${href}/`));
 
   const getHref = (path: string) => {
     return activeDeptId ? `${path}?deptId=${activeDeptId}` : path;
@@ -378,7 +385,7 @@ function NavbarContent() {
             <div className="hidden lg:flex min-w-0 overflow-x-auto scrollbar-none">
               <div className="flex items-baseline space-x-1 sm:space-x-2 md:space-x-3">
                 {links.map((link) => {
-                  const isActive = pathname === link.href || (link.href !== '/' && pathname.startsWith(link.href));
+                  const isActive = isCurrent(link.href);
                   return (
                     <Link
                       key={link.href}
@@ -395,6 +402,18 @@ function NavbarContent() {
                 })}
               </div>
             </div>
+
+            {!installed && (
+              <button
+                type="button"
+                onClick={() => void install()}
+                className="shrink-0 hidden lg:flex items-center gap-1.5 px-3 py-2 min-h-10 rounded-xl text-xs sm:text-sm font-bold border border-slate-700/80 bg-slate-900 text-slate-200 hover:bg-slate-800 hover:text-white hover:border-slate-600 transition-colors cursor-pointer"
+                title="Install OPD Queue on this computer or phone"
+              >
+                <Download size={16} className="text-blue-400" />
+                <span className="hidden xl:inline whitespace-nowrap">Download App</span>
+              </button>
+            )}
 
             {/* Simple UI switch — always the last item, top-right corner */}
             <button
@@ -441,7 +460,7 @@ function NavbarContent() {
         <div id="mobile-nav-menu" className="lg:hidden border-t border-slate-800 bg-slate-950 max-h-[calc(100dvh-4rem)] overflow-y-auto">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-col gap-1">
             {links.map((link) => {
-              const isActive = pathname === link.href || (link.href !== '/' && pathname.startsWith(link.href));
+              const isActive = isCurrent(link.href);
               return (
                 <Link
                   key={link.href}
@@ -456,6 +475,20 @@ function NavbarContent() {
                 </Link>
               );
             })}
+
+            {!installed && (
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  void install();
+                }}
+                className="mt-2 min-h-12 px-4 flex items-center gap-3 rounded-xl border border-blue-500/40 bg-blue-600/10 text-base font-bold text-blue-100 active:bg-blue-600/20"
+              >
+                <Download size={18} className="text-blue-400" />
+                Download App
+              </button>
+            )}
 
             <button
               type="button"
@@ -476,6 +509,8 @@ function NavbarContent() {
           </div>
         </div>
       )}
+
+      {helpOpen && <InstallAppHelp onClose={closeHelp} />}
     </nav>
   );
 }

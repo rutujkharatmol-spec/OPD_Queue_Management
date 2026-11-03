@@ -24,7 +24,7 @@
   html, body { height: 100%; overflow: hidden; }
   body {
     background: #f1f5f9; color: #0f172a;
-    font-family: "Segoe UI", Roboto, "Noto Sans", Arial, sans-serif;
+    font-family: "Segoe UI", "Noto Sans", "Noto Sans Devanagari", "Noto Sans Bengali", Roboto, Arial, sans-serif;
     display: -webkit-box; display: -webkit-flex; display: flex;
     -webkit-flex-direction: column; flex-direction: column;
   }
@@ -42,7 +42,10 @@
   .btn { border: 1px solid #cbd5e1; background: #f1f5f9; color: #334155; font-weight: 800; font-size: 1.7vh; padding: 1vh 1.2vw; border-radius: 1vh; margin-left: .6vw; cursor: pointer; }
   .btn:focus { outline: 3px solid #f59e0b; }
   .btn.on { background: #059669; border-color: #059669; color: #fff; }
-  #deptSelect { font-size: 1.7vh; padding: .9vh .6vw; border-radius: 1vh; border: 1px solid #cbd5e1; margin-left: .6vw; max-width: 14vw; }
+  #deptSelect, #langSelect { font-size: 1.7vh; padding: .9vh .6vw; border-radius: 1vh; border: 1px solid #cbd5e1; margin-left: .6vw; background: #fff; color: #0f172a; font-weight: 700; }
+  #deptSelect { max-width: 14vw; }
+  #langSelect { max-width: 13vw; cursor: pointer; }
+  #deptSelect:focus, #langSelect:focus { outline: 3px solid #f59e0b; }
   #status { font-size: 1.6vh; font-weight: 800; padding: .8vh 1vw; border-radius: 1vh; margin-right: 1vw; white-space: nowrap; }
   #status.ok { background: #d1fae5; color: #047857; }
   #status.bad { background: #fee2e2; color: #b91c1c; }
@@ -66,7 +69,7 @@
   .room.emergency { border-color: #fca5a5; background: #fef2f2; }
   .room.flash { border-color: #3b82f6; background: #eff6ff; }
   .room-head { -webkit-justify-content: space-between; justify-content: space-between; }
-  .room-no { font-size: 3vh; font-weight: 900; color: #2563eb; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+  .room-no { font-size: 4.5vh; font-weight: 900; line-height: 1.1; color: #2563eb; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; margin-right: 1vw; }
   .room.emergency .room-no { color: #dc2626; }
   .doctor { font-size: 1.9vh; font-weight: 800; color: #475569; background: #e2e8f0; padding: .5vh .8vw; border-radius: 3vh; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 55%; }
   .tokens { -webkit-box-flex: 1; -webkit-flex: 1; flex: 1; -webkit-flex-wrap: wrap; flex-wrap: wrap;
@@ -100,7 +103,7 @@
   #soundPrompt { position: fixed; left: 0; right: 0; bottom: 11vh; text-align: center; display: none; }
   #soundPrompt button { font-size: 2.4vh; font-weight: 900; padding: 1.6vh 2.5vw; border-radius: 2vh; border: 0; background: #059669; color: #fff; }
   #soundPrompt button:focus { outline: 4px solid #f59e0b; }
-  body.fs #deptSelect, body.fs #soundBtn, body.fs #fsBtn { display: none; }
+  body.fs #deptSelect, body.fs #langSelect, body.fs #soundBtn, body.fs #fsBtn { display: none; }
 </style>
 </head>
 <body>
@@ -116,6 +119,12 @@
       <span id="status" class="ok">Live</span>
       <span id="clock"></span>
       <select id="deptSelect" aria-label="Department"></select>
+      <select id="langSelect" aria-label="Language">
+        <option value="dual">Dual (EN+HI)</option>
+        <option value="en">English (EN)</option>
+        <option value="hi">&#2361;&#2367;&#2344;&#2381;&#2342;&#2368; (HI)</option>
+        <option value="bn">&#2476;&#2494;&#2434;&#2482;&#2494; (BN)</option>
+      </select>
       <button id="soundBtn" class="btn on" type="button">Sound: ON</button>
       <button id="fsBtn" class="btn" type="button">Full Screen</button>
     </div>
@@ -123,11 +132,11 @@
 
   <div id="main" class="row">
     <div id="serving" class="panel">
-      <div class="panel-title row"><span>Currently Serving</span><span id="roomCount" class="pill">0 Rooms Active</span></div>
+      <div class="panel-title row"><span id="servingTitleText">Currently Serving</span><span id="roomCount" class="pill">0 Rooms Active</span></div>
       <div id="rooms"><div class="empty">Loading...</div></div>
     </div>
     <div id="next" class="panel">
-      <div class="panel-title row"><span>Up Next</span></div>
+      <div class="panel-title row"><span id="nextTitleText">Up Next</span></div>
       <div id="nextList"></div>
     </div>
   </div>
@@ -263,11 +272,138 @@
     startPolling();
   };
 
+  // ---------- language & i18n (ES5 only) ----------
+  var rawLang = param('lang') || store('tv_audio_lang') || 'dual';
+  var audioLang = (rawLang === 'en' || rawLang === 'hi' || rawLang === 'bn' || rawLang === 'dual') ? rawLang : 'dual';
+
+  var I18N = {
+    en: {
+      serving: 'Currently Serving',
+      next: 'Up Next',
+      roomsActive: function (n) { return n + ' Room' + (n === 1 ? '' : 's') + ' Active'; },
+      waitingCall: 'Waiting for the doctor to call the next patient...',
+      noWaiting: 'No other patients waiting',
+      room: 'Room',
+      soundOn: 'Sound: ON',
+      soundOff: 'Sound: OFF',
+      fullscreen: 'Full Screen',
+      urgent: 'Urgent',
+      waiting: 'Waiting',
+      opdSuffix: ' OPD'
+    },
+    hi: {
+      serving: 'वर्तमान में सेवा',
+      next: 'अगला नंबर',
+      roomsActive: function (n) { return n + ' कमरा सक्रिय'; },
+      waitingCall: 'डॉक्टर द्वारा अगले मरीज को बुलाने की प्रतीक्षा...',
+      noWaiting: 'कोई अन्य मरीज प्रतीक्षारत नहीं',
+      room: 'कमरा',
+      soundOn: 'ध्वनि: चालू',
+      soundOff: 'ध्वनि: बंद',
+      fullscreen: 'फुल स्क्रीन',
+      urgent: 'आपातकालीन',
+      waiting: 'प्रतीक्षा',
+      opdSuffix: ' ओपीडी'
+    },
+    bn: {
+      serving: 'বর্তমানে পরিষেবা দেওয়া হচ্ছে',
+      next: 'পরবর্তী টোকেন',
+      roomsActive: function (n) { return n + 'টি রুম সক্রিয়'; },
+      waitingCall: 'ডাক্তার পরবর্তী রোগীকে ডাকার অপেক্ষায়...',
+      noWaiting: 'অন্য কোন রোগী অপেক্ষমান নেই',
+      room: 'রুম',
+      soundOn: 'শব্দ: চালু',
+      soundOff: 'শব্দ: বন্ধ',
+      fullscreen: 'ফুল স্ক্রিন',
+      urgent: 'জরুরী',
+      waiting: 'অপেক্ষমাণ',
+      opdSuffix: ' ওপিডি'
+    },
+    dual: {
+      serving: 'Currently Serving / वर्तमान में सेवा',
+      next: 'Up Next / अगला',
+      roomsActive: function (n) { return n + ' Room' + (n === 1 ? '' : 's') + ' Active'; },
+      waitingCall: 'Waiting for the doctor to call the next patient...',
+      noWaiting: 'No other patients waiting / कोई प्रतीक्षारत नहीं',
+      room: 'Room / कमरा',
+      soundOn: 'Sound: ON',
+      soundOff: 'Sound: OFF',
+      fullscreen: 'Full Screen',
+      urgent: 'Urgent / आपातकाल',
+      waiting: 'Waiting / प्रतीक्षा',
+      opdSuffix: ' OPD'
+    }
+  };
+
+  var MARQUEE_TEXTS = {
+    en: [
+      '🚨 Emergency patients receive immediate priority',
+      '🔊 Please listen for audio chimes & token announcements',
+      '📱 Track your queue position by scanning the QR code on your slip',
+      '🏥 AIIMS Kalyani OPD services — committed to excellence'
+    ],
+    hi: [
+      '🚨 आपातकालीन रोगियों को तत्काल प्राथमिकता दी जाती है',
+      '🔊 कृपया ऑडियो और टोकन घोषणाओं को ध्यान से सुनें',
+      '📱 अपनी पर्ची पर दिए गए QR कोड को स्कैन करके अपनी कतार ट्रैक करें',
+      '🏥 एम्स कल्याणी ओपीडी सेवाएं — उत्कृष्टता के लिए समर्पित'
+    ],
+    bn: [
+      '🚨 জরুরি রোগীরা অবিলম্বে অগ্রাধিকার পাবেন',
+      '🔊 অনুগ্রহ করে অডিও এবং টোকেন ঘোষণার জন্য অপেক্ষা করুন',
+      '📱 প্রেসক্রিপশন স্লিপের কিউআর কোড স্ক্যান করে লাইভ কিউ ট্র্যাক করুন',
+      '🏥 এইমস কল্যাণী ওপিডি পরিষেবা — সেবায় সর্বদা নিয়োজিত'
+    ],
+    dual: [
+      '🚨 Emergency patients receive immediate priority / आपातकालीन रोगियों को प्राथमिकता',
+      '🔊 Please listen for audio announcements / कृपया टोकन घोषणाओं को ध्यान से सुनें',
+      '📱 Track queue with QR code / पर्ची के QR कोड से कतार देखें',
+      '🏥 AIIMS Kalyani OPD / एम्स कल्याणी ओपीडी'
+    ]
+  };
+
+  function updateMarquee() {
+    var msgs = MARQUEE_TEXTS[audioLang] || MARQUEE_TEXTS.dual;
+    var mhtml = '';
+    for (var i = 0; i < msgs.length; i++) {
+      mhtml += '<span>' + esc(msgs[i]) + '</span>';
+    }
+    var mEl = $('marquee');
+    if (mEl) mEl.innerHTML = mhtml;
+  }
+
+  function updateUiLanguage() {
+    var t = I18N[audioLang] || I18N.dual;
+    var st = $('servingTitleText');
+    if (st) st.innerHTML = esc(t.serving);
+    var nt = $('nextTitleText');
+    if (nt) nt.innerHTML = esc(t.next);
+    var fs = $('fsBtn');
+    if (fs) fs.innerHTML = esc(t.fullscreen);
+    updateSoundUi();
+    updateMarquee();
+  }
+
+  var langSel = $('langSelect');
+  if (langSel) {
+    langSel.value = audioLang;
+    langSel.onchange = function () {
+      audioLang = this.value;
+      store('tv_audio_lang', audioLang);
+      updateUiLanguage();
+      if (lastData) render(lastData);
+    };
+  }
+
   // ---------- rendering ----------
   var flashUntil = 0;
+  var lastData = null;
 
   function render(data) {
-    $('deptTitle').innerHTML = esc((data.department || '') + ' OPD');
+    if (!data) return;
+    lastData = data;
+    var t = I18N[audioLang] || I18N.dual;
+    $('deptTitle').innerHTML = esc((data.department || '') + (t.opdSuffix || ' OPD'));
 
     // Group active tokens by room, keeping the server's room order (newest call first,
     // like the main TV) and listing each room's patients in the order they were called.
@@ -275,14 +411,14 @@
     var rooms = [];
     var byRoom = {};
     for (var i = 0; i < active.length; i++) {
-      var t = active[i];
-      var r = t.room || '101';
+      var tItem = active[i];
+      var r = tItem.room || '101';
       if (!byRoom[r]) {
-        byRoom[r] = { room: r, doctor: t.doctorName || '', emergency: false, tokens: [] };
+        byRoom[r] = { room: r, doctor: tItem.doctorName || '', emergency: false, tokens: [] };
         rooms.push(byRoom[r]);
       }
-      if (isEmergency(t.token)) byRoom[r].emergency = true;
-      byRoom[r].tokens.push(t);
+      if (isEmergency(tItem.token)) byRoom[r].emergency = true;
+      byRoom[r].tokens.push(tItem);
     }
     for (var k = 0; k < rooms.length; k++) {
       rooms[k].tokens.sort(function (a, b) {
@@ -292,20 +428,22 @@
       });
     }
 
-    $('roomCount').innerHTML = rooms.length + ' Room' + (rooms.length === 1 ? '' : 's') + ' Active';
+    $('roomCount').innerHTML = esc(t.roomsActive(rooms.length));
 
     var html = '';
     if (!rooms.length) {
-      html = '<div class="empty">Waiting for the doctor to call the next patient...</div>';
+      html = '<div class="empty">' + esc(t.waitingCall) + '</div>';
     } else {
       // Fewer rooms get bigger numbers.
       var big = rooms.length === 1 ? 26 : rooms.length <= 2 ? 18 : rooms.length <= 4 ? 12 : 8;
+      // Room number scales the same way, so patients can read it from across the hall.
+      var roomSize = rooms.length === 1 ? 10 : rooms.length <= 2 ? 8 : rooms.length <= 4 ? 6 : 4.5;
       var flash = new Date().getTime() < flashUntil;
       for (var j = 0; j < rooms.length; j++) {
         var room = rooms[j];
         var size = room.tokens.length === 1 ? big : Math.max(5, Math.round(big / (room.tokens.length > 3 ? 2.4 : 1.7)));
         html += '<div class="room' + (room.emergency ? ' emergency' : '') + (flash ? ' flash' : '') + '">';
-        html += '<div class="room-head row"><span class="room-no">Room ' + esc(room.room) +
+        html += '<div class="room-head row"><span class="room-no" style="font-size:' + roomSize + 'vh">' + esc(t.room) + ' ' + esc(room.room) +
           (room.tokens.length > 1 ? ' (' + room.tokens.length + ')' : '') + '</span>';
         if (room.doctor) html += '<span class="doctor">' + esc(room.doctor) + '</span>';
         html += '</div><div class="tokens row">';
@@ -323,14 +461,14 @@
     var next = data.nextTokens || [];
     var nhtml = '';
     if (!next.length) {
-      nhtml = '<div class="empty" style="font-size:2.2vh">No other patients waiting</div>';
+      nhtml = '<div class="empty" style="font-size:2.2vh">' + esc(t.noWaiting) + '</div>';
     } else {
       for (var q = 0; q < next.length && q < 7; q++) {
         var em = isEmergency(next[q]);
         nhtml += '<div class="next-item row' + (em ? ' emergency' : '') + '">' +
           '<span class="next-pos">#' + (q + 1) + '</span>' +
           '<span class="next-no">' + esc(cleanToken(next[q])) + '</span>' +
-          '<span class="next-tag">' + (em ? 'Urgent' : 'Waiting') + '</span></div>';
+          '<span class="next-tag">' + esc(em ? t.urgent : t.waiting) + '</span></div>';
       }
     }
     $('nextList').innerHTML = nhtml;
@@ -338,7 +476,6 @@
 
   // ---------- sound ----------
   var soundOn = store('tv_audio_enabled') !== 'false';
-  var audioLang = store('tv_audio_lang') || 'dual';
   var gender = store('tv_voice_gender') === 'male' ? 'male' : 'female';
   var audioUnlocked = false;
   var audioCtx = null;
@@ -347,7 +484,8 @@
 
   function updateSoundUi() {
     var b = $('soundBtn');
-    b.innerHTML = soundOn ? 'Sound: ON' : 'Sound: OFF';
+    var t = I18N[audioLang] || I18N.dual;
+    b.innerHTML = soundOn ? esc(t.soundOn) : esc(t.soundOff);
     b.className = 'btn' + (soundOn ? ' on' : '');
     updatePrompt();
   }
@@ -522,7 +660,7 @@
   document.addEventListener('fullscreenchange', updatePrompt, false);
   document.addEventListener('webkitfullscreenchange', updatePrompt, false);
 
-  updateSoundUi();
+  updateUiLanguage();
   setTimeout(updatePrompt, 500);
 
   // Keep the screen on where the browser allows it.

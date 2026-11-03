@@ -5,7 +5,11 @@ import { serviceDateFor } from '@/server/tokens/tokenNumber';
 export const dynamic = 'force-dynamic';
 
 type Context = { params: Promise<{ departmentId: string }> };
-type Body = { roomNumber: string };
+type Body = {
+  roomNumber: string;
+  /** Recall this patient. Without it, the room's most recently called patient. */
+  tokenId?: string;
+};
 
 export const PATCH = route(async (request: Request, { params }: Context) => {
   const { departmentId } = await params;
@@ -17,9 +21,11 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
 
   const roomNumber = body.roomNumber.trim();
   const serviceDate = serviceDateFor();
+  const tokenId = body.tokenId?.trim() || undefined;
 
   const activeToken = await db.token.findFirst({
     where: {
+      ...(tokenId ? { id: tokenId } : {}),
       departmentId,
       roomNumber,
       status: 'CALLED',
@@ -34,7 +40,11 @@ export const PATCH = route(async (request: Request, { params }: Context) => {
   });
 
   if (!activeToken) {
-    return notFound(`No active patient currently called in room ${roomNumber}`);
+    return notFound(
+      tokenId
+        ? `That patient is no longer waiting to come in to room ${roomNumber}`
+        : `No active patient currently called in room ${roomNumber}`
+    );
   }
 
   const updated = await db.token.update({

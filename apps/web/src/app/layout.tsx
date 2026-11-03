@@ -5,6 +5,7 @@ import { AuthWrapper } from '../components/AuthWrapper'
 import { NetworkProvider } from '../components/NetworkProvider'
 import { ServiceWorkerRegister } from '../components/ServiceWorkerRegister'
 import { SystemWatermark } from '../components/SystemWatermark'
+import { INSTALL_PROMPT_CATCHER } from '../lib/installPrompt'
 
 export const metadata: Metadata = {
   title: 'AIIMS Kalyani OPD Queue Management',
@@ -51,6 +52,7 @@ export default function RootLayout({
       <head>
         {/* Must stay ES5 and run before the app loads: old TV browsers can't run the app at all. */}
         <script dangerouslySetInnerHTML={{ __html: LEGACY_TV_REDIRECT }} />
+        <script dangerouslySetInnerHTML={{ __html: INSTALL_PROMPT_CATCHER }} />
         <link rel="manifest" href="/manifest.json" />
         <meta name="theme-color" content="#0284c7" />
         <link rel="icon" href="/icons/favicon.ico" sizes="any" />

@@ -4,10 +4,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation';
 import {
   CheckCircle2, Stethoscope, Building2, DoorOpen, UserPlus, Search, ArrowLeftRight,
-  Loader2, Users, X, UserX, BellRing, ScanLine, Pause, Play, UserCheck, Clock, Camera,
+  Loader2, Users, X, UserX, BellRing, ScanLine, Pause, Play, UserCheck, Clock, Camera, Bell,
 } from 'lucide-react';
 import {
-  assignDoctorToRoom, callNextPatient, getDepartmentAnalytics, getDoctors, getRooms, markTokenAction,
+  assignDoctorToRoom, callNextPatient, getDepartmentAnalytics, getDoctors, getRooms, markTokenAction, recallPatient,
   type DoctorListItem,
 } from '../../lib/api';
 import { splitDoctorNames } from '../../lib/roomDoctors';
@@ -709,6 +709,31 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
     }
   };
 
+  // Recall: announce a called patient again on the TV and their phone. The late clock
+  // keeps running; recalling doesn't give them extra time.
+  const [recallingId, setRecallingId] = useState<string | null>(null);
+  const [recalledId, setRecalledId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!recalledId) return;
+    const id = setTimeout(() => setRecalledId(null), 2500);
+    return () => clearTimeout(id);
+  }, [recalledId]);
+
+  const recall = async (p: ActivePatient) => {
+    if (recallingId) return;
+    setRecallingId(p.id);
+    try {
+      await recallPatient(departmentId, roomNumber, p.id);
+      setRecalledId(p.id);
+      setToast(`Token ${p.token} called again`);
+    } catch {
+      setScanMsg({ kind: 'warn', text: `Could not call token ${p.token} again. Please try again.` });
+      await useQueueStore.getState().fetchQueue(departmentId);
+    } finally {
+      setRecallingId(null);
+    }
+  };
+
   // The late clock only runs while the doctor is free. A patient waiting at the door while
   // someone else is being seen isn't late, so the clock starts at the call or when the
   // room's last consultation ended, whichever is later (or when this screen opened, so a
@@ -1020,7 +1045,7 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
                     </p>
                   )}
                 </div>
-                <div className="w-full sm:w-auto grid grid-cols-[1fr_2fr] sm:flex gap-2">
+                <div className="w-full sm:w-auto grid grid-cols-2 sm:flex gap-2">
                   {inConsult ? (
                     <button
                       type="button"
@@ -1033,6 +1058,20 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
                     <>
                       <button
                         type="button"
+                        onClick={() => void recall(p)}
+                        disabled={recallingId === p.id}
+                        title="Announce this patient again on the TV"
+                        className={`sm:w-32 min-h-14 rounded-2xl border-2 text-base font-black disabled:opacity-60 flex items-center justify-center gap-1.5 ${
+                          recalledId === p.id
+                            ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+                            : 'border-blue-200 bg-white text-blue-800 active:bg-blue-50 hover:bg-blue-50'
+                        }`}
+                      >
+                        {recallingId === p.id ? <Loader2 className="animate-spin" size={20} /> : <Bell size={20} />}
+                        {recalledId === p.id ? 'Called!' : 'Recall'}
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => setConfirming({ patient: p, action: 'ABSENT' })}
                         className="sm:w-32 min-h-14 rounded-2xl bg-white border-2 border-amber-300 text-amber-800 text-base font-black active:bg-amber-50 hover:bg-amber-50 flex items-center justify-center gap-1.5"
                       >
@@ -1042,7 +1081,7 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
                         type="button"
                         onClick={() => void markCameIn(p)}
                         disabled={busyId === p.id}
-                        className="sm:w-40 min-h-14 rounded-2xl bg-blue-600 text-white text-lg font-black shadow-md shadow-blue-600/20 active:bg-blue-700 hover:bg-blue-700 disabled:opacity-60 flex items-center justify-center gap-2"
+                        className="col-span-2 sm:w-40 min-h-14 rounded-2xl bg-blue-600 text-white text-lg font-black shadow-md shadow-blue-600/20 active:bg-blue-700 hover:bg-blue-700 disabled:opacity-60 flex items-center justify-center gap-2"
                       >
                         {busyId === p.id ? <Loader2 className="animate-spin" size={20} /> : <UserCheck size={22} />} Came in
                       </button>

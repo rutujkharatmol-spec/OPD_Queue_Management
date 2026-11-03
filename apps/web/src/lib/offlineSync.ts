@@ -257,7 +257,7 @@ function handleWithLocalStore(url: string, method: string, options: RequestInit)
   }
   if (pathname.includes('/queue/recall/') && method === 'PATCH') {
     const deptId = pathname.split('/queue/recall/')[1]?.split('?')[0] || '';
-    const data = localRecallPatient(deptId, parsedBody.roomNumber || '101');
+    const data = localRecallPatient(deptId, parsedBody.roomNumber || '101', parsedBody.tokenId);
     return jsonResponse(data || { ok: true }, 200);
   }
   if (pathname.includes('/queue/action/') && method === 'PATCH') {
