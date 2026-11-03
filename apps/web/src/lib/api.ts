@@ -267,11 +267,12 @@ export async function deleteDepartment(id: string) {
   return response.json();
 }
 
-export async function recallPatient(departmentId: string, roomNumber: string) {
+/** Rings the chime again. With tokenId, that patient; otherwise the room's last called. */
+export async function recallPatient(departmentId: string, roomNumber: string, tokenId?: string) {
   const response = await fetchWithOfflineSync(`${API_BASE_URL}/queue/recall/${departmentId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ roomNumber }),
+    body: JSON.stringify({ roomNumber, tokenId }),
   });
   if (!response.ok) {
     const text = await response.text();
