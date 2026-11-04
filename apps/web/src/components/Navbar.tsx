@@ -176,6 +176,10 @@ function NavbarContent() {
   ];
   const links = simple ? allLinks.filter((l) => !l.advanced) : allLinks;
   const barLinks = links.filter((l) => !l.inSettings);
+  // Phone menu with Simple UI on: only the two desks staff use on a phone.
+  const mobileLinks = simple
+    ? allLinks.filter((l) => l.href === '/registration' || l.href === '/doctor-desk')
+    : links;
   const settingsActive = links.some((l) => l.inSettings && isCurrent(l.href));
 
   const menuItem = 'w-full min-h-10 px-3 flex items-center gap-2.5 rounded-xl text-sm font-semibold transition-colors cursor-pointer';
@@ -538,7 +542,7 @@ function NavbarContent() {
       {isMobileMenuOpen && (
         <div id="mobile-nav-menu" className="lg:hidden border-t border-slate-800 bg-slate-950 max-h-[calc(100dvh-4rem)] overflow-y-auto">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-col gap-1">
-            {links.map((link) => {
+            {mobileLinks.map((link) => {
               const isActive = isCurrent(link.href);
               return (
                 <Link
