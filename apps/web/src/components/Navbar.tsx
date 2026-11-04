@@ -7,7 +7,8 @@ import { useDepartmentStore, useEffectiveDeptId } from '../store/useDepartmentSt
 import {
   Building2, ChevronDown, Eye, Sliders, Check, X, RotateCcw,
   LayoutGrid, Users, Stethoscope, Zap, Sparkles, Layers,
-  PhoneCall, Volume2, ShieldAlert, CheckCircle2, Menu, Download
+  PhoneCall, Volume2, ShieldAlert, CheckCircle2, Menu, Download,
+  Settings as SettingsIcon, BarChart3, SlidersHorizontal
 } from 'lucide-react';
 import { InstallAppHelp, useInstallApp } from './InstallApp';
 import {
@@ -38,6 +39,9 @@ function NavbarContent() {
   // Phone/tablet menu holding the page links and the Simple UI switch.
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  // Gear menu (large screens): Doctor Room, Analytics, Download App, Simple UI, Settings.
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const settingsRef = useRef<HTMLDivElement>(null);
   // "Download App": hidden once the app is opened from its installed icon.
   const { installed, install, helpOpen, closeHelp } = useInstallApp();
   const logoClickRef = useRef<{ count: number; timer: NodeJS.Timeout | null }>({ count: 0, timer: null });
@@ -94,9 +98,29 @@ function NavbarContent() {
     };
   }, [isShowUiOpen]);
 
-  // Close the phone menu after navigating.
+  // Close the gear menu on outside click or Escape.
+  useEffect(() => {
+    if (!isSettingsOpen) return;
+    function handleClickOutside(event: MouseEvent) {
+      if (settingsRef.current && !settingsRef.current.contains(event.target as Node)) {
+        setIsSettingsOpen(false);
+      }
+    }
+    function handleKey(event: KeyboardEvent) {
+      if (event.key === 'Escape') setIsSettingsOpen(false);
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [isSettingsOpen]);
+
+  // Close the phone menu and the gear menu after navigating.
   useEffect(() => {
     setIsMobileMenuOpen(false);
+    setIsSettingsOpen(false);
   }, [pathname]);
 
   // Hidden on the patient page (public), and on the admin's own pages (admin panel, its
@@ -137,18 +161,38 @@ function NavbarContent() {
 
   const simple = uiSettings.simpleMode;
 
+  // inSettings: on large screens these sit in the gear menu instead of the top bar.
+  // The phone menu lists every link.
   const allLinks = [
-    { href: '/', label: 'Home', advanced: false },
-    { href: '/registration', label: 'Registration', advanced: false },
-    { href: '/doctor', label: 'Doctor Room', advanced: false },
-    { href: '/doctor-desk', label: 'Doctor Desk', advanced: false },
-    { href: '/tv', label: 'TV Monitor', advanced: true },
+    { href: '/', label: 'Home', advanced: false, inSettings: false },
+    { href: '/registration', label: 'Registration', advanced: false, inSettings: false },
+    { href: '/doctor', label: 'Doctor Room', advanced: false, inSettings: true },
+    { href: '/doctor-desk', label: 'Doctor Desk', advanced: false, inSettings: false },
+    { href: '/tv', label: 'TV Monitor', advanced: false, inSettings: false },
     // Staff versions: today's numbers, and this computer's settings. The admin's full
     // Analytics and hospital-wide Settings are in the admin panel.
-    { href: '/stats', label: 'Analytics', advanced: false },
-    { href: '/preferences', label: 'Settings', advanced: false },
+    { href: '/stats', label: 'Analytics', advanced: false, inSettings: true },
+    { href: '/preferences', label: 'Settings', advanced: false, inSettings: true },
   ];
   const links = simple ? allLinks.filter((l) => !l.advanced) : allLinks;
+  const barLinks = links.filter((l) => !l.inSettings);
+  const settingsActive = links.some((l) => l.inSettings && isCurrent(l.href));
+
+  const menuItem = 'w-full min-h-10 px-3 flex items-center gap-2.5 rounded-xl text-sm font-semibold transition-colors cursor-pointer';
+  const menuLink = (href: string, label: string, icon: React.ReactNode) => {
+    const isActive = isCurrent(href);
+    return (
+      <Link
+        href={getHref(href)}
+        role="menuitem"
+        aria-current={isActive ? 'page' : undefined}
+        className={`${menuItem} ${isActive ? 'bg-blue-600 text-white' : 'text-slate-200 hover:bg-slate-800'}`}
+      >
+        {icon}
+        {label}
+      </Link>
+    );
+  };
 
   return (
     <nav className="sticky top-0 z-50 border-b border-slate-800 bg-slate-950/90 backdrop-blur-md print:hidden">
@@ -384,12 +428,13 @@ function NavbarContent() {
             {/* Navigation Links (large screens; phones use the menu below) */}
             <div className="hidden lg:flex min-w-0 overflow-x-auto scrollbar-none">
               <div className="flex items-baseline space-x-1 sm:space-x-2 md:space-x-3">
-                {links.map((link) => {
+                {barLinks.map((link) => {
                   const isActive = isCurrent(link.href);
                   return (
                     <Link
                       key={link.href}
                       href={getHref(link.href)}
+                      aria-current={isActive ? 'page' : undefined}
                       className={`whitespace-nowrap px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-200 ${
                         isActive
                           ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
@@ -403,40 +448,74 @@ function NavbarContent() {
               </div>
             </div>
 
-            {!installed && (
+            {/* Gear menu — always the last item, top-right corner */}
+            <div className="relative shrink-0 hidden lg:block" ref={settingsRef}>
               <button
                 type="button"
-                onClick={() => void install()}
-                className="shrink-0 hidden lg:flex items-center gap-1.5 px-3 py-2 min-h-10 rounded-xl text-xs sm:text-sm font-bold border border-slate-700/80 bg-slate-900 text-slate-200 hover:bg-slate-800 hover:text-white hover:border-slate-600 transition-colors cursor-pointer"
-                title="Install OPD Queue on this computer or phone"
-              >
-                <Download size={16} className="text-blue-400" />
-                <span className="hidden xl:inline whitespace-nowrap">Download App</span>
-              </button>
-            )}
-
-            {/* Simple UI switch — always the last item, top-right corner */}
-            <button
-              type="button"
-              role="switch"
-              aria-checked={simple}
-              onClick={() => handleToggle('simpleMode')}
-              className={`shrink-0 hidden lg:flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-full text-xs sm:text-sm font-black border-2 transition-all cursor-pointer ${
-                simple
-                  ? 'bg-emerald-600 border-emerald-400 text-white shadow-md shadow-emerald-500/30'
-                  : 'bg-slate-900 border-slate-600 text-slate-200 hover:border-slate-400'
-              }`}
-              title={simple ? 'Simple UI is ON — click to show all controls' : 'Click to turn on Simple UI (hide extra controls)'}
-            >
-              <span className="whitespace-nowrap">Simple UI</span>
-              <span
-                className={`px-2 py-0.5 rounded-full text-[11px] ${
-                  simple ? 'bg-white text-emerald-700' : 'bg-slate-700 text-slate-300'
+                onClick={() => setIsSettingsOpen((open) => !open)}
+                aria-label="Settings menu"
+                aria-haspopup="menu"
+                aria-expanded={isSettingsOpen}
+                title="Settings"
+                className={`w-10 h-10 flex items-center justify-center rounded-xl border transition-all cursor-pointer ${
+                  isSettingsOpen || settingsActive
+                    ? 'bg-blue-600 border-blue-500 text-white shadow-md shadow-blue-500/20'
+                    : 'bg-slate-900 border-slate-700/80 text-slate-200 hover:bg-slate-800 hover:border-slate-600 hover:text-white'
                 }`}
               >
-                {simple ? 'ON' : 'OFF'}
-              </span>
-            </button>
+                <SettingsIcon size={18} />
+              </button>
+
+              {isSettingsOpen && (
+                <div
+                  role="menu"
+                  className="absolute right-0 mt-2 w-64 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-2 z-50 text-white flex flex-col gap-1"
+                >
+                  {links.some((l) => l.href === '/doctor') && menuLink('/doctor', 'Doctor Room', <Stethoscope size={16} className="text-blue-400" />)}
+                  {links.some((l) => l.href === '/stats') && menuLink('/stats', 'Analytics', <BarChart3 size={16} className="text-blue-400" />)}
+
+                  {!installed && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setIsSettingsOpen(false);
+                        void install();
+                      }}
+                      className={`${menuItem} text-slate-200 hover:bg-slate-800`}
+                      title="Install OPD Queue on this computer or phone"
+                    >
+                      <Download size={16} className="text-blue-400" />
+                      Download App
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    role="menuitemcheckbox"
+                    aria-checked={simple}
+                    onClick={() => handleToggle('simpleMode')}
+                    className={`${menuItem} justify-between text-slate-200 hover:bg-slate-800`}
+                    title={simple ? 'Simple UI is ON — click to show all controls' : 'Click to turn on Simple UI (hide extra controls)'}
+                  >
+                    <span className="flex items-center gap-2.5">
+                      <Sparkles size={16} className="text-emerald-400" />
+                      Simple UI
+                    </span>
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[11px] font-black ${
+                        simple ? 'bg-emerald-500 text-white' : 'bg-slate-700 text-slate-300'
+                      }`}
+                    >
+                      {simple ? 'ON' : 'OFF'}
+                    </span>
+                  </button>
+
+                  <div className="my-1 border-t border-slate-800" />
+                  {menuLink('/preferences', 'Settings', <SlidersHorizontal size={16} className="text-blue-400" />)}
+                </div>
+              )}
+            </div>
 
             {/* Menu button (phones and tablets) */}
             <button
