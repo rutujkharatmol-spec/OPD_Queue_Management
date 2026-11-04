@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation';
 import {
   CheckCircle2, Stethoscope, Building2, DoorOpen, UserPlus, Search, ArrowLeftRight,
-  Loader2, Users, X, UserX, BellRing, ScanLine, Pause, Play, UserCheck, Clock, Camera, Bell,
+  Loader2, Users, X, UserX, BellRing, ScanLine, Pause, Play, UserCheck, Clock, Camera, Bell, History,
 } from 'lucide-react';
 import {
   assignDoctorToRoom, callNextPatient, getDepartmentAnalytics, getDoctors, getRooms, markTokenAction, recallPatient,
@@ -13,6 +13,7 @@ import {
 import { splitDoctorNames } from '../../lib/roomDoctors';
 import { LATE_AFTER_MINUTES } from '../../lib/queuePass';
 import BarcodeScanner, { isSlipQrCode, useCameraAvailable } from '../BarcodeScanner';
+import VisitHistoryDialog from '../VisitHistory';
 import { INVALID_CRN_MESSAGE, isValidCrn, normalizeCrn } from '../../lib/crn';
 import { useDepartmentStore } from '../../store/useDepartmentStore';
 import { useQueueStore } from '../../store/useQueueStore';
@@ -697,6 +698,9 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
   /* ---- Came in, and late patients ---- */
 
   const [busyId, setBusyId] = useState<string | null>(null);
+  // The patient whose Visit history pop-up is open.
+  const [historyOf, setHistoryOf] = useState<ActivePatient | null>(null);
+  const closeHistory = useCallback(() => setHistoryOf(null), []);
 
   const markCameIn = async (p: ActivePatient) => {
     if (busyId) return;
@@ -1038,9 +1042,18 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
             return (
               <li
                 key={p.id}
-                className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-4"
+                className="relative bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5 flex flex-col sm:flex-row sm:items-end gap-4"
               >
-                <div className="flex-1 min-w-0">
+                <button
+                  type="button"
+                  onClick={() => setHistoryOf(p)}
+                  aria-label={`Visit history of token ${p.token}`}
+                  title="Visit history"
+                  className="absolute top-3 right-3 w-9 h-9 rounded-xl border border-slate-200 bg-slate-50 text-slate-500 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 active:bg-blue-100 flex items-center justify-center"
+                >
+                  <History size={17} />
+                </button>
+                <div className="flex-1 min-w-0 pr-10 sm:pr-0">
                   <p className="text-3xl font-black tracking-tight text-slate-900">{p.token}</p>
                   <p className="mt-1 text-base font-semibold text-slate-700 truncate">{p.patientName}</p>
                   <p className="text-xs text-slate-500 mt-0.5">
@@ -1104,6 +1117,15 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
             );
           })}
         </ul>
+      )}
+
+      {historyOf && (
+        <VisitHistoryDialog
+          tokenId={historyOf.id}
+          currentTokenId={historyOf.id}
+          fallbackName={historyOf.patientName}
+          onClose={closeHistory}
+        />
       )}
 
       {cameraOpen && (
