@@ -1,4 +1,4 @@
-import { fetchWithOfflineSync } from './offlineSync';
+import { announceLoginRequired, fetchWithOfflineSync } from './offlineSync';
 import type { NameLookupMatch } from './nameLookup';
 import type { PatientBoard } from './patientBoard';
 
@@ -413,4 +413,75 @@ export async function deleteRoom(id: string) {
   });
   if (!response.ok) throw new Error('Failed to delete room');
   return response.json();
+}
+
+// ---- "All at once" registration: booklets taken in now, tokens issued on arrival ----
+//
+// Plain fetch, not the offline queue: a booklet saved "for later" while the server is
+// unreachable would have no serial number to write on it, and a token must not be
+// promised before the server has issued it. Failures are shown to the desk instead.
+
+export type Booklet = {
+  id: string;
+  serialNumber: number;
+  priority: 'NORMAL' | 'SENIOR' | 'EMERGENCY';
+  doctorNames: string[];
+  createdAt: string;
+  handedAt: string | null;
+  patient: { id: string; firstName: string | null; lastName: string | null; phone: string | null; uhid: string | null };
+  token: { id: string; tokenNumber: string; status: string; roomNumber: string | null; stagedRoom: string | null; issuedAt: string } | null;
+};
+
+export type BookletToken = {
+  token: any;
+  booklet: Booklet;
+  assignedDoctor: { doctorName: string; roomNumber: string | null; skipped: string[] } | null;
+  alreadyIssued: boolean;
+};
+
+async function bookletRequest<T>(url: string, init?: RequestInit): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(url, { cache: 'no-store', ...init });
+  } catch {
+    throw new Error('Could not reach the server. Check the connection and try again.');
+  }
+  announceLoginRequired(response, url);
+  if (!response.ok) {
+    let message = 'Something went wrong. Please try again.';
+    try {
+      const parsed = await response.json();
+      if (parsed?.message) message = parsed.message;
+    } catch {}
+    throw new Error(message);
+  }
+  return (await response.json()) as T;
+}
+
+export function getBooklets(departmentId: string) {
+  return bookletRequest<Booklet[]>(`${API_BASE_URL}/booklets?${new URLSearchParams({ departmentId })}`);
+}
+
+export function saveBooklet(data: {
+  departmentId: string;
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+  uhid?: string;
+  priority: string;
+  doctorNames: string[];
+}) {
+  return bookletRequest<{ booklet: Booklet; existing: boolean }>(`${API_BASE_URL}/booklets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+}
+
+export function removeBooklet(id: string) {
+  return bookletRequest<{ removed: true }>(`${API_BASE_URL}/booklets/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+export function issueBookletToken(id: string) {
+  return bookletRequest<BookletToken>(`${API_BASE_URL}/booklets/${encodeURIComponent(id)}/token`, { method: 'POST' });
 }

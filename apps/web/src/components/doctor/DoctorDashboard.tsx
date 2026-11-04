@@ -390,7 +390,7 @@ export default function DoctorDashboard() {
     }
   };
 
-  /** Handles adding a patient directly to the waiting line from the Doctor Room page */
+  /** Handles adding a patient directly to the waiting line from the Rooms page */
   const handleAddPatientSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsAddingPatient(true);

@@ -23,7 +23,7 @@ export default function GuidePage() {
           </h1>
 
           <p className="text-slate-400 text-sm sm:text-base max-w-2xl mx-auto">
-            A simple, step-by-step guide on how the OPD Queue works across Registration, Doctor Rooms, and Waiting TV screens.
+            A simple, step-by-step guide on how the OPD Queue works across Registration, Rooms, and Waiting TV screens.
           </p>
 
           <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
@@ -37,7 +37,7 @@ export default function GuidePage() {
               href="/doctor"
               className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-500/25 transition-all active:scale-95"
             >
-              Open Doctor Room ➔
+              Open Rooms ➔
             </Link>
             <AdvancedOnly>
             <Link

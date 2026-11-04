@@ -802,7 +802,7 @@ function DoctorsTab({ notify }: { notify: (text: string, bad?: boolean) => void 
         <h2 className="text-lg font-black flex items-center gap-2"><DoorOpen size={18} className="text-blue-600" /> Doctors in each room</h2>
         <p className="text-sm text-slate-500 mt-1">
           These names show on the TV and the Doctor Desk. Separate doctors sharing a room with a comma. A doctor is in
-          one room at a time, so adding them here takes them off any other room. New rooms are added on the Doctor Room
+          one room at a time, so adding them here takes them off any other room. New rooms are added on the Rooms
           screen; deleting a room is done here only.
         </p>
         {data.departments.map((dept) => {
@@ -861,7 +861,7 @@ function DoctorsTab({ notify }: { notify: (text: string, bad?: boolean) => void 
                         type="button"
                         disabled={busy}
                         onClick={() => {
-                          if (!window.confirm(`Delete Room ${room.roomNumber} (${dept.name})? It disappears from the TV, the Doctor Room and the Doctor Desk.`)) return;
+                          if (!window.confirm(`Delete Room ${room.roomNumber} (${dept.name})? It disappears from the TV, the Rooms screen and the Doctor Desk.`)) return;
                           void run(async () => {
                             await adminFetch(`/api/v1/settings/rooms/${room.id}`, { method: 'DELETE' });
                             return `Deleted Room ${room.roomNumber}`;
@@ -902,7 +902,7 @@ function CleanupTab({ notify }: { notify: (text: string, bad?: boolean) => void 
   const [confirmText, setConfirmText] = useState('');
   const [confirmPatientsText, setConfirmPatientsText] = useState('');
   const [busy, setBusy] = useState(false);
-  // Moved here from the Doctor Room screen: clearing one room, deleting one token.
+  // Moved here from the Rooms screen: clearing one room, deleting one token.
   const [allRooms, setAllRooms] = useState<Room[]>([]);
   const [clearRoomNumber, setClearRoomNumber] = useState('');
   const [tokenToDelete, setTokenToDelete] = useState('');
