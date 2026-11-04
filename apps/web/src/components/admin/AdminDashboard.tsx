@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
-  Activity, AlertTriangle, BarChart3, Building2, CheckCircle2, DoorOpen, Loader2, LogOut,
+  Activity, AlertTriangle, BarChart3, Building2, CheckCircle2, DoorOpen, History, Loader2, LogOut,
   Pencil, Plus, RefreshCw, Search, Settings as SettingsIcon, Stethoscope, Trash2, User, Users, Wrench, X,
 } from 'lucide-react';
 import { splitDoctorNames } from '@/lib/roomDoctors';
+import VisitHistoryDialog from '@/components/VisitHistory';
 
 /* ------------------------------------------------------------------ */
 /* Shared                                                              */
@@ -362,6 +363,8 @@ function PatientsTab({ notify }: { notify: (text: string, bad?: boolean) => void
   const [searching, setSearching] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ id: string; name: string; uhid: string; phone: string } | null>(null);
+  const [historyOf, setHistoryOf] = useState<{ id: string; name: string } | null>(null);
+  const closeHistory = useCallback(() => setHistoryOf(null), []);
   const [saving, setSaving] = useState(false);
   const [deleteAllConfirm, setDeleteAllConfirm] = useState('');
   const [deletingAll, setDeletingAll] = useState(false);
@@ -565,6 +568,13 @@ function PatientsTab({ notify }: { notify: (text: string, bad?: boolean) => void
                   </div>
                   <button
                     type="button"
+                    onClick={() => setHistoryOf({ id: p.id, name: p.name })}
+                    className="min-h-9 px-3 rounded-xl bg-blue-50 text-blue-800 border border-blue-200 text-sm font-bold flex items-center gap-1"
+                  >
+                    <History size={14} /> Visit history
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setEditing({ id: p.id, name: p.name, uhid: p.uhid, phone: p.phone })}
                     className="min-h-9 px-3 rounded-xl bg-slate-100 text-sm font-bold flex items-center gap-1"
                   >
@@ -616,6 +626,8 @@ function PatientsTab({ notify }: { notify: (text: string, bad?: boolean) => void
           </button>
         </div>
       </section>
+
+      {historyOf && <VisitHistoryDialog patientId={historyOf.id} fallbackName={historyOf.name} onClose={closeHistory} />}
     </div>
   );
 }
