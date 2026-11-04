@@ -39,7 +39,7 @@ function NavbarContent() {
   // Phone/tablet menu holding the page links and the Simple UI switch.
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-  // Gear menu (large screens): Doctor Room, Analytics, Download App, Simple UI, Settings.
+  // Gear menu (large screens): Rooms, Analytics, Download App, Simple UI, Settings.
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
   // "Download App": hidden once the app is opened from its installed icon.
@@ -166,7 +166,7 @@ function NavbarContent() {
   const allLinks = [
     { href: '/', label: 'Home', advanced: false, inSettings: false },
     { href: '/registration', label: 'Registration', advanced: false, inSettings: false },
-    { href: '/doctor', label: 'Doctor Room', advanced: false, inSettings: true },
+    { href: '/doctor', label: 'Rooms', advanced: false, inSettings: true },
     { href: '/doctor-desk', label: 'Doctor Desk', advanced: false, inSettings: false },
     { href: '/tv', label: 'TV Monitor', advanced: false, inSettings: false },
     // Staff versions: today's numbers, and this computer's settings. The admin's full
@@ -302,7 +302,7 @@ function NavbarContent() {
                           Waiting Line Queue Sidebar
                         </p>
                         <p className="text-[10px] text-slate-400 mt-0.5">
-                          Show the left waiting line queue and drag-and-drop panel in Doctor Room. Uncheck for full-screen room cards.
+                          Show the left waiting line queue and drag-and-drop panel on the Rooms screen. Uncheck for full-screen room cards.
                         </p>
                       </div>
                     </label>
@@ -475,7 +475,7 @@ function NavbarContent() {
                   role="menu"
                   className="absolute right-0 mt-2 w-64 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-2 z-50 text-white flex flex-col gap-1"
                 >
-                  {links.some((l) => l.href === '/doctor') && menuLink('/doctor', 'Doctor Room', <Stethoscope size={16} className="text-blue-400" />)}
+                  {links.some((l) => l.href === '/doctor') && menuLink('/doctor', 'Rooms', <Stethoscope size={16} className="text-blue-400" />)}
                   {links.some((l) => l.href === '/stats') && menuLink('/stats', 'Analytics', <BarChart3 size={16} className="text-blue-400" />)}
 
                   {!installed && (

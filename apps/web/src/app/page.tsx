@@ -23,7 +23,7 @@ function HomeContent() {
   const setSelectedDeptId = useDepartmentStore((state) => state.setSelectedDeptId);
   const loadDepartments = useDepartmentStore((state) => state.loadDepartments);
 
-  // Simple UI: department picker + two big buttons (Registration, Doctor Room), no admin actions or decoration.
+  // Simple UI: department picker + two big buttons (Registration, Doctor Desk), no admin actions or decoration.
   const simple = useSimpleMode();
 
   useEffect(() => {
@@ -142,8 +142,8 @@ function HomeContent() {
             </div>
           </Link>
 
-          {/* Card 2: Doctor Dashboard */}
-          <Link href={getHref('/doctor')} className="group relative rounded-3xl p-[1px] bg-gradient-to-b from-slate-800 to-slate-900 hover:from-emerald-400 hover:to-teal-600 transition-all duration-500 hover:-translate-y-4">
+          {/* Card 2: Doctor Desk (Rooms is in the navbar's gear menu) */}
+          <Link href={getHref('/doctor-desk')} className="group relative rounded-3xl p-[1px] bg-gradient-to-b from-slate-800 to-slate-900 hover:from-emerald-400 hover:to-teal-600 transition-all duration-500 hover:-translate-y-4">
             <div className="absolute inset-0 bg-gradient-to-b from-emerald-400 to-teal-600 opacity-0 group-hover:opacity-20 blur-xl transition-opacity duration-500 rounded-3xl"></div>
             <div className="relative h-full bg-slate-900/90 backdrop-blur-xl rounded-3xl p-8 flex flex-col justify-between overflow-hidden">
               <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-3xl group-hover:bg-emerald-500/20 transition-all"></div>
@@ -151,8 +151,8 @@ function HomeContent() {
                 <div className="w-14 h-14 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center mb-6 shadow-inner group-hover:scale-110 transition-transform duration-500">
                   <svg className="w-7 h-7 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
                 </div>
-                <h3 className="text-2xl font-bold text-white mb-2 tracking-wide">Doctor Room</h3>
-                <p className={`text-slate-400 text-sm leading-relaxed ${simple ? 'hidden' : ''}`}>High-efficiency control panel to call the next patient and view the live waiting queue.</p>
+                <h3 className="text-2xl font-bold text-white mb-2 tracking-wide">Doctor Desk</h3>
+                <p className={`text-slate-400 text-sm leading-relaxed ${simple ? 'hidden' : ''}`}>The doctor&apos;s own screen: call the next patient into the room and see who is waiting.</p>
               </div>
               <div className="mt-8 flex items-center text-emerald-400 font-semibold text-sm group-hover:translate-x-2 transition-transform duration-300">
                 {simple ? 'Open' : 'Launch Module'} &rarr;

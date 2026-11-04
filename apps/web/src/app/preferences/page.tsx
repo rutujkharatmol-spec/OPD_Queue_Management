@@ -26,11 +26,11 @@ import {
 // What the screens show, as in the eye menu on the top bar.
 const SCREEN_OPTIONS: { key: keyof UiVisibilitySettings; label: string; detail: string }[] = [
   { key: 'simpleMode', label: 'Simple UI', detail: 'Only the everyday buttons. Turn off to see every control.' },
-  { key: 'showQueueSidebar', label: 'Waiting line sidebar', detail: 'The list of waiting patients on the Doctor Room screen.' },
-  { key: 'showRoomStagedQueue', label: 'Patients sent to each room', detail: "Each room's own list on the Doctor Room screen." },
+  { key: 'showQueueSidebar', label: 'Waiting line sidebar', detail: 'The list of waiting patients on the Rooms screen.' },
+  { key: 'showRoomStagedQueue', label: 'Patients sent to each room', detail: "Each room's own list on the Rooms screen." },
   { key: 'showAutoCallToggle', label: 'Auto-call buttons', detail: 'Lets a room call its next patient by itself.' },
   { key: 'showDoctorNames', label: 'Doctor names', detail: 'Doctor names and badges on the room cards.' },
-  { key: 'showQuickActions', label: 'Header actions and Pass (+N)', detail: 'Extra buttons at the top of the Doctor Room screen.' },
+  { key: 'showQuickActions', label: 'Header actions and Pass (+N)', detail: 'Extra buttons at the top of the Rooms screen.' },
   { key: 'showDeptSwitcher', label: 'Department switcher', detail: 'The department menu on the top bar.' },
 ];
 
