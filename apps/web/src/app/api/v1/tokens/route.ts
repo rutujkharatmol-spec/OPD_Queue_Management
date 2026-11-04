@@ -180,9 +180,20 @@ export const POST = route(async (request: Request) => {
           // Patients deleted in the admin panel are not matched again: the booklet or
           // mobile then registers a new patient.
           (itemUhid ? await tx.patient.findFirst({ where: { uhid: itemUhid, deletedAt: null }, select: ID_ONLY }) : null) ??
-          (i === 0 && body.patientId ? await tx.patient.findUnique({ where: { id: body.patientId }, select: ID_ONLY }) : null) ??
+          (i === 0 && body.patientId
+            ? await tx.patient.findFirst({
+                where: { id: body.patientId, ...(itemUhid && { OR: [{ uhid: null }, { uhid: itemUhid }] }) },
+                select: ID_ONLY,
+              })
+            : null) ??
+          // A CR No never changes and belongs to one person. Family members often share a
+          // mobile, so with a CR No the mobile only finds a patient saved without one;
+          // otherwise a child's new CR No would overwrite the parent's.
           (itemPhone && itemPhone !== PLACEHOLDER_PHONE
-            ? await tx.patient.findFirst({ where: { phone: itemPhone, deletedAt: null }, select: ID_ONLY })
+            ? await tx.patient.findFirst({
+                where: { phone: itemPhone, deletedAt: null, ...(itemUhid && { uhid: null }) },
+                select: ID_ONLY,
+              })
             : null);
 
         if (keptPatientId) {
@@ -192,6 +203,7 @@ export const POST = route(async (request: Request) => {
           // desk leaves the name blank. Blank arrives as the placeholder "Patient", which
           // used to overwrite the real name.
           const gaveRealName = !isPlaceholderPatientName(`${itemFirstName} ${itemLastName}`);
+          // Every match above has this CR No or none, so this only fills in a missing one.
           patient = await tx.patient.update({
             where: { id: patient.id },
             data: {
