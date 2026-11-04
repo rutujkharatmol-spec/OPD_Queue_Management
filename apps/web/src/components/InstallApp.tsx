@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Download, X } from 'lucide-react';
+import { INSTALLED_KEY } from '../lib/installPrompt';
 
 /**
  * "Download App": installs this web app on the phone or computer (home-screen icon, opens
@@ -37,12 +38,25 @@ function runningAsApp() {
   }
 }
 
+/** Installed on this device: opened as the app now, or installed earlier from this browser. */
+function isInstalled() {
+  if (runningAsApp()) {
+    try { localStorage.setItem(INSTALLED_KEY, '1'); } catch {}
+    return true;
+  }
+  try {
+    return localStorage.getItem(INSTALLED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 export function useInstallApp() {
   const [installed, setInstalled] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
 
   useEffect(() => {
-    const sync = () => setInstalled(runningAsApp());
+    const sync = () => setInstalled(isInstalled());
     sync();
     window.addEventListener('opd:install-ready', sync);
     return () => window.removeEventListener('opd:install-ready', sync);
