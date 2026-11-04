@@ -304,7 +304,7 @@ function jsonResponse(data: unknown, status: number = 200): Response {
 /** Fired when the server answers 401 to an API call; AuthWrapper shows the staff login. */
 export const STAFF_LOGIN_REQUIRED_EVENT = 'opd-staff-login-required';
 
-function announceLoginRequired(response: Response, url: string): void {
+export function announceLoginRequired(response: Response, url: string): void {
   if (typeof window === 'undefined' || response.status !== 401) return;
   // The login forms handle their own wrong-password answers.
   if (url.includes('/api/v1/staff/') || url.includes('/api/v1/admin/')) return;

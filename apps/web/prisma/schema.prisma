@@ -63,6 +63,7 @@ model Department {
   rooms       Room[]
   tokens      Token[]
   counters    TokenCounter[]
+  booklets    Booklet[]
 
   @@map("departments")
 }
@@ -99,6 +100,7 @@ model Patient {
   createdBy String?   @map("created_by")
 
   tokens    Token[]
+  booklets  Booklet[]
 
   // Registration looks a patient up by UHID first and falls back to phone. Both were
   // sequential scans of the whole patient table on every token issued; only phone was
@@ -192,6 +194,7 @@ model Token {
   doctor       Doctor?      @relation(fields: [doctorId], references: [id])
 
   currentOfQueue Queue?
+  booklet        Booklet?
 
   /// The database-level guarantee that two registration desks cannot hand out the
   /// same number. TokenCounter makes collisions impossible; this makes them
@@ -204,6 +207,41 @@ model Token {
   // does not index foreign keys by itself, so without this every scan read every token.
   @@index([patientId])
   @@map("tokens")
+}
+
+/// A booklet taken in by the registration desk in "all at once" mode, before its patient
+/// is in the queue. The desk gives it a serial number (written on the booklet so it can be
+/// found in the pile) and chooses the doctor. No token exists until the patient comes back
+/// to the desk: then a token is issued with these doctors and linked here, so the
+/// patient's place in the queue starts when they arrive, not when the booklet was handed in.
+model Booklet {
+  id           String        @id @default(uuid()) @db.Uuid
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime      @updatedAt @map("updated_at") @db.Timestamp(6)
+  deletedAt    DateTime?     @map("deleted_at") @db.Timestamp(6)
+
+  /// The clinic day the booklet was taken in. Serial numbers restart each day.
+  serviceDate  DateTime      @map("service_date") @db.Date
+  serialNumber Int           @map("serial_number")
+  priority     TokenPriority @default(NORMAL)
+  /// The doctors chosen, in order of preference. The first one in a room when the token
+  /// is issued gets the patient, as with a normal registration.
+  doctorNames  String[]      @default([]) @map("doctor_names")
+  /// When the booklet was given back with a token.
+  handedAt     DateTime?     @map("handed_at") @db.Timestamp(6)
+
+  departmentId String        @map("department_id") @db.Uuid
+  department   Department    @relation(fields: [departmentId], references: [id])
+
+  patientId    String        @map("patient_id") @db.Uuid
+  patient      Patient       @relation(fields: [patientId], references: [id])
+
+  tokenId      String?       @unique @map("token_id") @db.Uuid
+  token        Token?        @relation(fields: [tokenId], references: [id], onDelete: SetNull)
+
+  @@unique([departmentId, serviceDate, serialNumber])
+  @@index([patientId])
+  @@map("booklets")
 }
 
 /// Hands out the next token number for a department on a given day.

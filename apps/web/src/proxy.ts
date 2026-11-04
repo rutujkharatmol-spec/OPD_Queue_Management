@@ -30,6 +30,7 @@ const LOGIN_PATHS = new Set([
 const STAFF_ONLY_READS = [
   '/api/v1/tokens/search', // patient phone numbers and UHIDs
   '/api/v1/patients', // booklet look-up at registration: phone numbers and UHIDs
+  '/api/v1/booklets', // the "all at once" booklet pile: names, phone numbers and UHIDs
   '/api/v1/queue/analytics', // per-doctor figures
 ];
 

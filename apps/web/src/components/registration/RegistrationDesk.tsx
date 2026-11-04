@@ -4,13 +4,15 @@ import Link from 'next/link';
 import {
   Menu, X, Search, Printer, CheckCircle2,
   Building2, ArrowRightLeft, HeartPulse, User, Phone, ScanLine, QrCode, Hash, Stethoscope, Camera,
-  Copy, Check, Sparkles, ChevronRight
+  Copy, Check, Sparkles, ChevronRight, Layers, BookOpen, Ticket
 } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { QRCodeSVG } from 'qrcode.react';
 import {
   generateToken, searchTokens, getRooms, getDoctors, lookupPatientByUhid, type DoctorListItem,
+  getBooklets, saveBooklet, removeBooklet, issueBookletToken, type Booklet,
 } from '../../lib/api';
+import BookletPile, { bookletName } from './BookletPile';
 import { MAX_DOCTOR_CHOICES, sameDoctor, splitDoctorNames } from '../../lib/roomDoctors';
 import { useSimpleMode } from '../../lib/uiSettings';
 import BarcodeScanner, { isSlipQrCode, useCameraAvailable } from '../BarcodeScanner';
@@ -24,6 +26,16 @@ import { useQueueStore } from '../../store/useQueueStore';
  * scanner). On phones and tablets it would pop up the on-screen keyboard uninvited.
  * preventScroll: the page shouldn't jump to the box when something else is in view.
  */
+/**
+ * How this desk registers patients, remembered per computer:
+ * - normal: each patient gets a token straight away.
+ * - batch ("all at once"): the desk takes in a pile of booklets first, giving each a
+ *   serial number and a doctor but no token. The token is issued only when the patient
+ *   comes back for their booklet, so their place in the queue starts on arrival.
+ */
+type RegMode = 'normal' | 'batch';
+const REG_MODE_KEY = 'opd_registration_mode';
+
 function focusOnComputer(el: HTMLElement | null) {
   if (el && window.matchMedia?.('(pointer: fine)').matches) el.focus({ preventScroll: true });
 }
@@ -179,11 +191,70 @@ export default function RegistrationDesk() {
   const [copiedTokens, setCopiedTokens] = useState(false);
   const [appOrigin, setAppOrigin] = useState('');
 
+  // "All at once" mode (see RegMode). Step 1 takes in booklets, step 2 gives tokens.
+  const [regMode, setRegModeState] = useState<RegMode>('normal');
+  const [batchStep, setBatchStep] = useState<'collect' | 'arrived'>('collect');
+  const batch = regMode === 'batch';
+  const [booklets, setBooklets] = useState<Booklet[]>([]);
+  const [bookletsLoading, setBookletsLoading] = useState(false);
+  const [bookletsError, setBookletsError] = useState('');
+  const [busyBookletId, setBusyBookletId] = useState<string | null>(null);
+  const [isSavingBooklet, setIsSavingBooklet] = useState(false);
+  // The booklet just taken in, shown big so its serial number can be written on it.
+  const [savedBooklet, setSavedBooklet] = useState<{ serial: number; name: string; existing: boolean } | null>(null);
+
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(REG_MODE_KEY) === 'batch') setRegModeState('batch');
+    } catch {}
+  }, []);
+  const setRegMode = (mode: RegMode) => {
+    setRegModeState(mode);
+    setSavedBooklet(null);
+    try {
+      localStorage.setItem(REG_MODE_KEY, mode);
+    } catch {}
+  };
+
+  const loadBooklets = React.useCallback(async () => {
+    if (!deptId) return;
+    setBookletsLoading(true);
+    try {
+      setBooklets(await getBooklets(deptId));
+      setBookletsError('');
+    } catch (err: any) {
+      setBookletsError(err?.message || 'Could not load the booklets.');
+    } finally {
+      setBookletsLoading(false);
+    }
+  }, [deptId]);
+
+  // Other desks take in and hand back booklets too: keep the list fresh while in this mode.
+  useEffect(() => {
+    if (!batch || !deptId) return;
+    void loadBooklets();
+    const id = setInterval(() => void loadBooklets(), 20_000);
+    return () => clearInterval(id);
+  }, [batch, deptId, loadBooklets]);
+
   // Find Patient Modal State
   const [isSearchModalOpen, setSearchModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  // Camera scan of the booklet barcode inside Find Patient.
+  const [searchCameraOpen, setSearchCameraOpen] = useState(false);
+  const [searchNote, setSearchNote] = useState('');
+
+  const handleSearchScan = (code: string) => {
+    if (isSlipQrCode(code)) {
+      setSearchNote("That is the QR code on a queue slip. Scan the barcode on the patient's booklet.");
+      return;
+    }
+    const crn = normalizeCrn(code);
+    setSearchQuery(crn);
+    void handleSearch(undefined, crn);
+  };
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -302,6 +373,105 @@ export default function RegistrationDesk() {
     }
   };
 
+  /** Step 1 of "all at once": save the booklet with its doctor and get its serial number. */
+  const handleSaveBooklet = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const uhid = normalizeCrn(patientData.uhid);
+    if (uhid && !isValidCrn(uhid)) {
+      setScanInfo({ kind: 'error', text: INVALID_CRN_MESSAGE });
+      return;
+    }
+    const trimmedName = patientData.name.trim();
+    if (!trimmedName && !uhid && !patientData.phone.trim()) {
+      setScanInfo({ kind: 'error', text: 'Scan the booklet or type a name or mobile, so the patient can be found later.' });
+      return;
+    }
+    const nameParts = trimmedName ? trimmedName.split(/\s+/) : [];
+    setIsSavingBooklet(true);
+    try {
+      const { booklet, existing } = await saveBooklet({
+        departmentId: deptId,
+        firstName: nameParts[0] || undefined,
+        lastName: nameParts.slice(1).join(' ') || undefined,
+        phone: patientData.phone.trim() || undefined,
+        uhid: uhid || undefined,
+        priority,
+        doctorNames: assignedDoctors,
+      });
+      setSavedBooklet({ serial: booklet.serialNumber, name: bookletName(booklet), existing });
+      setGeneratedToken(null);
+      setGeneratedTokenData(null);
+      setGeneratedBatchList([]);
+      // A clean form for the next booklet, cursor in the scan box.
+      setPatientData({ uhid: '', name: '', phone: '' });
+      setAssignedDoctors([]);
+      setPriority('NORMAL');
+      setScanInfo(null);
+      focusOnComputer(scanInputRef.current);
+      if (!window.matchMedia?.('(min-width: 1280px)').matches) {
+        setTimeout(() => document.getElementById('booklet-serial')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+      }
+      void loadBooklets();
+    } catch (err: any) {
+      setScanInfo({ kind: 'error', text: err?.message || 'Could not save the booklet. Please try again.' });
+    } finally {
+      setIsSavingBooklet(false);
+    }
+  };
+
+  /** Step 2: the patient is here. Issue the booklet's token now and show its slip. */
+  const handleGiveBookletToken = async (b: Booklet) => {
+    setBusyBookletId(b.id);
+    try {
+      const { token: t, assignedDoctor } = await issueBookletToken(b.id);
+      const issued = t?.issuedAt ? new Date(t.issuedAt) : new Date();
+      const slip = {
+        tokenNumber: t.tokenNumber,
+        name: bookletName(b),
+        phone: t.patient?.phone || '---',
+        uhid: t.patient?.uhid || '',
+        priority: t.priority || b.priority,
+        deptName: t.department?.name || deptName,
+        // Reprinting a booklet already given back: the room it was sent to then.
+        doctorName: assignedDoctor?.doctorName || '',
+        roomNumber: assignedDoctor?.roomNumber || t.stagedRoom || t.roomNumber || '',
+        date: issued.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
+        issuedAt: issued.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+      setSavedBooklet(null);
+      setGeneratedBatchList([slip]);
+      setGeneratedToken(slip.tokenNumber);
+      setGeneratedTokenData(slip);
+      setSelectedTokenIndex(0);
+      if (!window.matchMedia?.('(min-width: 1280px)').matches) {
+        setTimeout(() => document.getElementById('print-ticket')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+      }
+      void loadBooklets();
+      await useQueueStore.getState().fetchQueue(deptId);
+      window.dispatchEvent(new CustomEvent('opd-queue-updated', { detail: { departmentId: deptId } }));
+    } catch (err: any) {
+      setBookletsError(err?.message || 'Could not issue the token. Please try again.');
+    } finally {
+      setBusyBookletId(null);
+    }
+  };
+
+  const handleRemoveBooklet = async (b: Booklet) => {
+    if (!window.confirm(`Remove booklet ${b.serialNumber} (${bookletName(b)}) from the list? No token will be given for it.`)) return;
+    setBusyBookletId(b.id);
+    try {
+      await removeBooklet(b.id);
+      setBooklets((list) => list.filter((x) => x.id !== b.id));
+    } catch (err: any) {
+      setBookletsError(err?.message || 'Could not remove the booklet.');
+    } finally {
+      setBusyBookletId(null);
+    }
+  };
+
+  const roomForDoctor = (name: string) => doctorOptions.find((o) => sameDoctor(o.name, name))?.room ?? null;
+  const waitingBooklets = booklets.filter((b) => !b.token).length;
+
   const handleSelectBatchToken = (index: number) => {
     if (generatedBatchList[index]) {
       setSelectedTokenIndex(index);
@@ -318,13 +488,14 @@ export default function RegistrationDesk() {
     setTimeout(() => setCopiedTokens(false), 2000);
   };
 
-  const handleSearch = async (e?: React.FormEvent) => {
+  const handleSearch = async (e?: React.FormEvent, query = searchQuery) => {
     if (e) e.preventDefault();
-    if (!searchQuery.trim()) return;
+    if (!query.trim()) return;
 
+    setSearchNote('');
     setIsSearching(true);
     try {
-      const results = await searchTokens(searchQuery.trim(), deptId);
+      const results = await searchTokens(query.trim(), deptId);
       setSearchResults(results);
     } catch (err) {
       console.error('Search failed:', err);
@@ -506,7 +677,69 @@ export default function RegistrationDesk() {
                   </Link>
                 </div>
 
-                <form onSubmit={handleGenerateToken} className="space-y-6">
+                {/* Registration mode: normal (token now) or all at once (booklets first) */}
+                <div className="mb-4 grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-2xl border border-slate-200" role="tablist" aria-label="Registration mode">
+                  {([
+                    ['normal', 'Normal', 'Token straight away'],
+                    ['batch', 'All at once', 'Booklets first, token on arrival'],
+                  ] as const).map(([mode, label, hint]) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      role="tab"
+                      aria-selected={regMode === mode}
+                      onClick={() => setRegMode(mode)}
+                      className={`px-3 py-2 rounded-xl text-left transition-all cursor-pointer ${
+                        regMode === mode ? 'bg-white shadow-sm ring-1 ring-slate-200' : 'hover:bg-white/60'
+                      }`}
+                    >
+                      <span className={`flex items-center gap-1.5 text-sm font-black ${regMode === mode ? 'text-blue-700' : 'text-slate-600'}`}>
+                        {mode === 'normal' ? <Ticket size={15} /> : <Layers size={15} />} {label}
+                      </span>
+                      <span className="block text-[11px] text-slate-500">{hint}</span>
+                    </button>
+                  ))}
+                </div>
+
+                {batch && (
+                  <div className="mb-6 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setBatchStep('collect')}
+                      className={`px-3 py-3 rounded-2xl border-2 text-sm font-black flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                        batchStep === 'collect' ? 'border-blue-500 bg-blue-50 text-blue-800' : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      <BookOpen size={16} /> 1 · Take in booklets
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBatchStep('arrived')}
+                      className={`px-3 py-3 rounded-2xl border-2 text-sm font-black flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                        batchStep === 'arrived' ? 'border-emerald-500 bg-emerald-50 text-emerald-800' : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      <Ticket size={16} /> 2 · Patient arrived
+                      {waitingBooklets > 0 && (
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white text-xs">{waitingBooklets}</span>
+                      )}
+                    </button>
+                  </div>
+                )}
+
+                {batch && batchStep === 'arrived' ? (
+                  <BookletPile
+                    booklets={booklets}
+                    loading={bookletsLoading}
+                    error={bookletsError}
+                    onReload={() => void loadBooklets()}
+                    onGiveToken={(b) => void handleGiveBookletToken(b)}
+                    onRemove={(b) => void handleRemoveBooklet(b)}
+                    busyId={busyBookletId}
+                    roomFor={roomForDoctor}
+                  />
+                ) : (
+                <form onSubmit={batch ? handleSaveBooklet : handleGenerateToken} className="space-y-6">
                       {/* Booklet scan: a handheld barcode scanner types the CRN and presses Enter */}
                       <div className="rounded-2xl border-2 border-dashed border-blue-300 bg-blue-50/60 p-4">
                         <label htmlFor="booklet-scan" className="block text-sm font-bold text-blue-900 mb-2 flex items-center gap-2">
@@ -656,7 +889,7 @@ export default function RegistrationDesk() {
                         </div>
 
                         {/* Custom Token Number Input */}
-                        <div className={simple ? 'hidden' : ''}>
+                        <div className={simple || batch ? 'hidden' : ''}>
                           <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center justify-between">
                             <span className="flex items-center gap-2">
                               <Hash size={16} className="text-slate-400" /> Custom Token Number (Optional)
@@ -755,6 +988,16 @@ export default function RegistrationDesk() {
                       </div>
 
                       {/* Submit Button */}
+                      {batch ? (
+                        <button
+                          type="submit"
+                          disabled={isSavingBooklet}
+                          className="w-full py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-3 transition-all transform active:scale-[0.98] shadow-lg cursor-pointer bg-slate-900 hover:bg-slate-800 text-white disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          <BookOpen size={20} />
+                          <span>{isSavingBooklet ? 'Saving booklet…' : 'Save booklet & get serial no.'}</span>
+                        </button>
+                      ) : (
                       <button
                         ref={generateButtonRef}
                         type="submit"
@@ -779,7 +1022,14 @@ export default function RegistrationDesk() {
                           </span>
                         )}
                       </button>
+                      )}
+                      {batch && (
+                        <p className="-mt-3 text-xs text-slate-500 text-center">
+                          No token is given now. The token is issued when the patient comes for the booklet (step 2).
+                        </p>
+                      )}
                     </form>
+                )}
               </div>
             </div>
 
@@ -787,7 +1037,31 @@ export default function RegistrationDesk() {
             <div className="xl:col-span-5 w-full print:w-full">
               <div className={`h-full bg-white rounded-3xl shadow-sm border border-slate-200 p-6 flex flex-col items-center justify-center relative overflow-hidden transition-all duration-500 print:shadow-none print:border-none print:p-0 ${generatedToken ? 'opacity-100' : 'opacity-90'}`}>
 
-                {generatedToken && generatedTokenData ? (
+                {batch && savedBooklet ? (
+                  <div id="booklet-serial" className="w-full flex-1 flex flex-col">
+                    <div className={`mb-4 flex items-center justify-center gap-2 font-bold py-2.5 rounded-xl border text-sm print:hidden ${
+                      savedBooklet.existing ? 'text-amber-800 bg-amber-50 border-amber-200' : 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                    }`}>
+                      <CheckCircle2 size={18} />
+                      {savedBooklet.existing ? 'Already in the pile: same serial as before' : 'Booklet saved. No token yet.'}
+                    </div>
+                    <div className="w-full border-2 border-dashed border-slate-400 rounded-2xl p-6 text-center print:border-black print:rounded-none">
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">{deptName} OPD · Booklet serial no.</p>
+                      <p className="text-7xl font-black text-slate-900 tracking-tight my-3">{savedBooklet.serial}</p>
+                      <p className="text-base font-bold text-slate-700">{savedBooklet.name}</p>
+                      <p className="mt-3 text-xs text-slate-500 print:hidden">
+                        Write this number on the booklet. The patient gets a token when they come for it.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handlePrintToken}
+                      className="mt-4 w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm rounded-2xl flex items-center justify-center gap-2 cursor-pointer print:hidden"
+                    >
+                      <Printer size={18} /> Print serial label
+                    </button>
+                  </div>
+                ) : generatedToken && generatedTokenData ? (
                   <div className="w-full flex-1 flex flex-col print:block">
                     
                     {/* Batch Summary / Status Banner */}
@@ -962,7 +1236,13 @@ export default function RegistrationDesk() {
                       <span className="text-3xl opacity-60">🎫</span>
                     </div>
                     <h3 className="text-base font-bold text-slate-800 mb-1">No Active Token</h3>
-                    <p className="text-xs text-slate-500">Enter patient info or choose quantity to generate token slips.</p>
+                    <p className="text-xs text-slate-500">
+                      {batch
+                        ? batchStep === 'collect'
+                          ? 'Save a booklet to see its serial number here.'
+                          : "Find the patient's booklet and press Give token. The slip shows here."
+                        : 'Enter patient info or choose quantity to generate token slips.'}
+                    </p>
                   </div>
                 )}
               </div>
@@ -1020,7 +1300,23 @@ export default function RegistrationDesk() {
               >
                 {isSearching ? 'Searching...' : 'Search'}
               </button>
+              {hasCamera && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchNote('');
+                    setSearchCameraOpen(true);
+                  }}
+                  title="Scan the booklet barcode with the camera"
+                  className="px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl border border-slate-200 transition-all flex items-center gap-2 cursor-pointer"
+                >
+                  <Camera size={18} /> <span className="hidden sm:inline">Scan</span>
+                </button>
+              )}
             </form>
+            {searchNote && (
+              <p className="-mt-2 mb-3 text-xs font-semibold text-red-600">{searchNote}</p>
+            )}
 
             {/* Search Results List */}
             <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-[200px]">
@@ -1071,6 +1367,20 @@ export default function RegistrationDesk() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Camera scan inside Find Patient: the booklet CRN fills the search box and searches.
+          Rendered after the modal so it sits on top of it. */}
+      {searchCameraOpen && (
+        <BarcodeScanner
+          title="Scan booklet to find patient"
+          accept={(code) => isValidCrn(code) || isSlipQrCode(code)}
+          onClose={() => setSearchCameraOpen(false)}
+          onDetected={(code) => {
+            setSearchCameraOpen(false);
+            handleSearchScan(code);
+          }}
+        />
       )}
     </div>
   );
