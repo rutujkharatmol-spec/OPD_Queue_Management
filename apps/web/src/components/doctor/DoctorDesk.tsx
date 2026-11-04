@@ -470,6 +470,9 @@ function LateCountdown({ due }: { due: number | null }) {
 const sameCrn = (a?: string | null, b?: string | null) =>
   !!normalizeCrn(a) && normalizeCrn(a) === normalizeCrn(b);
 
+// A second scan of the same booklet this soon is a double read, not the doctor's "Done".
+const REPEAT_SCAN_MS = 5_000;
+
 // Auto-call and Pause, remembered on this computer for this doctor and room.
 const FLOW_KEY = 'opd_doctor_desk_flow';
 type DeskFlow = { autoCall: boolean; paused: boolean };
@@ -781,6 +784,9 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
   const [scanValue, setScanValue] = useState('');
   const [scanBusy, setScanBusy] = useState(false);
   const [scanMsg, setScanMsg] = useState<{ kind: 'ok' | 'warn'; text: string } | null>(null);
+  // The last booklet that changed a patient, so a scanner that fires twice can't turn
+  // "came in" straight into "done".
+  const lastScan = useRef<{ crn: string; at: number } | null>(null);
   // The phone or webcam camera, for desks without a handheld scanner.
   const hasCamera = useCameraAvailable();
   const [cameraOpen, setCameraOpen] = useState(false);
@@ -814,6 +820,11 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
       setScanMsg({ kind: 'warn', text: `CRN ${crn} is not a patient in your room right now.` });
       return;
     }
+    const last = lastScan.current;
+    if (last && sameCrn(last.crn, crn) && Date.now() - last.at < REPEAT_SCAN_MS) {
+      setScanMsg({ kind: 'warn', text: `Token ${p.token} was just scanned. Scan again in a few seconds to change it.` });
+      return;
+    }
     setScanBusy(true);
     try {
       if ((p.status ?? 'CALLED') === 'CALLED') {
@@ -824,6 +835,7 @@ function RoomView({ setup, onChange }: { setup: DeskSetup; onChange: () => void 
         await markTokenAction(p.id, 'COMPLETE', undefined, departmentId, doctorName);
         setScanMsg({ kind: 'ok', text: `Token ${p.token} marked done.` });
       }
+      lastScan.current = { crn, at: Date.now() };
       await useQueueStore.getState().fetchQueue(departmentId);
     } catch {
       setScanMsg({ kind: 'warn', text: 'Could not save. Please scan again.' });
